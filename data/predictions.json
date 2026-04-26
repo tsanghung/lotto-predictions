@@ -66,5 +66,84 @@
         ]
       }
     }
+  },
+  {
+    "timestamp": "2026-04-26T20:02:06.654785",
+    "game_name": "大樂透",
+    "prediction": {
+      "reasoning": "此為離線模擬預測，因為未提供有效的 Gemini API Key。",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          7,
+          18,
+          23,
+          24,
+          47,
+          48
+        ],
+        "穩健平衡": [
+          8,
+          25,
+          31,
+          34,
+          38,
+          48
+        ],
+        "完全隨機": [
+          2,
+          14,
+          16,
+          28,
+          33,
+          49
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
+  },
+  {
+    "timestamp": "2026-04-26T20:02:10.127329",
+    "game_name": "今彩539",
+    "prediction": {
+      "reasoning": "此為離線模擬預測，因為未提供有效的 Gemini API Key。",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          7,
+          9,
+          18,
+          20,
+          28
+        ],
+        "穩健平衡": [
+          1,
+          13,
+          18,
+          29,
+          38
+        ],
+        "完全隨機": [
+          13,
+          15,
+          20,
+          22,
+          34
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
