@@ -3,7 +3,7 @@ import argparse
 from datetime import datetime
 
 from analyzer.ai_predictor import AIPredictor, save_predictions
-from notifier.notifier import UniversalNotifier
+from notifier.notifier import LineBotNotifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -19,7 +19,7 @@ def run_prediction_pipeline(game_name: str, data_file: str, max_number: int, num
     
     # 3. 組裝推播訊息
     target_date = datetime.now().strftime("%Y-%m-%d")
-    notifier = UniversalNotifier()
+    notifier = LineBotNotifier()
     msg = notifier.build_prediction_message(
         game_name=game_name,
         target_date=target_date,

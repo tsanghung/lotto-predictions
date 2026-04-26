@@ -41,7 +41,8 @@ jobs:
         if: github.event_name == 'schedule' || github.event.inputs.game_type == '539'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NOTIFIER_WEBHOOK_URL: ${{ secrets.NOTIFIER_WEBHOOK_URL }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
           python -m src.main_predict --game 539
@@ -51,7 +52,8 @@ jobs:
         if: github.event_name == 'schedule' && (contains(github.event.schedule, '2,5') || contains('2 5', '' )) || github.event.inputs.game_type == '649'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          NOTIFIER_WEBHOOK_URL: ${{ secrets.NOTIFIER_WEBHOOK_URL }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
           # 檢查今天是星期幾 (1-7)
