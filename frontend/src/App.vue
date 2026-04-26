@@ -4,8 +4,12 @@ import { useLottoData } from './composables/useLottoData'
 import PredictionCard from './components/PredictionCard.vue'
 import StatsPanel from './components/StatsPanel.vue'
 import HotColdChart from './components/HotColdChart.vue'
+import PerformanceChart from './components/PerformanceChart.vue'
+import AttributionReport from './components/AttributionReport.vue'
+import HeatmapChart from './components/HeatmapChart.vue'
+import DistributionChart from './components/DistributionChart.vue'
 
-const { meta, predictions, history, loading, error, fetchData } = useLottoData()
+const { meta, predictions, history, performance, loading, error, fetchData } = useLottoData()
 const activeTab = ref('649')
 
 onMounted(() => {
@@ -140,6 +144,21 @@ const formatDate = (iso) => {
                 :max-number="49"
                 accent="#2dd4bf"
               />
+              <HeatmapChart
+                game-name="大樂透"
+                :history-data="history['大樂透']"
+              />
+              <DistributionChart
+                game-name="大樂透"
+                :history-data="history['大樂透']"
+              />
+              <AttributionReport
+                :prediction="[...predictions].reverse().find(p => p.game_name === '大樂透')"
+              />
+              <PerformanceChart
+                game-name="大樂透"
+                :performance-data="performance"
+              />
             </div>
           </div>
 
@@ -165,6 +184,21 @@ const formatDate = (iso) => {
                 :history-data="history['今彩539']"
                 :max-number="39"
                 accent="#a78bfa"
+              />
+              <HeatmapChart
+                game-name="今彩539"
+                :history-data="history['今彩539']"
+              />
+              <DistributionChart
+                game-name="今彩539"
+                :history-data="history['今彩539']"
+              />
+              <AttributionReport
+                :prediction="[...predictions].reverse().find(p => p.game_name === '今彩539')"
+              />
+              <PerformanceChart
+                game-name="今彩539"
+                :performance-data="performance"
               />
             </div>
           </div>
