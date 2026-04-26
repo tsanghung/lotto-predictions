@@ -9,32 +9,60 @@ from .scraper_core import ScraperException
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def save_to_json(filepath: str, data: list):
-    # 將 List[LottoDraw] 轉為 dict list
-    data_dicts = [
-        {
-            "draw_id": draw.draw_id,
-            "date": draw.date,
-            "numbers": draw.numbers,
-            "special_number": draw.special_number
-        }
-        for draw in data
-    ]
+    existing_data = []
+    # 1. 讀取現有歷史資料
+    if os.path.exists(filepath):
+        with open(filepath, 'r', encoding='utf-8') as f:
+            try:
+                existing_data = json.load(f)
+            except json.JSONDecodeError:
+                existing_data = []
     
+    # 2. 建立現有資料的期數集合，用於快速去重比對
+    existing_ids = {str(item["draw_id"]) for item in existing_data}
+    
+    new_data_dicts = []
+    for draw in data:
+        if str(draw.draw_id) not in existing_ids:
+            new_data_dicts.append({
+                "draw_id": draw.draw_id,
+                "date": draw.date,
+                "numbers": draw.numbers,
+                "special_number": draw.special_number
+            })
+    
+    # 3. 合併資料並確保依期數排序
+    combined_data = existing_data + new_data_dicts
+    combined_data.sort(key=lambda x: str(x["draw_id"]))
+    
+    # 4. 全量寫回
     with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(data_dicts, f, ensure_ascii=False, indent=2)
-    logging.info(f"成功寫入 {len(data)} 筆資料至 {filepath}")
+        json.dump(combined_data, f, ensure_ascii=False, indent=2)
+    logging.info(f"成功合併 {len(new_data_dicts)} 筆新資料至 {filepath}，總計 {len(combined_data)} 筆")
 
 def main():
     logging.info("開始執行歷史大建檔 (Task 1.3)...")
     
+    # 防呆機制：若檔案已存在且資料超過閾值，強制中斷
+    for file_path in ["data/lotto649.json", "data/daily539.json"]:
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                try:
+                    existing_data = json.load(f)
+                    if len(existing_data) > 1000:
+                        logging.error(f"防呆機制啟動：{file_path} 已有 {len(existing_data)} 筆歷史資料。請勿重複執行大建檔，以免造成資料庫損毀或覆蓋。若需重新建檔，請先手動備份並刪除舊檔。")
+                        return
+                except json.JSONDecodeError:
+                    pass
+
     # 確保 data 目錄存在
     os.makedirs("data", exist_ok=True)
     
     lotto_scraper = OfficialScraper(game_type="649")
     daily_scraper = OfficialScraper(game_type="539")
     
-    # 為了展示與測試效能，此處撈取 2025 ~ 2026 的資料作為歷史大建檔示範
-    start_year = 2025
+    # 從 2007 年開始抓取完整歷史資料
+    start_year = 2007
     end_year = datetime.now().year
     
     try:
