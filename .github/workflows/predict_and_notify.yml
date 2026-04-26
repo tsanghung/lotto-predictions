@@ -21,7 +21,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write # 需要寫入權限才能 commit predictions.json
-
+    env:
+      TZ: 'Asia/Taipei'
+    
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
