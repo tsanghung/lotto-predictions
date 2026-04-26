@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 基礎深色模式背景與文字設定 */
+body {
+  @apply bg-slate-900 text-white font-sans antialiased;
+}

@@ -1,4 +1,4 @@
-# 樂透投注號碼預測系統 - 系統架構與實作設計書 (v2.0)
+# Lotto predictions - 系統架構與實作設計書 (v2.0)
 
 **文件狀態**: 修訂版 (Revised for Detailed Precision)
 **最後更新**: 2026-04-25

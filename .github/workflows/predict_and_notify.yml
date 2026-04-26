@@ -1,0 +1,77 @@
+name: AI Prediction and Notify
+
+on:
+  schedule:
+    # 台灣時間 12:00 相當於 UTC 04:00
+    # 每天的星期一至星期六觸發 (今彩 539)
+    - cron: '0 4 * * 1-6'
+  workflow_dispatch:
+    inputs:
+      game_type:
+        description: '選擇要手動預測的遊戲'
+        required: true
+        default: '539'
+        type: choice
+        options:
+          - '539'
+          - '649'
+
+jobs:
+  predict-and-notify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # 需要寫入權限才能 commit predictions.json
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Daily 539 Prediction
+        if: github.event_name == 'schedule' || github.event.inputs.game_type == '539'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
+          PYTHONPATH: src
+        run: |
+          python -m src.main_predict --game 539
+
+      - name: Run Lotto 649 Prediction
+        # 大樂透僅在週二(2)與週五(5)開獎，或手動選擇 649 時執行
+        if: github.event_name == 'schedule' && (contains(github.event.schedule, '2,5') || contains('2 5', '' )) || github.event.inputs.game_type == '649'
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LINE_NOTIFY_TOKEN: ${{ secrets.LINE_NOTIFY_TOKEN }}
+          PYTHONPATH: src
+        run: |
+          # 檢查今天是星期幾 (1-7)
+          DAYOFWEEK=$(date +%u)
+          if [ "$DAYOFWEEK" -eq 2 ] || [ "$DAYOFWEEK" -eq 5 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            python -m src.main_predict --game 649
+          else
+            echo "Today is not Tuesday or Friday, skipping Lotto 649."
+          fi
+
+      - name: Check for Changes and Commit Predictions
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          
+          if [ -n "$(git status --porcelain data/predictions.json)" ]; then
+            echo "Predictions updated, committing..."
+            git add data/predictions.json
+            git commit -m "Auto-predict: AI generated new predictions [skip ci]"
+            git push
+          else
+            echo "No new predictions to commit."
+          fi

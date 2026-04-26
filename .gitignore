@@ -1,0 +1,18 @@
+# Python
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.agent/
+
+# Logs
+*.log
+
+# Frontend (if not already ignored by frontend/.gitignore)
+frontend/node_modules/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
