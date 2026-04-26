@@ -1,112 +1,207 @@
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useLottoData } from './composables/useLottoData'
 import PredictionCard from './components/PredictionCard.vue'
-import PerformanceChart from './components/PerformanceChart.vue'
+import StatsPanel from './components/StatsPanel.vue'
+import HotColdChart from './components/HotColdChart.vue'
 
-const { meta, predictions, history, performance, loading, error, fetchData } = useLottoData()
+const { meta, predictions, history, loading, error, fetchData } = useLottoData()
+const activeTab = ref('649')
 
 onMounted(() => {
   fetchData()
 })
+
+const formatDate = (iso) => {
+  if (!iso) return '--'
+  return new Date(iso).toLocaleString('zh-TW', {
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit'
+  })
+}
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-900 flex flex-col items-center py-10 px-4 selection:bg-teal-500/30">
-    <!-- Header -->
-    <header class="w-full max-w-5xl text-center mb-12 relative z-10">
-      <div class="inline-flex items-center justify-center space-x-2 mb-4">
-        <div class="w-3 h-3 rounded-full bg-teal-400 animate-pulse"></div>
-        <h1 class="text-4xl md:text-6xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-teal-400 via-blue-500 to-purple-500 tracking-tight drop-shadow-lg">
-          Lotto predictions
+  <div class="min-h-screen" style="background: #080c14; font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;">
+
+    <!-- Ambient background blobs -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none">
+      <div style="position:absolute;top:-15%;left:-10%;width:55%;height:55%;background:radial-gradient(circle,rgba(45,212,191,0.08) 0%,transparent 70%);filter:blur(60px);"></div>
+      <div style="position:absolute;top:40%;right:-10%;width:55%;height:55%;background:radial-gradient(circle,rgba(139,92,246,0.08) 0%,transparent 70%);filter:blur(60px);"></div>
+      <div style="position:absolute;bottom:-10%;left:30%;width:40%;height:40%;background:radial-gradient(circle,rgba(59,130,246,0.06) 0%,transparent 70%);filter:blur(60px);"></div>
+    </div>
+
+    <div class="relative" style="max-width:1200px;margin:0 auto;padding:40px 20px 80px;">
+
+      <!-- ══ HEADER ══ -->
+      <header style="text-align:center;margin-bottom:48px;">
+        <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;">
+          <div style="width:10px;height:10px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 12px rgba(45,212,191,0.8);animation:pulse 2s infinite;"></div>
+          <span style="font-size:13px;font-weight:600;color:#64748b;letter-spacing:0.15em;text-transform:uppercase;">Live Dashboard</span>
+        </div>
+        <h1 style="font-size:clamp(2rem,5vw,3.5rem);font-weight:900;background:linear-gradient(135deg,#2dd4bf 0%,#3b82f6 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0 0 12px;line-height:1.1;">
+          小賽 AI 樂透預測
         </h1>
-      </div>
-      <p class="text-slate-400 text-lg md:text-xl font-medium max-w-2xl mx-auto">
-        全自動伺服器無感架構，結合統計機率與 Gemini AI 深度推理的終極開獎預測面板。
-      </p>
-      
-      <!-- System Status / Meta -->
-      <div class="mt-6 flex flex-wrap justify-center gap-4 text-sm">
-        <div class="bg-slate-800/50 backdrop-blur-sm rounded-full px-4 py-1.5 ring-1 ring-white/10 flex items-center">
-          <span class="text-slate-400 mr-2">系統狀態:</span>
-          <span v-if="loading" class="text-amber-400 flex items-center">
-            <svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-amber-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
-            資料同步中...
-          </span>
-          <span v-else-if="error" class="text-rose-400">連線失敗 ({{ error }})</span>
-          <span v-else class="text-emerald-400 flex items-center">
-            <span class="w-2 h-2 rounded-full bg-emerald-400 mr-2 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
-            在線且最新
-          </span>
-        </div>
-        
-        <div v-if="meta && !loading" class="bg-slate-800/50 backdrop-blur-sm rounded-full px-4 py-1.5 ring-1 ring-white/10 flex items-center text-slate-300">
-          最後更新: {{ new Date(meta.last_updated).toLocaleString() }}
-        </div>
-      </div>
-    </header>
+        <p style="color:#64748b;font-size:1.05rem;max-width:560px;margin:0 auto 24px;line-height:1.6;">
+          結合 Gemini AI 深度推理 × 統計機率分析，全自動數據驅動的開獎預測儀表板
+        </p>
 
-    <!-- Main Content Area -->
-    <main class="w-full max-w-5xl relative z-10">
-      
-      <!-- Error State -->
-      <div v-if="error" class="bg-rose-500/10 border border-rose-500/50 rounded-xl p-6 text-center mb-8 backdrop-blur-sm">
-        <p class="text-rose-400 mb-4">無法載入預測資料，這可能是因為您在本地開發環境尚未建立 Proxy 或複製 data 資料夾。</p>
-        <button @click="fetchData" class="px-6 py-2 bg-rose-500/20 text-rose-300 rounded-lg hover:bg-rose-500/30 transition-colors">
-          重新試一次
-        </button>
+        <!-- Status badges -->
+        <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;">
+          <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
+            <span style="font-size:12px;color:#94a3b8;">系統狀態</span>
+            <span v-if="loading" style="display:flex;align-items:center;gap:6px;color:#f59e0b;font-size:12px;">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
+              同步中...
+            </span>
+            <span v-else-if="error" style="color:#f43f5e;font-size:12px;">⚠ 連線失敗</span>
+            <span v-else style="display:flex;align-items:center;gap:6px;color:#10b981;font-size:12px;">
+              <span style="width:6px;height:6px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;"></span>
+              在線且最新
+            </span>
+          </div>
+          <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
+            <span style="font-size:12px;color:#94a3b8;">最後更新</span>
+            <span style="font-size:12px;color:#cbd5e1;">{{ formatDate(meta.last_updated) }}</span>
+          </div>
+          <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
+            <span style="font-size:12px;color:#94a3b8;">大樂透期數</span>
+            <span style="font-size:12px;font-weight:700;color:#2dd4bf;">{{ meta.lotto649_total }} 期</span>
+          </div>
+          <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
+            <span style="font-size:12px;color:#94a3b8;">今彩539期數</span>
+            <span style="font-size:12px;font-weight:700;color:#a78bfa;">{{ meta.daily539_total }} 期</span>
+          </div>
+        </div>
+      </header>
+
+      <!-- ══ LOADING STATE ══ -->
+      <div v-if="loading" style="text-align:center;padding:80px 0;">
+        <div style="display:inline-block;width:48px;height:48px;border:3px solid rgba(45,212,191,0.2);border-top-color:#2dd4bf;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:20px;"></div>
+        <p style="color:#475569;">正在載入預測數據...</p>
       </div>
 
-      <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
-        <!-- 大樂透 Card -->
-        <PredictionCard 
-          game-name="大樂透" 
-          :prediction-data="predictions"
-          :history-data="history['大樂透']"
-        />
-        
-        <!-- 今彩 539 Card -->
-        <PredictionCard 
-          game-name="今彩539" 
-          :prediction-data="predictions"
-          :history-data="history['今彩539']"
-        />
+      <!-- ══ ERROR STATE ══ -->
+      <div v-else-if="error" style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.3);border-radius:16px;padding:32px;text-align:center;margin-bottom:32px;">
+        <p style="color:#f43f5e;margin-bottom:16px;">無法載入資料：{{ error }}</p>
+        <button @click="fetchData" style="background:rgba(244,63,94,0.15);color:#f87171;border:1px solid rgba(244,63,94,0.3);border-radius:8px;padding:8px 20px;cursor:pointer;font-size:14px;">重新嘗試</button>
       </div>
-      
-      <!-- 總體成效看板 (Performance Dashboard) -->
-      <div v-if="performance && Object.keys(performance.games).length > 0" class="mt-16 border-t border-white/10 pt-8">
-        <div class="text-center mb-8">
-          <h2 class="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500 inline-block drop-shadow-md">
-            總體成效與歸因中心
-          </h2>
-          <p class="text-slate-400 mt-2">完全透明的歷史對獎紀錄與策略勝率追蹤</p>
+
+      <!-- ══ MAIN CONTENT ══ -->
+      <div v-else>
+
+        <!-- Tab switcher -->
+        <div style="display:flex;gap:4px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:4px;margin-bottom:32px;width:fit-content;">
+          <button @click="activeTab='649'"
+            :style="{
+              padding:'10px 28px', borderRadius:'10px', border:'none', cursor:'pointer',
+              fontWeight:'700', fontSize:'14px', transition:'all 0.2s',
+              background: activeTab==='649' ? 'linear-gradient(135deg,#0e7490,#1d4ed8)' : 'transparent',
+              color: activeTab==='649' ? '#fff' : '#64748b',
+              boxShadow: activeTab==='649' ? '0 2px 12px rgba(45,212,191,0.25)' : 'none'
+            }">
+            🎯 大樂透
+          </button>
+          <button @click="activeTab='539'"
+            :style="{
+              padding:'10px 28px', borderRadius:'10px', border:'none', cursor:'pointer',
+              fontWeight:'700', fontSize:'14px', transition:'all 0.2s',
+              background: activeTab==='539' ? 'linear-gradient(135deg,#6d28d9,#9333ea)' : 'transparent',
+              color: activeTab==='539' ? '#fff' : '#64748b',
+              boxShadow: activeTab==='539' ? '0 2px 12px rgba(167,139,250,0.25)' : 'none'
+            }">
+            ⚡ 今彩539
+          </button>
         </div>
-        
-        <div class="space-y-12">
-          <!-- 大樂透成效 -->
-          <PerformanceChart 
-            game-name="大樂透" 
-            :performance-data="performance" 
-          />
+
+        <!-- Main grid -->
+        <div style="display:grid;grid-template-columns:1fr;gap:24px;">
           
-          <!-- 今彩539成效 -->
-          <PerformanceChart 
-            game-name="今彩539" 
-            :performance-data="performance" 
-          />
+          <!-- 大樂透 -->
+          <div v-show="activeTab==='649'">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
+              <PredictionCard
+                game-name="大樂透"
+                :prediction-data="predictions"
+                :history-data="history['大樂透']"
+                accent="#2dd4bf"
+              />
+              <StatsPanel
+                game-name="大樂透"
+                :history-data="history['大樂透']"
+                :max-number="49"
+                accent="#2dd4bf"
+              />
+            </div>
+            <div style="margin-top:24px;">
+              <HotColdChart
+                game-name="大樂透"
+                :history-data="history['大樂透']"
+                :max-number="49"
+                accent="#2dd4bf"
+              />
+            </div>
+          </div>
+
+          <!-- 今彩539 -->
+          <div v-show="activeTab==='539'">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
+              <PredictionCard
+                game-name="今彩539"
+                :prediction-data="predictions"
+                :history-data="history['今彩539']"
+                accent="#a78bfa"
+              />
+              <StatsPanel
+                game-name="今彩539"
+                :history-data="history['今彩539']"
+                :max-number="39"
+                accent="#a78bfa"
+              />
+            </div>
+            <div style="margin-top:24px;">
+              <HotColdChart
+                game-name="今彩539"
+                :history-data="history['今彩539']"
+                :max-number="39"
+                accent="#a78bfa"
+              />
+            </div>
+          </div>
+
         </div>
       </div>
-      
-    </main>
-    
-    <!-- Background Decoration -->
-    <div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
-      <div class="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-teal-500/10 blur-[120px]"></div>
-      <div class="absolute top-[60%] -right-[10%] w-[50%] h-[50%] rounded-full bg-purple-500/10 blur-[120px]"></div>
+
+      <!-- Footer -->
+      <footer style="text-align:center;margin-top:60px;padding-top:32px;border-top:1px solid rgba(255,255,255,0.06);">
+        <p style="font-size:12px;color:#334155;">
+          ⚠️ 本系統僅供娛樂參考，不構成任何投注建議。請理性投注，勿過度沉迷。
+        </p>
+        <p style="font-size:11px;color:#1e293b;margin-top:8px;">
+          由 Gemini AI × GitHub Actions 全自動驅動 · 資料來源：台灣彩券官方網站
+        </p>
+      </footer>
     </div>
   </div>
 </template>
 
 <style>
-/* 可以在這裡加入額外的全域樣式微調 */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 768px) {
+  .responsive-grid {
+    grid-template-columns: 1fr !important;
+  }
+}
 </style>

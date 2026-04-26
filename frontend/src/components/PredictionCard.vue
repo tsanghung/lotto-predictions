@@ -1,124 +1,132 @@
 <script setup>
 import { computed } from 'vue'
 
-import HeatmapChart from './HeatmapChart.vue'
-import DistributionChart from './DistributionChart.vue'
-import AttributionReport from './AttributionReport.vue'
-
 const props = defineProps({
-  gameName: {
-    type: String,
-    required: true
-  },
-  predictionData: {
-    type: Object,
-    default: null
-  },
-  historyData: {
-    type: Array,
-    default: () => []
-  }
+  gameName: { type: String, required: true },
+  predictionData: { type: Array, default: () => [] },
+  historyData: { type: Array, default: () => [] },
+  accent: { type: String, default: '#2dd4bf' }
 })
 
-// 從 predictionData 中提取最新預測
 const latestPrediction = computed(() => {
   if (!props.predictionData || props.predictionData.length === 0) return null
-  // 找出符合 gameName 的最後一筆
   const filtered = props.predictionData.filter(p => p.game_name === props.gameName)
-  if (filtered.length === 0) return null
-  return filtered[filtered.length - 1]
+  return filtered.length ? filtered[filtered.length - 1] : null
 })
 
-const getCombinationColor = (strategy) => {
-  if (strategy.includes('激進')) return 'text-rose-400 bg-rose-400/10 ring-rose-400/50'
-  if (strategy.includes('穩健')) return 'text-emerald-400 bg-emerald-400/10 ring-emerald-400/50'
-  return 'text-amber-400 bg-amber-400/10 ring-amber-400/50'
+const latestDraw = computed(() => {
+  if (!props.historyData || props.historyData.length === 0) return null
+  return props.historyData[props.historyData.length - 1]
+})
+
+const strategyStyle = (strategy) => {
+  if (strategy.includes('激進') || strategy.includes('AI')) return { color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)' }
+  if (strategy.includes('穩健') || strategy.includes('平衡')) return { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.25)' }
+  return { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' }
 }
 </script>
 
 <template>
-  <div class="relative group h-full">
-    <!-- Glow Effect -->
-    <div class="absolute -inset-0.5 rounded-2xl blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200"
-         :class="gameName === '大樂透' ? 'bg-gradient-to-r from-teal-500 to-blue-500' : 'bg-gradient-to-r from-purple-500 to-pink-500'">
-    </div>
-    
-    <!-- Glassmorphism Card -->
-    <div class="relative bg-slate-800/80 backdrop-blur-xl ring-1 ring-white/10 rounded-2xl p-6 h-full shadow-2xl flex flex-col justify-between">
-      <div>
-        <h2 class="text-2xl font-bold text-white mb-2 flex items-center justify-between">
-          <span class="flex items-center">
-            <span class="mr-2">{{ gameName === '大樂透' ? '🎯' : '⚡' }}</span> {{ gameName }}
-          </span>
-          <span v-if="latestPrediction" class="text-xs font-normal text-slate-400 bg-slate-900/50 px-2 py-1 rounded-full ring-1 ring-white/5">
-            {{ new Date(latestPrediction.timestamp).toLocaleDateString() }}
-          </span>
+  <div style="display:flex;flex-direction:column;gap:20px;">
+
+    <!-- Latest Prediction Card -->
+    <div :style="{
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.08)',
+      borderRadius: '20px',
+      padding: '24px',
+      position: 'relative',
+      overflow: 'hidden'
+    }">
+      <!-- Top glow accent -->
+      <div :style="{
+        position:'absolute', top:0, left:'50%', transform:'translateX(-50%)',
+        width:'60%', height:'1px',
+        background: `linear-gradient(90deg, transparent, ${accent}, transparent)`
+      }"></div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h2 style="font-size:1.1rem;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
+          <span>🔮</span> AI 預測號碼
         </h2>
-        
-        <template v-if="latestPrediction">
-          <div class="mb-6 space-y-4">
-            <!-- 洞察與推理 -->
-            <div class="bg-slate-900/50 rounded-xl p-4 ring-1 ring-white/5">
-              <h3 class="text-sm font-semibold text-slate-300 mb-1 flex items-center">
-                <span class="mr-1">📊</span> AI 洞察
-              </h3>
-              <p class="text-slate-400 text-sm leading-relaxed">
-                {{ latestPrediction.prediction.reasoning }}
-              </p>
+        <span v-if="latestPrediction" style="font-size:11px;color:#64748b;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:100px;padding:3px 10px;">
+          {{ new Date(latestPrediction.timestamp).toLocaleDateString('zh-TW') }}
+        </span>
+      </div>
+
+      <!-- No data state -->
+      <div v-if="!latestPrediction" style="text-align:center;padding:40px 0;color:#475569;">
+        <div style="font-size:32px;margin-bottom:12px;">🎲</div>
+        <p style="font-size:14px;">尚無預測資料</p>
+        <p style="font-size:12px;margin-top:4px;">請等待 AI 每日自動生成</p>
+      </div>
+
+      <!-- Prediction content -->
+      <div v-else>
+        <!-- AI Reasoning -->
+        <div style="background:rgba(0,0,0,0.2);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.05);">
+          <p style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">📊 AI 統計洞察</p>
+          <p style="font-size:13px;color:#94a3b8;line-height:1.6;">{{ latestPrediction.prediction.reasoning }}</p>
+        </div>
+
+        <!-- Combinations -->
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <p style="font-size:11px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">💡 推薦投注組合</p>
+          <div v-for="(nums, strategy) in latestPrediction.prediction.combinations" :key="strategy"
+            :style="{
+              background: strategyStyle(strategy).bg,
+              border: `1px solid ${strategyStyle(strategy).border}`,
+              borderRadius:'12px', padding:'12px 14px',
+              display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'10px'
+            }">
+            <span :style="{ fontSize:'12px', fontWeight:'700', color: strategyStyle(strategy).color, minWidth:'80px' }">{{ strategy }}</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <span v-for="n in nums" :key="n"
+                :style="{
+                  width:'32px', height:'32px', borderRadius:'50%',
+                  background:'rgba(0,0,0,0.3)', border:'1px solid rgba(255,255,255,0.1)',
+                  display:'flex', alignItems:'center', justifyContent:'center',
+                  fontSize:'12px', fontWeight:'700', fontFamily:'monospace', color:'#f1f5f9'
+                }">
+                {{ n.toString().padStart(2, '0') }}
+              </span>
             </div>
-            
-            <!-- 推薦組合 -->
-            <div class="space-y-3">
-              <h3 class="text-sm font-semibold text-slate-300 flex items-center">
-                <span class="mr-1">💡</span> 推薦組合
-              </h3>
-              <div v-for="(nums, strategy) in latestPrediction.prediction.combinations" :key="strategy" 
-                   class="flex flex-col sm:flex-row sm:items-center justify-between p-3 rounded-xl ring-1"
-                   :class="getCombinationColor(strategy)">
-                <span class="text-sm font-bold mb-2 sm:mb-0">{{ strategy }}</span>
-                <div class="flex gap-2 flex-wrap">
-                  <span v-for="n in nums" :key="n" 
-                        class="w-8 h-8 flex items-center justify-center rounded-full bg-slate-900/50 text-white font-mono text-sm shadow-inner ring-1 ring-white/10">
-                    {{ n.toString().padStart(2, '0') }}
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <!-- 風險提示 -->
-            <div v-if="latestPrediction.prediction.risk_warning" class="mt-4 flex items-start gap-2 text-xs text-slate-500 italic">
-              <span>⚠️</span>
-              <p>{{ latestPrediction.prediction.risk_warning }}</p>
-            </div>
-            
-            <!-- 科學歸因報告 -->
-            <AttributionReport :prediction="latestPrediction" />
           </div>
-        </template>
-        
-        <template v-else>
-          <div class="py-10 text-center flex flex-col items-center justify-center h-full">
-            <div class="animate-pulse flex space-x-4 mb-4">
-              <div class="rounded-full bg-slate-700 h-10 w-10"></div>
-              <div class="flex-1 space-y-6 py-1">
-                <div class="h-2 bg-slate-700 rounded"></div>
-                <div class="space-y-3">
-                  <div class="grid grid-cols-3 gap-4">
-                    <div class="h-2 bg-slate-700 rounded col-span-2"></div>
-                    <div class="h-2 bg-slate-700 rounded col-span-1"></div>
-                  </div>
-                  <div class="h-2 bg-slate-700 rounded"></div>
-                </div>
-              </div>
-            </div>
-            <p class="text-slate-500">尚無預測資料，或正在載入中...</p>
-          </div>
-        </template>
-        
-        <!-- 歷史統計圖表區塊 -->
-        <div v-if="historyData && historyData.length > 0" class="mt-8 border-t border-white/5 pt-6">
-          <DistributionChart :game-name="gameName" :history-data="historyData" />
-          <HeatmapChart :game-name="gameName" :history-data="historyData" />
+        </div>
+
+        <!-- Risk warning -->
+        <p v-if="latestPrediction.prediction.risk_warning" style="font-size:11px;color:#475569;margin-top:12px;font-style:italic;">
+          ⚠️ {{ latestPrediction.prediction.risk_warning }}
+        </p>
+      </div>
+    </div>
+
+    <!-- Latest Draw Result -->
+    <div v-if="latestDraw" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:20px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <h3 style="font-size:0.95rem;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
+          <span>🏆</span> 最新開獎
+        </h3>
+        <span style="font-size:11px;color:#64748b;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:100px;padding:3px 10px;">
+          {{ latestDraw.date }} &nbsp;|&nbsp; 第 {{ latestDraw.draw_id }} 期
+        </span>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <span v-for="n in latestDraw.numbers" :key="n"
+          :style="{
+            width:'40px', height:'40px', borderRadius:'50%',
+            background: `linear-gradient(135deg, ${accent}22, ${accent}44)`,
+            border: `2px solid ${accent}60`,
+            display:'flex', alignItems:'center', justifyContent:'center',
+            fontSize:'13px', fontWeight:'800', fontFamily:'monospace', color: accent
+          }">
+          {{ n.toString().padStart(2,'0') }}
+        </span>
+        <div v-if="latestDraw.special_number" style="display:flex;align-items:center;gap:6px;">
+          <span style="color:#475569;font-size:12px;">特別號</span>
+          <span style="width:40px;height:40px;border-radius:50%;background:rgba(251,191,36,0.12);border:2px solid rgba(251,191,36,0.5);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;font-family:monospace;color:#fbbf24;">
+            {{ latestDraw.special_number.toString().padStart(2,'0') }}
+          </span>
         </div>
       </div>
     </div>
