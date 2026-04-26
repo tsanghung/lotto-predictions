@@ -75,6 +75,24 @@ class StatsEngine:
             "frequencies": counts
         }
 
+    def get_all_time_stats(self) -> Dict[str, Any]:
+        """
+        計算自資料起始（2007年）以來的完整頻率統計
+        """
+        counts = {i: 0 for i in range(1, self.max_number + 1)}
+        for nums in self.df["numbers"]:
+            for n in nums:
+                counts[n] += 1
+        
+        sorted_counts = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+        
+        return {
+            "total_draws": len(self.df),
+            "top_all_time": sorted_counts[:10], # 史上最常出現前 10 名
+            "bottom_all_time": sorted_counts[-10:], # 史上最少出現前 10 名
+            "average_frequency": len(self.df) * (len(self.df.iloc[0]["numbers"]) / self.max_number)
+        }
+
     def get_distribution_features(self) -> Dict[str, Any]:
         """
         分佈統計：奇偶比、大小比 (以總數一半為界)、同尾數
@@ -111,19 +129,21 @@ class StatsEngine:
             missing = self.get_missing_values()
             hot_cold_10 = self.get_hot_cold_stats(10)
             hot_cold_30 = self.get_hot_cold_stats(30)
+            all_time = self.get_all_time_stats()
             dist = self.get_distribution_features()
             
             # 挑出極端遺漏值 (超過 20 期未開)
             extreme_missing = {k: v for k, v in missing.items() if v >= 20}
             
-            report = f"📊 統計分析報告 (基於最新期數 {dist['latest_draw_id']})\n"
+            report = f"📊 統計分析報告 (基於 2007 至今共 {all_time['total_draws']} 期累計數據)\n"
+            report += f"史上最熱門 (All-time Hot): {all_time['top_all_time']}\n"
+            report += f"史上最冷門 (All-time Cold): {all_time['bottom_all_time']}\n"
+            report += f"理論平均出現次數: {all_time['average_frequency']:.2f}\n"
             report += f"近 10 期熱門號碼: {hot_cold_10['hot']}\n"
-            report += f"近 10 期冷門號碼: {hot_cold_10['cold']}\n"
             report += f"近 30 期熱門號碼: {hot_cold_30['hot']}\n"
             report += f"極端冷門 (遺漏 >= 20期) 號碼及期數: {extreme_missing}\n"
             report += f"上一期奇偶比: {dist['odd_even_ratio']}\n"
             report += f"上一期大小比: {dist['large_small_ratio']}\n"
-            report += f"上一期同尾數特徵: {dist['same_tails_last_draw']}\n"
             
             return report
             
