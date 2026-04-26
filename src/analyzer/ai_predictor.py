@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -97,8 +98,16 @@ class AIPredictor:
                 )
             )
             
-            # 解析 JSON 確保格式正確
-            result = json.loads(response.text)
+            # [修正] 增強 JSON 解析強健性：移除可能的 Markdown 標記或雜訊
+            raw_text = response.text.strip()
+            # 利用正則表達式擷取最外層的大括號內容
+            json_match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
+            if json_match:
+                clean_text = json_match.group(1)
+            else:
+                clean_text = raw_text
+
+            result = json.loads(clean_text)
             
             # 驗證結構
             if "combinations" not in result or "reasoning" not in result:
