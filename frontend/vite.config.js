@@ -12,7 +12,13 @@ export default defineConfig({
   publicDir: resolve(__dirname, '../data'),
   server: {
     port: 5173,
-    // 開發時提示：data 資料夾已透過 publicDir 掛載
-    // 如需同時服務 frontend/public/，請將靜態資產放置於 frontend/public/ 下
+    proxy: {
+      // 在開發環境中，將 /data/... 請求對應到 publicDir (../data) 的根目錄
+      // 這樣開發環境的 fetch('/data/meta.json') 就會等同於存取 ../data/meta.json
+      '/data': {
+        target: 'http://localhost:5173',
+        rewrite: (path) => path.replace(/^\/data/, '')
+      }
+    }
   }
 })

@@ -11,9 +11,8 @@ export function useLottoData() {
   const loading = ref(true)
   const error = ref(null)
 
-  // 根據環境決定資料路徑。本機開發時可考慮放在 public/data，
-  // 或於 Vite 中設定 proxy；部署至 GitHub Pages 後，通常資料會放在跟目錄下的 data/。
-  const dataBaseUrl = import.meta.env.VITE_DATA_URL || '/data'
+  // [修正] 使用相對基底路徑，確保 GitHub Pages 子目錄佈署時能正確解析 /data 路徑
+  const dataBaseUrl = import.meta.env.VITE_DATA_URL || (import.meta.env.BASE_URL + 'data').replace(/\/+$/, '')
 
   const fetchData = async () => {
     loading.value = true
