@@ -6,19 +6,13 @@ import { resolve } from 'path'
 export default defineConfig({
   base: '/lotto-predictions/',
   plugins: [vue()],
+  // [Bug #7 修復] 將專案根目錄設為靜態資源目錄
+  // Vite 會同時服務 frontend/public/ 與此 publicDir 下的靜態檔案
+  // 這樣 /data/meta.json、/data/predictions.json 等請求在開發環境即可正常存取
+  publicDir: resolve(__dirname, '../data'),
   server: {
-    proxy: {
-      // 在開發環境中，將 /data 請求代理到根目錄的 data 資料夾
-      '/data': {
-        target: 'http://localhost:5173',
-        bypass: (req, res, options) => {
-          if (req.url.startsWith('/data/')) {
-            // 這個寫法較為進階，最簡單的做法是在 build 時或 dev 前
-            // 把 root 的 data 複製到 frontend/public/data，
-            // 或直接在 Vite 開發環境下指向相對路徑
-          }
-        }
-      }
-    }
+    port: 5173,
+    // 開發時提示：data 資料夾已透過 publicDir 掛載
+    // 如需同時服務 frontend/public/，請將靜態資產放置於 frontend/public/ 下
   }
 })

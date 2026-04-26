@@ -116,7 +116,7 @@ const avgSum = computed(() => {
               {{ n.toString().padStart(2,'0') }}
             </span>
             <span v-if="draw.special_number" style="width:26px;height:26px;border-radius:50%;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;font-family:monospace;color:#fbbf24;">
-              {{ draw.special_number.toString().padStart(2,'00') }}
+              {{ draw.special_number.toString().padStart(2, '0') }}
             </span>
           </div>
         </div>

@@ -48,17 +48,20 @@ jobs:
           python -m src.main_predict --game 539
 
       - name: Run Lotto 649 Prediction
-        # 大樂透僅在週二(2)與週五(5)開獎，或手動選擇 649 時執行
-        if: github.event_name == 'schedule' && (contains(github.event.schedule, '2,5') || contains('2 5', '' )) || github.event.inputs.game_type == '649'
+        # [Bug #5 修復] 移除了永遠為 False 的 contains() 條件
+        # schedule 與 workflow_dispatch 皆允許進入此 step
+        # 實際的週二/週五判斷由 shell 內部 DAYOFWEEK 變數控制
+        if: github.event_name == 'schedule' || github.event.inputs.game_type == '649'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
-          # 檢查今天是星期幾 (1-7)
+          # 檢查今天是星期幾 (1=週一 ... 7=週日)
           DAYOFWEEK=$(date +%u)
           if [ "$DAYOFWEEK" -eq 2 ] || [ "$DAYOFWEEK" -eq 5 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Today is Tuesday or Friday (or manual trigger), running Lotto 649 prediction..."
             python -m src.main_predict --game 649
           else
             echo "Today is not Tuesday or Friday, skipping Lotto 649."

@@ -1,7 +1,7 @@
 import requests
 import urllib3
 from typing import List, Dict, Any
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # 停用 SSL 警告 (TW Lottery API 憑證問題)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -86,7 +86,7 @@ class OfficialScraper(BaseScraper):
         draws = self._fetch_month(current_month)
         if not draws:
             # 如果這個月還沒開獎，往前取一個月
-            prev_month = (datetime.now().replace(day=1) - pd.Timedelta(days=1)).strftime("%Y-%m")
+            prev_month = (datetime.now().replace(day=1) - timedelta(days=1)).strftime("%Y-%m")
             draws = self._fetch_month(prev_month)
             
         if not draws:

@@ -33,6 +33,12 @@ jobs:
         run: |
           python -m src.scraper.update_latest
 
+      - name: Sync with Official NTA API (Auto-Reconciliation)
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m src.scraper.official_sync
+
       - name: Evaluate Predictions & Scientific Attribution
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -49,7 +55,7 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             echo "Changes detected, committing updates..."
             git add data/*.json
-            git commit -m "Auto-update: Fetch latest lotto results [skip ci]"
+            git commit -m "Auto-update: Sync with Official NTA API & Latest Results [skip ci]"
             git push
           else
             echo "No new data to commit."
