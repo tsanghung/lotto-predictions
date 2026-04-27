@@ -183,5 +183,43 @@
       "strategies": {},
       "attribution_report": null
     }
+  },
+  {
+    "timestamp": "2026-04-27T14:28:24.460800",
+    "game_name": "今彩539",
+    "prediction": {
+      "reasoning": "綜合分析歷史熱冷門數據、近期走勢及極端遺漏號碼，激進策略鎖定長期沉寂與極度冷門反彈，特別是歷史熱門卻長期未出者。穩健策略平衡了史上高頻號碼與近期活躍號碼，並納入具回歸平均潛力的冷門，同時考量上一期奇偶大小比例進行調整。完全隨機則提供無偏預測。",
+      "risk_warning": "彩券本質為機率遊戲，所有預測僅供參考，請理性投注。",
+      "combinations": {
+        "激進包牌": [
+          4,
+          31,
+          30,
+          33,
+          29
+        ],
+        "穩健平衡": [
+          5,
+          12,
+          21,
+          34,
+          37
+        ],
+        "完全隨機": [
+          2,
+          11,
+          20,
+          28,
+          39
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
