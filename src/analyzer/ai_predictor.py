@@ -43,7 +43,7 @@ class AIPredictor:
             "combinations": {
                 "激進包牌": sorted(random.sample(nums, self.num_picks)),
                 "穩健平衡": sorted(random.sample(nums, self.num_picks)),
-                "完全隨機": sorted(random.sample(nums, self.num_picks))
+                "統計趨勢": sorted(random.sample(nums, self.num_picks))
             }
         }
 
@@ -71,31 +71,51 @@ class AIPredictor:
         )
         
         prompt = (
-            f"請為【{self.game_name}】進行下一期的號碼預測。\n"
-            f"該遊戲是從 1 到 {self.stats_engine.max_number} 之間選出 {self.num_picks} 個號碼。\n"
-            f"以下是背景資料：\n\n{full_context}\n\n"
-            "請回傳以下 JSON 格式：\n"
+            f"任務：為【{self.game_name}】預測下一期號碼（從 1 到 {self.stats_engine.max_number} 選 {self.num_picks} 個）\n\n"
+            "== 必須遵守的硬性約束 ==\n"
+            f"1. 每個號碼必須在 1 到 {self.stats_engine.max_number} 之間，不可重複\n"
+            f"2. 每組必須剛好 {self.num_picks} 個號碼\n"
+            "3. 禁止全奇或全偶；禁止 4 個以上連續整數\n"
+            "4. 三種策略之間，重複號碼不得超過 2 個（確保差異化）\n"
+            "5. 禁止與近 3 期開獎號碼完全相同\n\n"
+            "== 推理步驟（請依序在 reasoning 欄說明）==\n"
+            "Step 1: 從統計資料中，列出近期【最熱】3 個號碼與【最冷】3 個號碼（須引用實際出現次數或隔期數）\n"
+            "Step 2: 計算近 100 期的【和值平均】與【奇偶比】，作為合理性基準\n"
+            "Step 3: 根據三種策略的定義（見下方），各別選號\n"
+            "Step 4: 自我檢查：每組是否符合硬性約束？是否與近 3 期開獎號完全相同？\n\n"
+            "== 三種策略的明確定義 ==\n"
+            "- 激進包牌：至少 3 個號碼來自背景資料中的【冷門池】；和值偏離近 100 期平均 ±20%\n"
+            "- 穩健平衡：奇偶比接近 3:3 或 3:2；和值落在近 100 期平均 ±10%；冷熱門各半\n"
+            "- 統計趨勢：至少 3 個號碼來自【近 10 期出現 2 次以上】的熱門池\n\n"
+            f"== 背景資料 ==\n{full_context}\n\n"
+            "== 輸出格式（嚴格 JSON，不可有 Markdown）==\n"
             "{\n"
-            '  "reasoning": "你的深度統計邏輯與輿情推理總結 (約 50-100 字)",\n'
+            '  "reasoning": "依 Step1-4 推理，須引用具體數字，例如『號碼 7 在近 100 期出現 X 次，為熱門』",\n'
             '  "risk_warning": "一句風險提示",\n'
+            '  "self_check": {\n'
+            '    "和值": [激進和值, 穩健和值, 趨勢和值],\n'
+            '    "奇偶比": ["激進X:Y", "穩健X:Y", "趨勢X:Y"],\n'
+            '    "通過硬性約束": true\n'
+            "  },\n"
             '  "combinations": {\n'
-            f'    "激進包牌": [選擇 {self.num_picks} 個數字的陣列, 適合追求極端冷門反彈者],\n'
-            f'    "穩健平衡": [選擇 {self.num_picks} 個數字的陣列, 綜合冷熱門與均值],\n'
-            f'    "完全隨機": [選擇 {self.num_picks} 個數字的陣列, 不看任何數據]\n'
+            f'    "激進包牌": [選擇 {self.num_picks} 個數字的陣列],\n'
+            f'    "穩健平衡": [選擇 {self.num_picks} 個數字的陣列],\n'
+            f'    "統計趨勢": [選擇 {self.num_picks} 個數字的陣列]\n'
             "  }\n"
             "}"
         )
 
+        # Gemma 模型不支援 system_instruction 與 response_mime_type，必須把角色設定併入主 prompt
+        full_prompt = f"{system_instruction}\n\n{prompt}"
+
         try:
-            # 3. 呼叫 Gemini API
-            logging.info("正在呼叫 Gemini LLM 進行推理...")
+            # 3. 呼叫 Gemma API
+            logging.info("正在呼叫 Gemma LLM 進行推理...")
             response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
+                model='gemma-4-31b-it',
+                contents=full_prompt,
                 config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.7,
-                    response_mime_type="application/json"
+                    temperature=0.5
                 )
             )
             
@@ -108,7 +128,16 @@ class AIPredictor:
             else:
                 clean_text = raw_text
 
-            result = json.loads(clean_text)
+            # Gemma 沒有 JSON mode，可能輸出非法反斜線跳脫（例如 \『 \』）。
+            # 移除所有不合法的反斜線（合法跳脫: \" \\ \/ \b \f \n \r \t \uXXXX）
+            clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
+
+            try:
+                result = json.loads(clean_text)
+            except json.JSONDecodeError as je:
+                logging.error(f"JSON 解析失敗：{je}")
+                logging.error(f"原始回應前 500 字：{raw_text[:500]}")
+                raise
             
             # 驗證結構
             if "combinations" not in result or "reasoning" not in result:
