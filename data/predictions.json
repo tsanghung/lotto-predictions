@@ -357,5 +357,84 @@
       },
       "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
+  },
+  {
+    "timestamp": "2026-04-28T14:30:07.106022",
+    "game_name": "今彩539",
+    "prediction": {
+      "reasoning": "此為離線模擬預測，因為未提供有效的 Gemini API Key。",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          7,
+          9,
+          24,
+          28,
+          31
+        ],
+        "穩健平衡": [
+          13,
+          16,
+          17,
+          19,
+          29
+        ],
+        "完全隨機": [
+          14,
+          18,
+          21,
+          26,
+          31
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
+  },
+  {
+    "timestamp": "2026-04-28T14:30:11.594733",
+    "game_name": "大樂透",
+    "prediction": {
+      "reasoning": "此為離線模擬預測，因為未提供有效的 Gemini API Key。",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          21,
+          22,
+          29,
+          34,
+          37,
+          42
+        ],
+        "穩健平衡": [
+          11,
+          12,
+          32,
+          34,
+          46,
+          48
+        ],
+        "完全隨機": [
+          7,
+          10,
+          21,
+          23,
+          28,
+          35
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
