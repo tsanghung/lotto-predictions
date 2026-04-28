@@ -31,6 +31,60 @@
           48
         ]
       }
+    },
+    "is_evaluated": true,
+    "evaluation": {
+      "draw_id": "115000048",
+      "actual_numbers": [
+        6,
+        10,
+        14,
+        25,
+        26,
+        32
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            2,
+            8,
+            11,
+            17,
+            34,
+            47
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            5,
+            9,
+            12,
+            15,
+            29,
+            49
+          ]
+        },
+        "完全隨機": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            2,
+            21,
+            28,
+            36,
+            46,
+            48
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   },
   {
@@ -65,6 +119,63 @@
           49
         ]
       }
+    },
+    "is_evaluated": true,
+    "evaluation": {
+      "draw_id": "115000048",
+      "actual_numbers": [
+        6,
+        10,
+        14,
+        25,
+        26,
+        32
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            6
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            3,
+            4,
+            16,
+            21,
+            42
+          ]
+        },
+        "穩健平衡": {
+          "hits": 2,
+          "matches": [
+            10,
+            26
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            7,
+            8,
+            33,
+            44
+          ]
+        },
+        "完全隨機": {
+          "hits": 1,
+          "matches": [
+            10
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            9,
+            22,
+            31,
+            34,
+            49
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   },
   {
@@ -100,12 +211,61 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000048",
+      "actual_numbers": [
+        6,
+        10,
+        14,
+        25,
+        26,
+        32
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            7,
+            18,
+            23,
+            24,
+            47,
+            48
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            25
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            31,
+            34,
+            38,
+            48
+          ]
+        },
+        "完全隨機": {
+          "hits": 1,
+          "matches": [
+            14
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            2,
+            16,
+            28,
+            33,
+            49
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   },
   {
@@ -388,12 +548,57 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000104",
+      "actual_numbers": [
+        7,
+        8,
+        21,
+        35,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            7
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            9,
+            24,
+            28,
+            31
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            13,
+            16,
+            17,
+            19,
+            29
+          ]
+        },
+        "完全隨機": {
+          "hits": 1,
+          "matches": [
+            21
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            14,
+            18,
+            26,
+            31
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   },
   {
@@ -429,12 +634,61 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000048",
+      "actual_numbers": [
+        6,
+        10,
+        14,
+        25,
+        26,
+        32
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            21,
+            22,
+            29,
+            34,
+            37,
+            42
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            32
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            12,
+            34,
+            46,
+            48
+          ]
+        },
+        "完全隨機": {
+          "hits": 1,
+          "matches": [
+            10
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            7,
+            21,
+            23,
+            28,
+            35
+          ]
+        }
+      },
+      "attribution_report": "未能完全命中，主要歸因於樂透開獎的**固有隨機性 (inherent stochasticity)**。每個開獎組合都是一個**獨立事件**，缺乏**自相關性 (autocorrelation)**，意味著過去的結果對未來的開獎沒有預測力。\n\n歷史統計數據，如「熱門/冷門號碼」或「和值區間」，僅反映了在大量試驗下的**頻率分佈**，符合**大數法則 (Law of Large Numbers)** 的長期趨勢，但無法保證單次開獎的結果。這些觀察到的「熱門池」或「冷門池」是特定時間窗口內的**樣本偏差 (sample bias)**，體現了**採樣變異性 (sampling variability)**，而非預示性模式。\n\n本次開獎結果 [6, 10, 14, 25, 26, 32] 是一個完全符合機率分佈的**隨機離群值 (stochastic outlier)**。在一個**隨機漫步 (random walk)** 的過程中，任何特定組合的出現機率均等，預測系統在面對此類本質隨機的事件時，其預測能力受限於機率的根本性質。"
     }
   },
   {
@@ -467,12 +721,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000104",
+      "actual_numbers": [
+        7,
+        8,
+        21,
+        35,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            4,
+            29,
+            30,
+            31,
+            33
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            12,
+            17,
+            20,
+            34
+          ]
+        },
+        "完全隨機": {
+          "hits": 2,
+          "matches": [
+            7,
+            35
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            14,
+            22,
+            29
+          ]
+        }
+      },
+      "attribution_report": "樂透開獎本質上是一個高度隨機的過程，每個號碼被抽中的機率在每次開獎中都是獨立且均等的。本次預測未能完全命中，主要歸因於此固有機率特性。儘管我們的系統運用了歷史頻率分析（如「史上最熱門/冷門」與「近100期熱門」），這些數據僅反映過去的樣本分佈，而非對未來獨立事件的因果預測。\n\n具體而言，單次開獎結果可能表現為機率分佈中的離群值 (Outlier)，與長期的大數法則 (Law of Large Numbers) 所預期的平均行為存在樣本偏差 (Sample Deviation)。例如，開獎號碼 [7, 8, 21, 35, 38] 雖然多數曾出現在「近10期熱門池」，但這僅是隨機漫步 (Random Walk) 過程中的一個特定實現，不代表存在可預測的自相關性 (Autocorrelation)。預測系統的未命中，是極低機率事件（如命中五個號碼的機率約為1/575,757）在單次試驗中的自然結果。"
     }
   }
 ]

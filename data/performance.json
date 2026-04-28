@@ -1,23 +1,81 @@
 {
-  "last_updated": "2026-04-27T15:29:51.153459",
+  "last_updated": "2026-04-28T16:03:48.566913",
   "games": {
-    "今彩539": {
-      "total_draws_evaluated": 3,
+    "大樂透": {
+      "total_draws_evaluated": 4,
       "strategies": {
         "激進包牌": {
-          "total_hits": 3,
-          "total_misses": 12,
-          "win_rate": 0.2
+          "total_hits": 1,
+          "total_misses": 23,
+          "win_rate": 0.0417
         },
         "穩健平衡": {
-          "total_hits": 2,
-          "total_misses": 13,
-          "win_rate": 0.1333
+          "total_hits": 4,
+          "total_misses": 20,
+          "win_rate": 0.1667
         },
         "完全隨機": {
           "total_hits": 3,
-          "total_misses": 12,
-          "win_rate": 0.2
+          "total_misses": 21,
+          "win_rate": 0.125
+        }
+      },
+      "trend": [
+        {
+          "date": "2026-04-25",
+          "draw_id": "115000048",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 0,
+            "完全隨機": 0
+          }
+        },
+        {
+          "date": "2026-04-25",
+          "draw_id": "115000048",
+          "strategies": {
+            "激進包牌": 1,
+            "穩健平衡": 2,
+            "完全隨機": 1
+          }
+        },
+        {
+          "date": "2026-04-26",
+          "draw_id": "115000048",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 1,
+            "完全隨機": 1
+          }
+        },
+        {
+          "date": "2026-04-28",
+          "draw_id": "115000048",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 1,
+            "完全隨機": 1
+          }
+        }
+      ]
+    },
+    "今彩539": {
+      "total_draws_evaluated": 5,
+      "strategies": {
+        "激進包牌": {
+          "total_hits": 4,
+          "total_misses": 21,
+          "win_rate": 0.16
+        },
+        "穩健平衡": {
+          "total_hits": 2,
+          "total_misses": 23,
+          "win_rate": 0.08
+        },
+        "完全隨機": {
+          "total_hits": 6,
+          "total_misses": 19,
+          "win_rate": 0.24
         }
       },
       "trend": [
@@ -46,6 +104,24 @@
             "激進包牌": 0,
             "穩健平衡": 0,
             "完全隨機": 1
+          }
+        },
+        {
+          "date": "2026-04-28",
+          "draw_id": "115000104",
+          "strategies": {
+            "激進包牌": 1,
+            "穩健平衡": 0,
+            "完全隨機": 1
+          }
+        },
+        {
+          "date": "2026-04-28",
+          "draw_id": "115000104",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 0,
+            "完全隨機": 2
           }
         }
       ]
