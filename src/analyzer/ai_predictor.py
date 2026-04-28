@@ -28,9 +28,9 @@ class AIPredictor:
         self.stats_engine = StatsEngine(data_file, max_number)
         self.web_searcher = WebSearcher()
 
-    def _generate_mock_prediction(self, stats_context: str) -> dict:
+    def _generate_mock_prediction(self, stats_context: str, reason: str = "未提供有效的 Gemini API Key") -> dict:
         """
-        當沒有 API Key 時的離線備援方案 (Fallback)
+        當沒有 API Key 或呼叫失敗時的離線備援方案 (Fallback)
         """
         logging.info("執行離線模擬預測...")
         import random
@@ -38,7 +38,7 @@ class AIPredictor:
         nums = list(range(1, self.stats_engine.max_number + 1))
         
         return {
-            "reasoning": "此為離線模擬預測，因為未提供有效的 Gemini API Key。",
+            "reasoning": f"此為離線模擬預測。原因：{reason}",
             "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
             "combinations": {
                 "激進包牌": sorted(random.sample(nums, self.num_picks)),
@@ -120,7 +120,7 @@ class AIPredictor:
         except Exception as e:
             logging.error(f"AI 預測發生錯誤: {e}")
             logging.warning("啟動容錯機制，使用模擬預測。")
-            return self._generate_mock_prediction(full_context)
+            return self._generate_mock_prediction(full_context, reason=f"API 發生錯誤: {e}")
 
 def save_predictions(game_name: str, prediction: dict, file_path: str = "data/predictions.json"):
     """
