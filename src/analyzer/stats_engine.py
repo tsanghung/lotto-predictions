@@ -28,8 +28,8 @@ class StatsEngine:
             records.append(row)
             
         df = pd.DataFrame(records)
-        # 依照期數排序（由舊到新）
-        df = df.sort_values("draw_id").reset_index(drop=True)
+        # 依照開獎日期排序（由舊到新）— 不可用 draw_id 字串排序，會把 "99xxx" 排到 "115xxx" 之後
+        df = df.sort_values("date").reset_index(drop=True)
         return df
 
     def get_missing_values(self) -> Dict[int, int]:
@@ -121,6 +121,47 @@ class StatsEngine:
             "same_tails_last_draw": same_tails
         }
 
+    def get_sum_stats(self, periods: int) -> Dict[str, Any]:
+        """
+        近 N 期開獎號碼總和的統計：平均、最小、最大、區間
+        """
+        if len(self.df) < periods:
+            periods = len(self.df)
+        recent_df = self.df.tail(periods)
+        sums = [sum(nums) for nums in recent_df["numbers"]]
+        avg = sum(sums) / len(sums)
+        return {
+            "period_count": periods,
+            "average": avg,
+            "min": min(sums),
+            "max": max(sums),
+            "band_minus_10pct": avg * 0.9,
+            "band_plus_10pct": avg * 1.1,
+            "band_minus_20pct": avg * 0.8,
+            "band_plus_20pct": avg * 1.2,
+        }
+
+    def get_odd_even_stats(self, periods: int) -> Dict[str, Any]:
+        """
+        近 N 期每期平均奇偶顆數
+        """
+        if len(self.df) < periods:
+            periods = len(self.df)
+        recent_df = self.df.tail(periods)
+        odd_total = 0
+        even_total = 0
+        for nums in recent_df["numbers"]:
+            for n in nums:
+                if n % 2 != 0:
+                    odd_total += 1
+                else:
+                    even_total += 1
+        return {
+            "period_count": periods,
+            "avg_odd_per_draw": odd_total / len(recent_df),
+            "avg_even_per_draw": even_total / len(recent_df),
+        }
+
     def generate_full_report(self) -> str:
         """
         產出供 LLM 推理的 Context 字串
@@ -128,25 +169,51 @@ class StatsEngine:
         try:
             missing = self.get_missing_values()
             hot_cold_10 = self.get_hot_cold_stats(10)
-            hot_cold_30 = self.get_hot_cold_stats(30)
+            hot_cold_100 = self.get_hot_cold_stats(100)
+            sum_stats_100 = self.get_sum_stats(100)
+            oe_stats_100 = self.get_odd_even_stats(100)
             all_time = self.get_all_time_stats()
             dist = self.get_distribution_features()
-            
-            # 挑出極端遺漏值 (超過 20 期未開)
-            extreme_missing = {k: v for k, v in missing.items() if v >= 20}
-            
+
+            # 冷門池：先取遺漏 >= 30 期的嚴格冷門，若不足 MIN_POOL_SIZE 顆，依遺漏期數補齊
+            MIN_POOL_SIZE = 5
+            strict_cold = {k: v for k, v in missing.items() if v >= 30}
+            if len(strict_cold) < MIN_POOL_SIZE:
+                sorted_missing = sorted(missing.items(), key=lambda x: x[1], reverse=True)
+                cold_pool = dict(sorted_missing[:MIN_POOL_SIZE])
+                pool_note = f"（嚴格冷門池僅 {len(strict_cold)} 顆，已擴充為遺漏 Top {MIN_POOL_SIZE}）"
+            else:
+                cold_pool = strict_cold
+                pool_note = ""
+            # 近 10 期出現 >= 2 次的熱門池
+            hot_pool_10_freq2 = {n: c for n, c in hot_cold_10["frequencies"].items() if c >= 2}
+            # 近 100 期熱門前 10（含次數）
+            top_100 = sorted(hot_cold_100["frequencies"].items(), key=lambda x: x[1], reverse=True)[:10]
+
             report = f"📊 統計分析報告 (基於 2007 至今共 {all_time['total_draws']} 期累計數據)\n"
-            report += f"史上最熱門 (All-time Hot): {all_time['top_all_time']}\n"
-            report += f"史上最冷門 (All-time Cold): {all_time['bottom_all_time']}\n"
-            report += f"理論平均出現次數: {all_time['average_frequency']:.2f}\n"
-            report += f"近 10 期熱門號碼: {hot_cold_10['hot']}\n"
-            report += f"近 30 期熱門號碼: {hot_cold_30['hot']}\n"
-            report += f"極端冷門 (遺漏 >= 20期) 號碼及期數: {extreme_missing}\n"
-            report += f"上一期奇偶比: {dist['odd_even_ratio']}\n"
-            report += f"上一期大小比: {dist['large_small_ratio']}\n"
-            
+            report += f"史上最熱門前 10 (號碼,次數): {all_time['top_all_time']}\n"
+            report += f"史上最冷門前 10 (號碼,次數): {all_time['bottom_all_time']}\n"
+            report += f"理論平均出現次數: {all_time['average_frequency']:.2f}\n\n"
+            report += f"近 100 期熱門前 10 (號碼,次數): {top_100}\n"
+            report += (
+                f"近 100 期和值: 平均={sum_stats_100['average']:.1f}, "
+                f"範圍 {sum_stats_100['min']}~{sum_stats_100['max']}, "
+                f"±10% 區間=[{sum_stats_100['band_minus_10pct']:.1f}, {sum_stats_100['band_plus_10pct']:.1f}], "
+                f"±20% 區間=[{sum_stats_100['band_minus_20pct']:.1f}, {sum_stats_100['band_plus_20pct']:.1f}]\n"
+            )
+            report += (
+                f"近 100 期平均奇偶比 (每期): 奇={oe_stats_100['avg_odd_per_draw']:.2f}, "
+                f"偶={oe_stats_100['avg_even_per_draw']:.2f}\n\n"
+            )
+            report += f"冷門池 (號碼:遺漏期數){pool_note}: {cold_pool}\n"
+            report += f"近 10 期出現 >= 2 次的熱門池 (號碼:次數): {hot_pool_10_freq2}\n\n"
+            report += (
+                f"上一期 ({dist['latest_draw_id']}) 奇偶比: {dist['odd_even_ratio']}, "
+                f"大小比: {dist['large_small_ratio']}\n"
+            )
+
             return report
-            
+
         except Exception as e:
             logging.error(f"產出統計報告失敗: {e}")
             raise
