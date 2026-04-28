@@ -436,5 +436,43 @@
       "strategies": {},
       "attribution_report": null
     }
+  },
+  {
+    "timestamp": "2026-04-28T19:22:52.123415",
+    "game_name": "今彩539",
+    "prediction": {
+      "reasoning": "綜合長期熱門號碼的穩定性與近期極端冷門的回補潛力，並考量短期的熱門趨勢，本期預測嘗試捕捉大數據下的規律與隨機波動的交織點，以平衡風險與機會。",
+      "risk_warning": "彩票遊戲純屬機率，所有預測僅供參考，不保證中獎，請理性投注。",
+      "combinations": {
+        "激進包牌": [
+          4,
+          29,
+          30,
+          31,
+          33
+        ],
+        "穩健平衡": [
+          5,
+          12,
+          17,
+          20,
+          34
+        ],
+        "完全隨機": [
+          7,
+          14,
+          22,
+          29,
+          35
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
