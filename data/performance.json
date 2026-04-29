@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-04-28T16:03:48.566913",
+  "last_updated": "2026-04-29T15:38:11.572838",
   "games": {
     "大樂透": {
       "total_draws_evaluated": 4,
@@ -60,22 +60,27 @@
       ]
     },
     "今彩539": {
-      "total_draws_evaluated": 5,
+      "total_draws_evaluated": 6,
       "strategies": {
         "激進包牌": {
-          "total_hits": 4,
-          "total_misses": 21,
-          "win_rate": 0.16
+          "total_hits": 5,
+          "total_misses": 25,
+          "win_rate": 0.1667
         },
         "穩健平衡": {
           "total_hits": 2,
-          "total_misses": 23,
-          "win_rate": 0.08
+          "total_misses": 28,
+          "win_rate": 0.0667
         },
         "完全隨機": {
           "total_hits": 6,
           "total_misses": 19,
           "win_rate": 0.24
+        },
+        "統計趨勢": {
+          "total_hits": 0,
+          "total_misses": 5,
+          "win_rate": 0.0
         }
       },
       "trend": [
@@ -122,6 +127,15 @@
             "激進包牌": 0,
             "穩健平衡": 0,
             "完全隨機": 2
+          }
+        },
+        {
+          "date": "2026-04-29",
+          "draw_id": "115000105",
+          "strategies": {
+            "激進包牌": 1,
+            "穩健平衡": 0,
+            "統計趨勢": 0
           }
         }
       ]
