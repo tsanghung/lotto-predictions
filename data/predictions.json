@@ -911,12 +911,57 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000106",
+      "actual_numbers": [
+        6,
+        15,
+        27,
+        30,
+        31
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            15
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            4,
+            13,
+            19,
+            28
+          ]
+        },
+        "穩健平衡": {
+          "hits": 2,
+          "matches": [
+            15,
+            30
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            13,
+            18,
+            21
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            20,
+            25,
+            36
+          ]
+        }
+      },
+      "attribution_report": "未能完全命中樂透號碼，主要歸因於樂透開獎的**隨機過程**與**機率獨立性**。每個號碼的選取均遵循**均勻離散機率分佈**，且各期開獎結果彼此**獨立**，不具備**自相關性**。\n\n預測系統雖利用歷史數據進行統計分析（如「熱門」或「冷門」號碼），但這些觀察到的頻率僅是有限樣本下的**隨機波動**或**樣本偏差**。**大數法則**僅說明長期趨勢，不賦予短期預測能力。試圖從這些歷史頻率推斷未來結果，本質上是基於對**隨機漫步**過程的誤解。\n\n本次開獎結果是從 $\\binom{39}{5}$ 種組合中隨機選取的一個**單一實現 (single realization)**。未能命中是極高機率事件，而非異常。此結果完全符合**機率論**中對隨機事件的預期，可視為一個在龐大樣本空間中的**隨機離群值 (random outlier)**，無須歸因於任何非隨機因素。"
     }
   }
 ]
