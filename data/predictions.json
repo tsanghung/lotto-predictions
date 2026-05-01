@@ -1007,12 +1007,57 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000107",
+      "actual_numbers": [
+        2,
+        3,
+        14,
+        16,
+        20
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            2
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            9,
+            11,
+            13,
+            19
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            19,
+            27,
+            32
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            20
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            6,
+            15,
+            21,
+            34
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   },
   {
@@ -1061,12 +1106,61 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000049",
+      "actual_numbers": [
+        7,
+        22,
+        27,
+        35,
+        43,
+        48
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            2,
+            3,
+            15,
+            30,
+            31,
+            40
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            22
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            14,
+            25,
+            39,
+            41
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            48
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            25,
+            26,
+            33,
+            40
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   }
 ]
