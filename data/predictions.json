@@ -1206,12 +1206,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000108",
+      "actual_numbers": [
+        8,
+        9,
+        17,
+        25,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            10,
+            13,
+            19,
+            21,
+            37
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            12,
+            13,
+            20,
+            31
+          ]
+        },
+        "統計趨勢": {
+          "hits": 2,
+          "matches": [
+            17,
+            38
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            6,
+            21,
+            34
+          ]
+        }
+      },
+      "attribution_report": "未能完全命中號碼，主要歸因於樂透開獎的**隨機過程 (Stochastic Process)** 本質。每個號碼的抽取均為**獨立事件 (Independent Event)**，不具備**自相關性 (Autocorrelation)**，因此歷史數據無法預測未來單次開獎的確定結果。\n\n預測模型基於歷史**樣本分佈 (Sample Distribution)** 試圖識別模式，例如「史上熱門」或「冷門池」。然而，這些是過去的**觀察頻率 (Observed Frequencies)**，而非未來事件的必然趨勢。**大數法則 (Law of Large Numbers)** 僅保證在極大量重複試驗下頻率會趨近理論機率，但單次或短期內的**樣本偏差 (Sample Bias)** 仍可能顯著。\n\n例如，「激進包牌」和「穩健平衡」可能因過度依賴歷史冷門或近期冷門池號碼，而忽略了本次開獎偏向近期熱門號碼的**隨機波動 (Random Fluctuation)**。即使「統計趨勢」命中兩碼 (17, 38)，其餘未命中號碼與實際開獎的差異，也體現了在**均勻分佈 (Uniform Distribution)** 下，任何預測都面臨固有的**預測區間 (Prediction Interval)** 不確定性。本次開獎結果可視為隨機分佈中的一個**離群值 (Outlier)**，其發生機率完全符合機率論預期。"
     }
   }
 ]
