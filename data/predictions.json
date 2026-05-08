@@ -1784,12 +1784,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000113",
+      "actual_numbers": [
+        18,
+        19,
+        23,
+        26,
+        28
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            19,
+            28
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            12,
+            13,
+            37
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            21,
+            24,
+            36
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            15,
+            22,
+            29,
+            36
+          ]
+        }
+      },
+      "attribution_report": "本次預測未能完全命中，主要歸因於樂透開獎的本質為獨立同分佈的隨機過程。每個號碼在每次抽籤中均具有等機率，不受歷史數據影響。\n\n儘管預測系統利用了『大數法則』下的長期頻率分佈及短期『樣本偏差』，但這些描述性統計量不具備預測未來獨立事件的能力。開獎結果 [18, 19, 23, 26, 28] 僅是數百萬種可能組合中的一個隨機實現，其與預測組合的差異是『隨機漫步』過程中的自然波動。由於樂透號碼之間缺乏『自相關性』，任何基於歷史模式的預測都將面臨機率分佈的固有『變異』。未能完全命中是隨機系統的預期結果，而非模型缺陷。"
     }
   },
   {
@@ -1838,12 +1882,61 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000051",
+      "actual_numbers": [
+        10,
+        18,
+        25,
+        28,
+        39,
+        43
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            10
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            3,
+            20,
+            24,
+            30,
+            31
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            25
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            3,
+            11,
+            22,
+            30,
+            42
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            7,
+            12,
+            16,
+            23,
+            38,
+            40
+          ]
+        }
+      },
+      "attribution_report": "本次預測未能完全命中，主要歸因於樂透開獎本質上是一個**隨機過程 (Stochastic Process)**，每次開獎均為**獨立事件 (Independent Events)**。\n\n儘管我們運用了歷史數據進行統計分析，例如「史上熱門/冷門」與「近100期趨勢」，這些數據僅反映了過去的**樣本偏差 (Sample Bias)**與**變異數 (Variance)**，並非對未來開獎結果的確定性預測。根據**大數法則 (Law of Large Numbers)**，長期而言各號碼出現頻率會趨近於其理論上的**均勻機率分佈 (Uniform Probability Distribution)**，但單一期次的開獎結果仍是高度隨機的。\n\n預測系統基於歷史模式，但樂透開獎缺乏**自相關性 (Autocorrelation)**，即過去的結果對未來的結果沒有影響。因此，未能命中是該期開獎作為一個**隨機實現 (Random Realization)**，與特定預測組合產生差異的自然結果，符合機率學中**離群值 (Outlier)**在廣大樣本空間中出現的合理性。"
     }
   }
 ]
