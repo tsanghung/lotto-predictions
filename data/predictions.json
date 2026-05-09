@@ -1982,12 +1982,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000114",
+      "actual_numbers": [
+        11,
+        18,
+        21,
+        22,
+        25
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            2,
+            12,
+            13,
+            15,
+            37
+          ]
+        },
+        "穩健平衡": {
+          "hits": 3,
+          "matches": [
+            11,
+            21,
+            25
+          ],
+          "miss_count": 2,
+          "missed_numbers": [
+            8,
+            28
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            8,
+            17,
+            23,
+            36
+          ]
+        }
+      },
+      "attribution_report": "命中表現優良，無需特殊歸因。"
     }
   }
 ]
