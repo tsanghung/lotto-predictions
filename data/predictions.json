@@ -2173,12 +2173,58 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000116",
+      "actual_numbers": [
+        1,
+        4,
+        12,
+        22,
+        26
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            12
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            2,
+            10,
+            24,
+            33
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            12
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            17,
+            21,
+            24,
+            25
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            22
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            15,
+            18,
+            31,
+            36
+          ]
+        }
+      },
+      "attribution_report": "樂透開獎本質上是一個高度隨機的過程，每次開獎均為獨立事件。儘管預測系統運用了歷史數據進行統計分析，如「史上最熱門」、「近100期熱門」等，試圖識別潛在的樣本偏差或短期趨勢，但這些觀察並不能改變單次開獎的機率分佈。\n\n號碼的出現頻率在長期觀察下趨近於理論平均值（大數法則），但在單一期中，任何號碼都有其固有的中獎機率。預測系統未能完全命中，主要歸因於隨機變異性 (Stochastic Variability) 和單次抽樣的樣本偏差。本次開獎結果 [1, 4, 12, 22, 26] 僅是所有可能組合中的一個隨機實現 (Random Realization)。由於缺乏自相關性 (Autocorrelation)，過去的模式無法有效預測未來的獨立事件。因此，未能完全命中是機率事件的常態，本次結果可視為隨機分佈中的一個合理離群值 (Outlier)。"
     }
   },
   {
@@ -2227,12 +2273,59 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000052",
+      "actual_numbers": [
+        6,
+        12,
+        18,
+        19,
+        32,
+        36
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            3,
+            8,
+            15,
+            22,
+            31,
+            49
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            11,
+            14,
+            17,
+            25,
+            34,
+            41
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            2,
+            7,
+            15,
+            23,
+            35,
+            40
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。"
     }
   }
 ]
