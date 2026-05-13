@@ -2371,12 +2371,55 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000117",
+      "actual_numbers": [
+        2,
+        6,
+        7,
+        9,
+        23
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            12,
+            18,
+            24,
+            29
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            11,
+            22,
+            24,
+            36
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            13,
+            17,
+            18,
+            25,
+            36
+          ]
+        }
+      },
+      "attribution_report": "未能完全命中號碼，主要歸因於樂透開獎的固有**隨機性**。每個開獎結果均為**獨立事件**，不具備**自相關性**。\n\n儘管預測系統利用了歷史**頻率分佈**（如熱門/冷門號碼）和**樣本統計量**（如近100期和值平均），這些數據反映的是長期趨勢，而非單次開獎的確定性預測。本次開獎號碼 [2, 6, 7, 9, 23] 的和值為 47，顯著低於近 100 期平均和值 96.5，構成一個明顯的**統計離群值 (Outlier)**，並呈現向低號碼區間的**偏態分佈 (Skewness)**。\n\n此類事件屬於**樣本偏差 (Sample Bias)** 的範疇，即單一隨機樣本可能與其母體分佈的平均值存在較大差異。**大數法則 (Law of Large Numbers)** 僅保證在極大量重複試驗後，觀察頻率會趨近理論機率，但無法預測單次試驗的結果。任何特定組合的機率均極低，本次未命中是隨機過程的自然體現。"
     }
   }
 ]
