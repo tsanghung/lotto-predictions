@@ -2465,12 +2465,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000118",
+      "actual_numbers": [
+        8,
+        18,
+        28,
+        35,
+        39
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            10,
+            15,
+            24,
+            29
+          ]
+        },
+        "穩健平衡": {
+          "hits": 3,
+          "matches": [
+            8,
+            18,
+            35
+          ],
+          "miss_count": 2,
+          "missed_numbers": [
+            11,
+            33
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            2,
+            15,
+            22,
+            27,
+            36
+          ]
+        }
+      },
+      "attribution_report": "命中表現優良，無需特殊歸因。"
     }
   }
 ]
