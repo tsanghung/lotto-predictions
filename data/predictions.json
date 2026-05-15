@@ -2547,12 +2547,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000119",
+      "actual_numbers": [
+        1,
+        13,
+        23,
+        25,
+        36
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            25
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            14,
+            24,
+            26,
+            29
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            15,
+            17,
+            29,
+            34
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            2,
+            5,
+            15,
+            28,
+            39
+          ]
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎屬於典型的「隨機漫步 (Random Walk)」過程，每期結果為獨立同分佈 (IID) 隨機變數。預測模型雖基於「大數法則 (LLN)」之歷史頻率進行推論，但在單次抽樣中，隨機波動導致的高變異數 (Variance) 掩蓋了長期統計趨勢。\n\n實際結果 [1, 13, 23, 25, 36] 同時包含極冷號碼 (13) 與極熱號碼，呈現出非線性的分佈特徵，且與預測組合間缺乏「自相關性 (Autocorrelation)」。此結果在機率論中屬於正常的隨機離群值 (Outlier)，證明短期樣本偏差 (Sample Bias) 遠大於統計期望值。"
     }
   },
   {
@@ -2588,12 +2632,60 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000053",
+      "actual_numbers": [
+        16,
+        29,
+        30,
+        35,
+        42,
+        43
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            9,
+            21,
+            23,
+            25,
+            38,
+            39
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            35
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            18,
+            26,
+            28,
+            31
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            11,
+            17,
+            20,
+            23,
+            24,
+            38
+          ]
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎本質為「隨機漫步 (Random Walk)」，各期結果之間不存在「自相關性 (Autocorrelation)」。預測模型基於歷史頻率（熱門/冷門）構建，但在單次抽樣中，這屬於對歷史樣本的過度擬合，無法克服隨機過程的高變異數 (Variance)。\n\n實際結果中，史上最冷門號碼 42 與熱門號碼 43 同時出現，體現了機率分佈的隨機離散性。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅在極大量樣本下成立，單期結果屬於隨機過程中的隨機波動 (Stochastic Fluctuation)，其偏差在統計學上完全合理。"
     }
   }
 ]
