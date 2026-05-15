@@ -63,6 +63,23 @@ class AIPredictor:
         
         if not self.client:
             return self._generate_mock_prediction(full_context)
+
+        if self.stats_engine.max_number == 49:
+            trend_strategy_rule = (
+                "- 統計趨勢：至少 3 個號碼來自【近 20 期出現 5 次以上】的熱門池\n"
+            )
+            reasoning_example = (
+                '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
+                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 20 期出現 Z 次』\",\n"
+            )
+        else:
+            trend_strategy_rule = (
+                "- 統計趨勢：至少 3 個號碼來自【近 50 期出現 10 次以上】的熱門池\n"
+            )
+            reasoning_example = (
+                '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
+                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 50 期出現 Z 次』\",\n"
+            )
             
         # 2. 定義 System Prompt 與 User Prompt
         system_instruction = (
@@ -82,17 +99,17 @@ class AIPredictor:
             "5. 禁止與近 3 期開獎號碼完全相同\n\n"
             "== 推理步驟（請依序在 reasoning 欄說明）==\n"
             "Step 1: 從統計資料中，列出近期【最熱】3 個號碼與【最冷】3 個號碼（須引用實際出現次數或隔期數）\n"
-            "Step 2: 計算近 100 期的【和值平均】與【奇偶比】，作為合理性基準\n"
+            "Step 2: 計算所有歷史資料的【和值平均】與【奇偶比】，作為合理性基準\n"
             "Step 3: 根據三種策略的定義（見下方），各別選號\n"
             "Step 4: 自我檢查：每組是否符合硬性約束？是否與近 3 期開獎號完全相同？\n\n"
             "== 三種策略的明確定義 ==\n"
-            "- 激進包牌：至少 3 個號碼來自背景資料中的【冷門池】；和值偏離近 100 期平均 ±20%\n"
-            "- 穩健平衡：奇偶比接近 3:3 或 3:2；和值落在近 100 期平均 ±10%；冷熱門各半\n"
-            "- 統計趨勢：至少 3 個號碼來自【近 10 期出現 2 次以上】的熱門池\n\n"
+            "- 激進包牌：至少 3 個號碼來自背景資料中的【冷門池】；和值偏離全歷史平均 ±20%\n"
+            "- 穩健平衡：奇偶比接近全歷史每期平均或 3:3/3:2；和值落在全歷史平均 ±10%；冷熱門各半\n"
+            f"{trend_strategy_rule}\n"
             f"== 背景資料 ==\n{full_context}\n\n"
             "== 輸出格式（嚴格 JSON，不可有 Markdown）==\n"
             "{\n"
-            '  "reasoning": "依 Step1-4 推理，須引用具體數字，例如『號碼 7 在近 100 期出現 X 次，為熱門』",\n'
+            f"{reasoning_example}"
             '  "risk_warning": "一句風險提示",\n'
             '  "self_check": {\n'
             '    "和值": [激進和值, 穩健和值, 趨勢和值],\n'
