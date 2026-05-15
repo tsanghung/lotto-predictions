@@ -2516,5 +2516,84 @@
       },
       "attribution_report": "命中表現優良，無需特殊歸因。"
     }
+  },
+  {
+    "timestamp": "2026-05-15T14:56:14.224810",
+    "game_name": "今彩539",
+    "prediction": {
+      "reasoning": "此為離線模擬預測。原因：API 發生錯誤: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          14,
+          24,
+          25,
+          26,
+          29
+        ],
+        "穩健平衡": [
+          11,
+          15,
+          17,
+          29,
+          34
+        ],
+        "統計趨勢": [
+          2,
+          5,
+          15,
+          28,
+          39
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
+  },
+  {
+    "timestamp": "2026-05-15T14:56:17.725800",
+    "game_name": "大樂透",
+    "prediction": {
+      "reasoning": "此為離線模擬預測。原因：API 發生錯誤: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          9,
+          21,
+          23,
+          25,
+          38,
+          39
+        ],
+        "穩健平衡": [
+          5,
+          18,
+          26,
+          28,
+          31,
+          35
+        ],
+        "統計趨勢": [
+          11,
+          17,
+          20,
+          23,
+          24,
+          38
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
