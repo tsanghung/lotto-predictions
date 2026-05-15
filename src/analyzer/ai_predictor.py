@@ -9,6 +9,7 @@ from google.genai import types
 
 from .stats_engine import StatsEngine
 from .web_search import WebSearcher
+from .gemini_config import get_prediction_model, is_api_key_configured, is_gemma_model
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -19,7 +20,8 @@ class AIPredictor:
         
         load_dotenv()
         self.api_key = os.getenv("GEMINI_API_KEY")
-        if self.api_key and self.api_key != "your_gemini_api_key_here":
+        self.model = get_prediction_model()
+        if is_api_key_configured():
             self.client = genai.Client(api_key=self.api_key)
         else:
             self.client = None
@@ -105,45 +107,40 @@ class AIPredictor:
             "}"
         )
 
-        # Gemma 模型不支援 system_instruction 與 response_mime_type，必須把角色設定併入主 prompt
-        full_prompt = f"{system_instruction}\n\n{prompt}"
-
         try:
-            # 3. 呼叫 Gemma API
-            logging.info("正在呼叫 Gemma LLM 進行推理...")
-            response = self.client.models.generate_content(
-                model='gemma-4-31b-it',
-                contents=full_prompt,
-                config=types.GenerateContentConfig(
-                    temperature=0.5
-                )
-            )
-            
-            # [修正] 增強 JSON 解析強健性：移除可能的 Markdown 標記或雜訊
-            raw_text = response.text.strip()
-            # 利用正則表達式擷取最外層的大括號內容
-            json_match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
-            if json_match:
-                clean_text = json_match.group(1)
+            logging.info(f"正在呼叫 {self.model} 進行推理...")
+            if is_gemma_model(self.model):
+                # Gemma 不支援 system_instruction / JSON mode，角色設定併入主 prompt
+                contents = f"{system_instruction}\n\n{prompt}"
+                config = types.GenerateContentConfig(temperature=0.5)
             else:
-                clean_text = raw_text
+                contents = prompt
+                config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=0.5,
+                    response_mime_type="application/json",
+                )
 
-            # Gemma 沒有 JSON mode，可能輸出非法反斜線跳脫（例如 \『 \』）。
-            # 移除所有不合法的反斜線（合法跳脫: \" \\ \/ \b \f \n \r \t \uXXXX）
-            clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=config,
+            )
 
+            raw_text = response.text.strip()
             try:
+                result = json.loads(raw_text)
+            except json.JSONDecodeError:
+                json_match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
+                clean_text = json_match.group(1) if json_match else raw_text
+                clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
                 result = json.loads(clean_text)
-            except json.JSONDecodeError as je:
-                logging.error(f"JSON 解析失敗：{je}")
-                logging.error(f"原始回應前 500 字：{raw_text[:500]}")
-                raise
             
             # 驗證結構
             if "combinations" not in result or "reasoning" not in result:
                 raise ValueError("LLM 回傳的 JSON 缺少必要的欄位。")
                 
-            logging.info("Gemini 推理完成！")
+            logging.info(f"{self.model} 推理完成！")
             return result
             
         except Exception as e:

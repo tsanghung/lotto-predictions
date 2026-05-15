@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 
 from .stats_engine import StatsEngine
+from .gemini_config import get_attribution_model, is_api_key_configured, is_gemma_model
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -13,7 +14,8 @@ class AttributionAnalyzer:
     def __init__(self, data_file: str, max_number: int):
         load_dotenv()
         self.api_key = os.getenv("GEMINI_API_KEY")
-        if self.api_key and self.api_key != "your_gemini_api_key_here":
+        self.model = get_attribution_model()
+        if is_api_key_configured():
             self.client = genai.Client(api_key=self.api_key)
         else:
             self.client = None
@@ -51,15 +53,21 @@ class AttributionAnalyzer:
         )
 
         try:
-            logging.info("正在呼叫 Gemini 進行科學歸因分析...")
-            # 必須設定極低的 Temperature 以防止幻覺
-            response = self.client.models.generate_content(
-                model='gemini-2.5-flash',
-                contents=prompt,
-                config=types.GenerateContentConfig(
+            logging.info(f"正在呼叫 {self.model} 進行科學歸因分析...")
+            if is_gemma_model(self.model):
+                contents = f"{system_instruction}\n\n{prompt}"
+                config = types.GenerateContentConfig(temperature=0.1)
+            else:
+                contents = prompt
+                config = types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    temperature=0.1, 
+                    temperature=0.1,
                 )
+
+            response = self.client.models.generate_content(
+                model=self.model,
+                contents=contents,
+                config=config,
             )
             logging.info("科學歸因分析完成！")
             return response.text.strip()

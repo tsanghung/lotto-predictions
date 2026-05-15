@@ -4,7 +4,7 @@ A fully automated, AI-driven lottery prediction system with statistical analysis
 
 ## Core Features
 - **Dual-Verification Scraping**: Ensures 100% data integrity for historical lotto results.
-- **AI Prediction Engine**: Combines stats (Pandas) and web news (DDGS) using Gemini 1.5 Pro.
+- **AI Prediction Engine**: Combines stats (Pandas) and web news (DDGS) using Gemma 4 31B (configurable via env).
 - **Automated Workflows**: Daily updates and automated LINE Notify pushes via GitHub Actions.
 - **Premium Dashboard**: Glassmorphism UI with interactive charts (Chart.js) and scientific attribution reports.
 

@@ -2,8 +2,8 @@ name: Daily Lotto Data Update
 
 on:
   schedule:
-    # 台灣時間 21:30 相當於 UTC 13:30
-    - cron: '30 13 * * *'
+    # 台灣時間 23:30 相當於 UTC 15:30
+    - cron: '30 15 * * *'
   workflow_dispatch: # 允許手動觸發
 
 jobs:
