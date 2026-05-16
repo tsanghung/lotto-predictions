@@ -1,2 +1,12 @@
 {
+    "chat.tools.terminal.autoApprove": {
+        "/^python -m compileall -q src ; echo \"Compile OK\" ; echo \"Compile failed\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^python -c \"import compileall,sys; ok=compileall\\.compile_dir\\('src',quiet=1\\); print\\('OK' if ok else 'FAIL'\\); sys\\.exit\\(0 if ok else 1\\)\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import time
 import logging
 from datetime import datetime
 from dotenv import load_dotenv
@@ -67,20 +68,24 @@ class AIPredictor:
             return self._generate_mock_prediction(full_context)
 
         if self.stats_engine.max_number == 49:
+            # 大樂透：近 100 期（約一年）為基準
+            recent_periods = 100
             trend_strategy_rule = (
-                "- 統計趨勢：至少 3 個號碼來自【近 20 期出現 5 次以上】的熱門池\n"
+                "- 統計趨勢：至少 3 個號碼來自【近 100 期出現 15 次以上】的熱門池\n"
             )
             reasoning_example = (
                 '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
-                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 20 期出現 Z 次』\",\n"
+                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 100 期出現 Z 次』\",\n"
             )
         else:
+            # 今彩539：近 300 期（約一年）為基準
+            recent_periods = 300
             trend_strategy_rule = (
-                "- 統計趨勢：至少 3 個號碼來自【近 50 期出現 10 次以上】的熱門池\n"
+                "- 統計趨勢：至少 3 個號碼來自【近 300 期出現 40 次以上】的熱門池\n"
             )
             reasoning_example = (
                 '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
-                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 50 期出現 Z 次』\",\n"
+                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 300 期出現 Z 次』\",\n"
             )
             
         # 2. 定義 System Prompt 與 User Prompt
@@ -93,20 +98,23 @@ class AIPredictor:
         
         prompt = (
             f"任務：為【{self.game_name}】預測下一期號碼（從 1 到 {self.stats_engine.max_number} 選 {self.num_picks} 個）\n\n"
-            "== 必須遵守的硬性約束 ==\n"
+            "== 必須遵守的硬性約束（違反任何一條視為無效，必須重新選號）==\n"
             f"1. 每個號碼必須在 1 到 {self.stats_engine.max_number} 之間，不可重複\n"
             f"2. 每組必須剛好 {self.num_picks} 個號碼\n"
             "3. 禁止全奇或全偶；禁止 4 個以上連續整數\n"
             "4. 三種策略之間，重複號碼不得超過 2 個（確保差異化）\n"
-            "5. 禁止與近 3 期開獎號碼完全相同\n\n"
+            "5. 禁止與近 3 期開獎號碼完全相同\n"
+            "6. 【激進包牌】和值必須落在全歷史平均的 ±20% 區間內（背景資料已提供區間）\n"
+            "7. 【穩健平衡】和值必須落在全歷史平均的 ±10% 區間內（背景資料已提供區間）\n"
+            "8. 【統計趨勢】和值必須落在全歷史平均的 ±10% 區間內（背景資料已提供區間）\n\n"
             "== 推理步驟（請依序在 reasoning 欄說明）==\n"
-            "Step 1: 從統計資料中，列出近期【最熱】3 個號碼與【最冷】3 個號碼（須引用實際出現次數或隔期數）\n"
-            "Step 2: 計算所有歷史資料的【和值平均】與【奇偶比】，作為合理性基準\n"
-            "Step 3: 根據三種策略的定義（見下方），各別選號\n"
-            "Step 4: 自我檢查：每組是否符合硬性約束？是否與近 3 期開獎號完全相同？\n\n"
+            f"Step 1: 從統計資料中，列出近 {recent_periods} 期【最熱】3 個號碼與【最冷】3 個號碼（須引用實際出現次數或隔期數）\n"
+            "Step 2: 從背景資料讀取全歷史【和值平均】與【奇偶比】，以及 ±10%/±20% 區間數值\n"
+            "Step 3: 根據三種策略的定義（見下方），各別選號，並計算每組和值確認落在規定區間\n"
+            "Step 4: 自我檢查：每組是否符合所有硬性約束？和值是否在規定區間？是否與近 3 期開獎號完全相同？\n\n"
             "== 三種策略的明確定義 ==\n"
-            "- 激進包牌：至少 3 個號碼來自背景資料中的【冷門池】；和值偏離全歷史平均 ±20%\n"
-            "- 穩健平衡：奇偶比接近全歷史每期平均或 3:3/3:2；和值落在全歷史平均 ±10%；冷熱門各半\n"
+            "- 激進包牌：至少 3 個號碼來自背景資料中的【冷門池】；和值必須在全歷史平均 ±20% 區間內\n"
+            "- 穩健平衡：奇偶比接近全歷史每期平均或 3:3/3:2；和值落在全歷史平均 ±10% 區間內；冷熱門各半\n"
             f"{trend_strategy_rule}\n"
             f"== 背景資料 ==\n{full_context}\n\n"
             "== 輸出格式（嚴格 JSON，不可有 Markdown）==\n"
@@ -126,46 +134,63 @@ class AIPredictor:
             "}"
         )
 
-        try:
-            logging.info(f"正在呼叫 {self.model} 進行推理...")
-            if is_gemma_model(self.model):
-                # Gemma 不支援 system_instruction / JSON mode，角色設定併入主 prompt
-                contents = f"{system_instruction}\n\n{prompt}"
-                config = types.GenerateContentConfig(temperature=0.5)
-            else:
-                contents = prompt
-                config = types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=0.5,
-                    response_mime_type="application/json",
-                )
-
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=contents,
-                config=config,
+        if is_gemma_model(self.model):
+            # Gemma 不支援 system_instruction / JSON mode，角色設定併入主 prompt
+            contents = f"{system_instruction}\n\n{prompt}"
+            config = types.GenerateContentConfig(temperature=0.5)
+        else:
+            contents = prompt
+            config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.5,
+                response_mime_type="application/json",
             )
 
-            raw_text = response.text.strip()
+        MAX_RETRIES = 3
+        last_error = None
+
+        for attempt in range(1, MAX_RETRIES + 1):
             try:
-                result = json.loads(raw_text)
-            except json.JSONDecodeError:
-                json_match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
-                clean_text = json_match.group(1) if json_match else raw_text
-                clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
-                result = json.loads(clean_text)
-            
-            # 驗證結構
-            if "combinations" not in result or "reasoning" not in result:
-                raise ValueError("LLM 回傳的 JSON 缺少必要的欄位。")
-                
-            logging.info(f"{self.model} 推理完成！")
-            return result
-            
-        except Exception as e:
-            logging.error(f"AI 預測發生錯誤: {e}")
-            logging.warning("啟動容錯機制，使用模擬預測。")
-            return self._generate_mock_prediction(full_context, reason=f"API 發生錯誤: {e}")
+                logging.info(f"正在呼叫 {self.model} 進行推理（第 {attempt}/{MAX_RETRIES} 次）...")
+
+                response = self.client.models.generate_content(
+                    model=self.model,
+                    contents=contents,
+                    config=config,
+                )
+
+                raw_text = response.text.strip()
+                try:
+                    result = json.loads(raw_text)
+                except json.JSONDecodeError:
+                    json_match = re.search(r'(\{.*\})', raw_text, re.DOTALL)
+                    clean_text = json_match.group(1) if json_match else raw_text
+                    clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
+                    result = json.loads(clean_text)
+
+                # 驗證結構
+                if "combinations" not in result or "reasoning" not in result:
+                    raise ValueError("LLM 回傳的 JSON 缺少必要的欄位。")
+
+                logging.info(f"{self.model} 推理完成！")
+                return result
+
+            except Exception as e:
+                last_error = e
+                # 500 / 503 / 429 都值得重試；其他錯誤也重試，最多 MAX_RETRIES 次
+                if attempt < MAX_RETRIES:
+                    wait_sec = 2 ** (attempt - 1)  # 1s → 2s → 4s 指數退避
+                    logging.warning(
+                        f"第 {attempt} 次呼叫失敗（{e}），{wait_sec}s 後重試..."
+                    )
+                    time.sleep(wait_sec)
+                else:
+                    logging.error(f"已重試 {MAX_RETRIES} 次，全部失敗。最後錯誤：{e}")
+
+        logging.warning("啟動容錯機制，使用模擬預測。")
+        return self._generate_mock_prediction(
+            full_context, reason=f"API 發生錯誤（重試 {MAX_RETRIES} 次仍失敗）: {last_error}"
+        )
 
 def save_predictions(
     game_name: str,

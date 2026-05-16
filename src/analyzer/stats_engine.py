@@ -176,12 +176,8 @@ class StatsEngine:
         """
         try:
             missing = self.get_missing_values()
-            hot_cold_10 = self.get_hot_cold_stats(10)
-            hot_cold_100 = self.get_hot_cold_stats(100)
             sum_stats_all = self.get_sum_stats(None)
             oe_stats_all = self.get_odd_even_stats(None)
-            sum_stats_100 = self.get_sum_stats(100)
-            oe_stats_100 = self.get_odd_even_stats(100)
             all_time = self.get_all_time_stats()
             dist = self.get_distribution_features()
 
@@ -195,17 +191,26 @@ class StatsEngine:
             else:
                 cold_pool = strict_cold
                 pool_note = ""
-            # 統計趨勢策略熱門池：大樂透(49) 近 20 期 ≥5 次；今彩539 近 50 期 ≥10 次
+            # 統計趨勢策略熱門池：
+            #   大樂透(49)：近 100 期（約一年）≥ 15 次
+            #   今彩539   ：近 300 期（約一年）≥ 40 次
             if self.max_number == 49:
-                trend_periods, trend_min_freq = 20, 5
+                trend_periods, trend_min_freq = 100, 15
+                recent_periods = 100   # 近期報告用的期數
             else:
-                trend_periods, trend_min_freq = 50, 10
+                trend_periods, trend_min_freq = 300, 40
+                recent_periods = 300   # 近期報告用的期數
+
+            hot_cold_recent = self.get_hot_cold_stats(recent_periods)
+            sum_stats_recent = self.get_sum_stats(recent_periods)
+            oe_stats_recent = self.get_odd_even_stats(recent_periods)
+
             hot_cold_trend = self.get_hot_cold_stats(trend_periods)
             trend_hot_pool = {
                 n: c for n, c in hot_cold_trend["frequencies"].items() if c >= trend_min_freq
             }
-            # 近 100 期熱門前 10（含次數）
-            top_100 = sorted(hot_cold_100["frequencies"].items(), key=lambda x: x[1], reverse=True)[:10]
+            # 近 recent_periods 期熱門前 10（含次數）
+            top_recent = sorted(hot_cold_recent["frequencies"].items(), key=lambda x: x[1], reverse=True)[:10]
 
             report = f"📊 統計分析報告 (基於 2007 至今共 {all_time['total_draws']} 期累計數據)\n"
             report += f"史上最熱門前 10 (號碼,次數): {all_time['top_all_time']}\n"
@@ -223,16 +228,16 @@ class StatsEngine:
                 f"偶={oe_stats_all['avg_even_per_draw']:.2f}; "
                 f"累計開出顆數比 奇:偶={oe_stats_all['aggregate_odd_even_ratio']}\n\n"
             )
-            report += f"近 100 期熱門前 10 (號碼,次數): {top_100}\n"
+            report += f"近 {recent_periods} 期熱門前 10 (號碼,次數): {top_recent}\n"
             report += (
-                f"近 100 期和值: 平均={sum_stats_100['average']:.1f}, "
-                f"範圍 {sum_stats_100['min']}~{sum_stats_100['max']}, "
-                f"±10% 區間=[{sum_stats_100['band_minus_10pct']:.1f}, {sum_stats_100['band_plus_10pct']:.1f}], "
-                f"±20% 區間=[{sum_stats_100['band_minus_20pct']:.1f}, {sum_stats_100['band_plus_20pct']:.1f}]\n"
+                f"近 {recent_periods} 期和值: 平均={sum_stats_recent['average']:.1f}, "
+                f"範圍 {sum_stats_recent['min']}~{sum_stats_recent['max']}, "
+                f"±10% 區間=[{sum_stats_recent['band_minus_10pct']:.1f}, {sum_stats_recent['band_plus_10pct']:.1f}], "
+                f"±20% 區間=[{sum_stats_recent['band_minus_20pct']:.1f}, {sum_stats_recent['band_plus_20pct']:.1f}]\n"
             )
             report += (
-                f"近 100 期平均奇偶比 (每期): 奇={oe_stats_100['avg_odd_per_draw']:.2f}, "
-                f"偶={oe_stats_100['avg_even_per_draw']:.2f}\n\n"
+                f"近 {recent_periods} 期平均奇偶比 (每期): 奇={oe_stats_recent['avg_odd_per_draw']:.2f}, "
+                f"偶={oe_stats_recent['avg_even_per_draw']:.2f}\n\n"
             )
             report += f"冷門池 (號碼:遺漏期數){pool_note}: {cold_pool}\n"
             report += (
