@@ -1,0 +1,43 @@
+[
+  {
+    "timestamp": "2026-05-16T14:22:29.888079",
+    "game_name": "今彩539",
+    "is_offline": true,
+    "prediction": {
+      "is_offline": true,
+      "offline_reason": "API 發生錯誤: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "reasoning": "此為離線模擬預測。原因：API 發生錯誤: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          9,
+          30,
+          36,
+          37,
+          39
+        ],
+        "穩健平衡": [
+          1,
+          7,
+          15,
+          26,
+          29
+        ],
+        "統計趨勢": [
+          13,
+          16,
+          27,
+          28,
+          33
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
+  }
+]

@@ -2687,5 +2687,46 @@
       },
       "attribution_report": "本期未命中主因在於樂透開獎本質為「隨機漫步 (Random Walk)」，各期結果之間不存在「自相關性 (Autocorrelation)」。預測模型基於歷史頻率（熱門/冷門）構建，但在單次抽樣中，這屬於對歷史樣本的過度擬合，無法克服隨機過程的高變異數 (Variance)。\n\n實際結果中，史上最冷門號碼 42 與熱門號碼 43 同時出現，體現了機率分佈的隨機離散性。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅在極大量樣本下成立，單期結果屬於隨機過程中的隨機波動 (Stochastic Fluctuation)，其偏差在統計學上完全合理。"
     }
+  },
+  {
+    "timestamp": "2026-05-16T14:22:29.888079",
+    "game_name": "今彩539",
+    "is_offline": true,
+    "prediction": {
+      "is_offline": true,
+      "offline_reason": "API 發生錯誤: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "reasoning": "此為離線模擬預測。原因：API 發生錯誤: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          9,
+          30,
+          36,
+          37,
+          39
+        ],
+        "穩健平衡": [
+          1,
+          7,
+          15,
+          26,
+          29
+        ],
+        "統計趨勢": [
+          13,
+          16,
+          27,
+          28,
+          33
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
