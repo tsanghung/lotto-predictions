@@ -150,24 +150,23 @@ def main():
         logging.error(f"今彩539抓取或驗證發生錯誤：{e}")
         daily_count = len(load_json("data/daily539.json"))
 
-    # 3. 狀態寫入：只要有更新或資料存在，就同步 meta.json
-    if is_updated:
-        if os.path.exists("data/meta.json"):
-            with open("data/meta.json", "r", encoding='utf-8') as f:
-                try:
-                    meta = json.load(f)
-                except json.JSONDecodeError:
-                    meta = {}
-        else:
-            meta = {}
+    # 3. 狀態寫入：每次執行都更新 meta.json（代表「最後檢查時間」）
+    if os.path.exists("data/meta.json"):
+        with open("data/meta.json", "r", encoding='utf-8') as f:
+            try:
+                meta = json.load(f)
+            except json.JSONDecodeError:
+                meta = {}
+    else:
+        meta = {}
 
-        meta["last_updated"] = datetime.now().isoformat()
-        meta["lotto649_total"] = lotto_count
-        meta["daily539_total"] = daily_count
+    meta["last_updated"] = datetime.now().isoformat()
+    meta["lotto649_total"] = lotto_count
+    meta["daily539_total"] = daily_count
 
-        with open("data/meta.json", 'w', encoding='utf-8') as f:
-            json.dump(meta, f, ensure_ascii=False, indent=2)
-        logging.info("已同步 meta.json 狀態。")
+    with open("data/meta.json", 'w', encoding='utf-8') as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+    logging.info(f"已同步 meta.json 狀態（is_updated={is_updated}）。")
 
 if __name__ == "__main__":
     main()
