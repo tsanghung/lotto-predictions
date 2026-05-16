@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小賽 AI 樂透預測系統 — 專案架構分析</title>
+<style>
+  :root {
+    --bg: #080c14; --surface: rgba(255,255,255,0.04); --border: rgba(255,255,255,0.08);
+    --teal: #2dd4bf; --purple: #a78bfa; --blue: #3b82f6;
+    --text: #cbd5e1; --muted: #64748b;
+    --danger: #f43f5e; --warning: #f59e0b; --success: #10b981;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI','Noto Sans TC',system-ui,sans-serif; line-height: 1.6; }
+  .blob-wrap { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 0; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(80px); }
+  .blob-1 { top:-10%; left:-5%; width:50%; height:50%; background: radial-gradient(circle,rgba(45,212,191,0.07) 0%,transparent 70%); }
+  .blob-2 { top:40%; right:-10%; width:50%; height:50%; background: radial-gradient(circle,rgba(139,92,246,0.07) 0%,transparent 70%); }
+  .blob-3 { bottom:-10%; left:30%; width:40%; height:40%; background: radial-gradient(circle,rgba(59,130,246,0.05) 0%,transparent 70%); }
+  .container { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 48px 24px 80px; }
+  header { text-align: center; margin-bottom: 52px; }
+  .live-dot { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 12px rgba(45,212,191,0.8); animation: pulse 2s infinite; }
+  .live-label { font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.15em; text-transform: uppercase; }
+  h1 { font-size: clamp(1.8rem,5vw,3rem); font-weight: 900; background: linear-gradient(135deg,#2dd4bf 0%,#3b82f6 50%,#a78bfa 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 12px; }
+  .subtitle { color: var(--muted); font-size: 1rem; max-width: 560px; margin: 0 auto; }
+  .nav { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 36px; }
+  .nav-btn { padding: 9px 22px; border-radius: 100px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; white-space: nowrap; }
+  .nav-btn:hover { border-color: rgba(255,255,255,0.18); color: var(--text); }
+  .nav-btn.active { background: linear-gradient(135deg,rgba(45,212,191,0.15),rgba(59,130,246,0.15)); border-color: var(--teal); color: var(--teal); }
+  .section { display: none; animation: fadeIn 0.3s ease; }
+  .section.active { display: block; }
+  @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 28px; margin-bottom: 20px; }
+  .card-title { font-size: 1.05rem; font-weight: 700; color: #e2e8f0; margin-bottom: 16px; display: flex; align-items: center; gap: 10px; }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  @media(max-width:768px) { .grid-2,.grid-3 { grid-template-columns: 1fr; } }
+  .stat-box { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 12px; padding: 20px; text-align: center; }
+  .stat-val { font-size: 2rem; font-weight: 900; margin-bottom: 4px; }
+  .stat-label { font-size: 12px; color: var(--muted); }
+  .tag { display: inline-block; padding: 3px 10px; border-radius: 100px; font-size: 11px; font-weight: 600; margin: 2px; }
+  .tag-teal { background: rgba(45,212,191,0.12); color: var(--teal); border: 1px solid rgba(45,212,191,0.25); }
+  .tag-purple { background: rgba(167,139,250,0.12); color: var(--purple); border: 1px solid rgba(167,139,250,0.25); }
+  .tag-blue { background: rgba(59,130,246,0.12); color: var(--blue); border: 1px solid rgba(59,130,246,0.25); }
+  .tag-warn { background: rgba(245,158,11,0.12); color: var(--warning); border: 1px solid rgba(245,158,11,0.25); }
+  .tag-danger { background: rgba(244,63,94,0.12); color: var(--danger); border: 1px solid rgba(244,63,94,0.25); }
+  .tag-success { background: rgba(16,185,129,0.12); color: var(--success); border: 1px solid rgba(16,185,129,0.25); }
+  p { color: var(--text); font-size: 0.93rem; margin-bottom: 10px; }
+  ul { padding-left: 20px; }
+  li { font-size: 0.93rem; color: var(--text); margin-bottom: 6px; }
+  li strong { color: #e2e8f0; }
+  .code-block { background: rgba(0,0,0,0.4); border: 1px solid rgba(255,255,255,0.07); border-radius: 10px; padding: 16px 20px; font-family: 'Consolas','Courier New',monospace; font-size: 0.82rem; color: #94a3b8; overflow-x: auto; white-space: pre; margin: 12px 0; line-height: 1.7; }
+  .flow-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .flow-box { background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; font-size: 12px; font-weight: 600; color: #e2e8f0; white-space: nowrap; }
+  .flow-arrow { color: var(--muted); font-size: 1.1rem; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+  th { background: rgba(255,255,255,0.05); color: #94a3b8; font-weight: 600; padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+  td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.04); color: var(--text); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 700; }
+  .badge-teal { background: rgba(45,212,191,0.15); color: var(--teal); }
+  .badge-purple { background: rgba(167,139,250,0.15); color: var(--purple); }
+  .badge-warn { background: rgba(245,158,11,0.15); color: var(--warning); }
+  .note-box { background: rgba(245,158,11,0.06); border: 1px solid rgba(245,158,11,0.2); border-radius: 10px; padding: 14px 18px; font-size: 0.88rem; color: #fcd34d; margin: 12px 0; }
+  .section-divider { border: none; border-top: 1px solid var(--border); margin: 28px 0; }
+  footer { text-align: center; margin-top: 60px; padding-top: 28px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="blob-wrap"><div class="blob blob-1"></div><div class="blob blob-2"></div><div class="blob blob-3"></div></div>
+<div class="container">
+
+  <!-- HEADER -->
+  <header>
+    <div class="live-dot"><div class="dot"></div><span class="live-label">Architecture Report</span></div>
+    <h1>小賽 AI 樂透預測系統</h1>
+    <p class="subtitle">專案架構深度分析 · 全自動 AI 驅動 · GitHub Actions × Gemini × Vue 3</p>
+  </header>
+
+  <!-- NAV -->
+  <nav class="nav">
+    <button class="nav-btn active" onclick="showTab('overview')">🏠 總覽</button>
+    <button class="nav-btn" onclick="showTab('backend')">🐍 後端架構</button>
+    <button class="nav-btn" onclick="showTab('frontend')">🖥️ 前端架構</button>
+    <button class="nav-btn" onclick="showTab('automation')">⚙️ 自動化流程</button>
+    <button class="nav-btn" onclick="showTab('dataflow')">🔄 資料流</button>
+    <button class="nav-btn" onclick="showTab('design')">💡 設計決策</button>
+  </nav>
+
+  <!-- ══ OVERVIEW ══ -->
+  <div id="tab-overview" class="section active">
+    <div class="grid-3" style="margin-bottom:20px;">
+      <div class="stat-box"><div class="stat-val" style="color:var(--teal)">2</div><div class="stat-label">支援彩券遊戲</div></div>
+      <div class="stat-box"><div class="stat-val" style="color:var(--purple)">3</div><div class="stat-label">GitHub Actions 工作流</div></div>
+      <div class="stat-box"><div class="stat-val" style="color:var(--blue)">7</div><div class="stat-label">前端 Vue 元件</div></div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">🎯</span>專案定位</div>
+        <p>一個<strong>全自動 AI 驅動的台灣彩券預測系統</strong>，結合 Python 後端統計分析、Gemini AI 深度推理、網路輿情搜尋，透過 GitHub Actions 實現零人工介入的每日自動化流程，並部署在 GitHub Pages 上。</p>
+        <div style="margin-top:14px;">
+          <span class="tag tag-teal">大樂透 649</span>
+          <span class="tag tag-purple">今彩 539</span>
+          <span class="tag tag-blue">Gemini AI</span>
+          <span class="tag tag-warn">LINE 推播</span>
+          <span class="tag tag-success">GitHub Pages</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">🛠️</span>技術棧</div>
+        <ul>
+          <li><strong>後端：</strong>Python 3.10+、Pandas、NumPy、Google GenAI SDK</li>
+          <li><strong>AI 模型：</strong>Gemma 4 31B（可透過環境變數切換）</li>
+          <li><strong>輿情搜尋：</strong>DDGS（DuckDuckGo Search）</li>
+          <li><strong>前端：</strong>Vue 3、Vite、Tailwind CSS v4、Chart.js</li>
+          <li><strong>自動化：</strong>GitHub Actions（3 個 Workflow）</li>
+          <li><strong>部署：</strong>GitHub Pages</li>
+          <li><strong>推播：</strong>LINE Messaging API</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📁</span>目錄結構</div>
+      <div class="code-block">Lotto predictions/
+├── src/                    # Python 後端核心
+│   ├── main_predict.py     # 預測管線入口點
+│   ├── analyzer/           # 分析引擎（AI + 統計 + 評估）
+│   ├── scraper/            # 資料爬蟲層
+│   └── notifier/           # LINE 推播模組
+├── frontend/               # Vue 3 前端儀表板
+│   └── src/
+│       ├── App.vue         # 主框架（Tab 切換）
+│       ├── components/     # 7 個 UI 元件
+│       └── composables/    # 資料邏輯（useLottoData）
+├── data/                   # JSON 資料儲存（5 個檔案）
+│   ├── lotto649.json       # 大樂透歷史開獎
+│   ├── daily539.json       # 今彩539歷史開獎
+│   ├── predictions.json    # AI 預測紀錄（最近50筆）
+│   ├── performance.json    # 命中率統計快照
+│   └── meta.json           # 系統狀態元資料
+├── .github/workflows/      # 3 個自動化工作流
+├── scratch/                # 一次性資料修補腳本（開發工具）
+├── venv/                   # Python 虛擬環境
+└── requirements.txt</div>
+    </div>
+  </div>
+
+  <!-- ══ BACKEND ══ -->
+  <div id="tab-backend" class="section">
+    <div class="card">
+      <div class="card-title"><span class="icon">🕷️</span>scraper/ — 資料爬蟲層</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>檔案</th><th>功能</th><th>狀態</th></tr>
+          <tr><td><code>scraper_core.py</code></td><td>定義 <strong>BaseScraper</strong> 介面與 <strong>DualVerifier</strong> 雙重驗證機制（主/副來源交叉比對，確保資料 100% 正確）</td><td><span class="badge badge-teal">核心</span></td></tr>
+          <tr><td><code>official_scraper.py</code></td><td>台灣彩券官方 API 爬蟲，支援 649 / 539 兩種遊戲</td><td><span class="badge badge-teal">運作中</span></td></tr>
+          <tr><td><code>official_sync.py</code></td><td>官方 NTA API 自動對帳，確保歷史資料完整性</td><td><span class="badge badge-teal">運作中</span></td></tr>
+          <tr><td><code>update_latest.py</code></td><td>每日抓取最新一期，更新 JSON + meta.json</td><td><span class="badge badge-teal">運作中</span></td></tr>
+          <tr><td><code>historical_seeder.py</code></td><td>歷史資料種子匯入（2007年起）</td><td><span class="badge badge-warn">工具用</span></td></tr>
+        </table>
+      </div>
+      <div class="note-box" style="margin-top:14px;">⚠️ DualVerifier 架構已設計完成，但第三方爬蟲來源尚未實作，目前以單點官方 API 抓取替代。</div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🧠</span>analyzer/ — 分析引擎層</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>檔案</th><th>功能</th></tr>
+          <tr><td><code>stats_engine.py</code></td><td>統計分析核心：熱冷門號碼、遺漏值、和值分佈、奇偶比，產出 LLM Context 字串</td></tr>
+          <tr><td><code>ai_predictor.py</code></td><td>AI 預測主體：整合統計 + 輿情 → 呼叫 Gemini API → 解析 JSON → 離線備援</td></tr>
+          <tr><td><code>web_search.py</code></td><td>用 DDGS 搜尋本週台灣彩券輿情，補充 LLM 推理背景</td></tr>
+          <tr><td><code>evaluator.py</code></td><td>自動對獎 + 計算命中率 + 觸發科學歸因 + 寫入 performance.json</td></tr>
+          <tr><td><code>scientific_attribution.py</code></td><td>命中數 &lt; 3 時啟動 AI 歸因分析，解釋預測失準原因</td></tr>
+          <tr><td><code>gemini_config.py</code></td><td>模型設定（預設 gemma-4-31b-it），支援環境變數切換</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">📊</span>StatsEngine 分析項目</div>
+        <ul>
+          <li>全歷史頻率統計（2007年起）</li>
+          <li>近 10 / 100 期熱冷門號碼</li>
+          <li>遺漏值（每個號碼連續未開出期數）</li>
+          <li>和值平均 / 最大 / 最小 / ±10% / ±20% 區間</li>
+          <li>奇偶比（每期平均 + 累計）</li>
+          <li>大小比（以號碼池一半為界）</li>
+          <li>冷門池 / 統計趨勢熱門池</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">🔔</span>notifier/ — 推播層</div>
+        <p>透過 <strong>LINE Messaging API</strong> 推播預測結果。</p>
+        <ul style="margin-top:10px;">
+          <li>組裝三種策略的號碼訊息</li>
+          <li>加入統計洞察與風險提示</li>
+          <li>未設定 Token 時自動切換模擬模式</li>
+        </ul>
+        <div style="margin-top:14px;">
+          <span class="tag tag-warn">LINE_CHANNEL_ACCESS_TOKEN</span>
+          <span class="tag tag-warn">LINE_USER_ID</span>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🤖</span>AI 預測三種策略</div>
+      <div class="grid-3">
+        <div class="stat-box">
+          <div style="font-size:1.5rem;margin-bottom:8px;">🎲</div>
+          <div style="font-weight:700;color:#f43f5e;margin-bottom:6px;">激進包牌</div>
+          <div style="font-size:12px;color:var(--muted)">≥3 個號碼來自冷門池<br>和值偏離全歷史平均 ±20%</div>
+        </div>
+        <div class="stat-box">
+          <div style="font-size:1.5rem;margin-bottom:8px;">⚖️</div>
+          <div style="font-weight:700;color:var(--teal);margin-bottom:6px;">穩健平衡</div>
+          <div style="font-size:12px;color:var(--muted)">奇偶比接近歷史平均<br>和值落在 ±10% 區間</div>
+        </div>
+        <div class="stat-box">
+          <div style="font-size:1.5rem;margin-bottom:8px;">📈</div>
+          <div style="font-weight:700;color:var(--purple);margin-bottom:6px;">統計趨勢</div>
+          <div style="font-size:12px;color:var(--muted)">≥3 個號碼來自近期熱門池<br>649: 近20期≥5次 / 539: 近50期≥10次</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ FRONTEND ══ -->
+  <div id="tab-frontend" class="section">
+    <div class="card">
+      <div class="card-title"><span class="icon">🖥️</span>技術棧</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;">
+        <span class="tag tag-teal">Vue 3 (Composition API)</span>
+        <span class="tag tag-blue">Vite 8</span>
+        <span class="tag tag-purple">Tailwind CSS v4</span>
+        <span class="tag tag-warn">Chart.js 4</span>
+        <span class="tag tag-teal">vue-chartjs</span>
+        <span class="tag tag-blue">TypeScript</span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🧩</span>元件架構</div>
+      <div class="code-block">App.vue（主框架，Tab 切換大樂透 / 今彩539）
+├── PredictionCard.vue      # 顯示 AI 預測三種策略組合
+├── StatsPanel.vue          # 統計數字面板（熱冷門、遺漏值）
+├── HotColdChart.vue        # 熱冷門號碼長條圖
+├── HeatmapChart.vue        # 號碼出現頻率熱力圖
+├── DistributionChart.vue   # 和值 / 奇偶分佈圖
+├── PerformanceChart.vue    # 歷史命中率趨勢折線圖
+└── AttributionReport.vue   # AI 科學歸因報告展示</div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">🎨</span>設計風格</div>
+        <ul>
+          <li><strong>主題：</strong>Glassmorphism 暗色系</li>
+          <li><strong>大樂透主色：</strong><span style="color:var(--teal)">■</span> #2dd4bf（青色）</li>
+          <li><strong>今彩539主色：</strong><span style="color:var(--purple)">■</span> #a78bfa（紫色）</li>
+          <li><strong>背景：</strong>#080c14 + 環境光暈 Blob</li>
+          <li><strong>響應式：</strong>768px 斷點，雙欄 → 單欄</li>
+          <li><strong>字型：</strong>Inter + Noto Sans TC</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">📡</span>資料獲取（composables）</div>
+        <p><code>useLottoData.ts</code> 統一管理所有資料請求：</p>
+        <ul style="margin-top:10px;">
+          <li>fetch <code>/data/meta.json</code> — 系統狀態</li>
+          <li>fetch <code>/data/predictions.json</code> — 預測紀錄</li>
+          <li>fetch <code>/data/lotto649.json</code> — 大樂透歷史</li>
+          <li>fetch <code>/data/daily539.json</code> — 今彩539歷史</li>
+          <li>fetch <code>/data/performance.json</code> — 命中率統計</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">📦</span>建置與部署</div>
+      <div class="flow-row">
+        <div class="flow-box">npm run build</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">frontend/dist/</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">cp -r data dist/data</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">GitHub Pages</div>
+      </div>
+      <p style="margin-top:12px;color:var(--muted);font-size:0.88rem;">data 資料夾在建置時複製進 dist，讓前端可透過 <code>fetch('/data/xxx.json')</code> 直接存取。</p>
+    </div>
+  </div>
+
+  <!-- ══ AUTOMATION ══ -->
+  <div id="tab-automation" class="section">
+    <div class="card">
+      <div class="card-title"><span class="icon">⚙️</span>三個 GitHub Actions Workflow</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Workflow</th><th>觸發時間（台灣時間）</th><th>執行步驟</th></tr>
+          <tr>
+            <td><span class="badge badge-teal">update_data.yml</span></td>
+            <td>每天 23:30</td>
+            <td>
+              抓最新開獎 → 官方 NTA 對帳 → 評估預測命中率 → commit data/*.json
+            </td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-purple">predict_and_notify.yml</span></td>
+            <td>每天 12:00（週一至六）</td>
+            <td>
+              AI 預測 539（每天）→ AI 預測 649（週二/五）→ LINE 推播 → commit predictions.json
+            </td>
+          </tr>
+          <tr>
+            <td><span class="badge badge-warn">deploy_pages.yml</span></td>
+            <td>push 到 main（frontend/ 或 data/ 變動）</td>
+            <td>
+              npm ci → npm run build → cp data → 上傳 artifact → 部署 GitHub Pages
+            </td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title"><span class="icon">🔐</span>所需 GitHub Secrets</div>
+        <ul>
+          <li><strong>GEMINI_API_KEY</strong> — Google GenAI API 金鑰</li>
+          <li><strong>LINE_CHANNEL_ACCESS_TOKEN</strong> — LINE Bot 存取令牌</li>
+          <li><strong>LINE_USER_ID</strong> — 推播目標用戶 ID</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-title"><span class="icon">📅</span>每日自動化時間軸</div>
+        <div style="font-size:0.88rem;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <span style="color:var(--teal);font-weight:700;min-width:50px;">12:00</span>
+            <span>AI 預測 + LINE 推播</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+            <span style="color:var(--purple);font-weight:700;min-width:50px;">23:30</span>
+            <span>抓最新開獎 + 對帳 + 評估</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="color:var(--blue);font-weight:700;min-width:50px;">自動</span>
+            <span>data 更新後觸發前端重新部署</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🔁</span>predict_and_notify 流程細節</div>
+      <div class="code-block">schedule 觸發（週一至六 12:00）
+  ├── 今彩539 預測 → 每天執行
+  └── 大樂透649 預測 → 僅週二 / 週五執行（shell 內部判斷 DAYOFWEEK）
+
+workflow_dispatch 手動觸發
+  └── 可選擇 game_type: '539' 或 '649'，兩者皆可強制執行
+
+執行完畢後：
+  └── git status 檢查 predictions.json 是否有變動
+      ├── 有變動 → git commit + push [skip ci]
+      └── 無變動 → 跳過 commit</div>
+    </div>
+  </div>
+
+  <!-- ══ DATAFLOW ══ -->
+  <div id="tab-dataflow" class="section">
+    <div class="card">
+      <div class="card-title"><span class="icon">🔄</span>完整資料流</div>
+      <div class="flow-row">
+        <div class="flow-box">🌐 台灣彩券官方 API</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">official_scraper.py</div>
+        <div class="flow-arrow">+</div>
+        <div class="flow-box">official_sync.py（NTA 對帳）</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">data/lotto649.json</div>
+        <div class="flow-arrow">+</div>
+        <div class="flow-box">data/daily539.json</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">stats_engine.py（統計分析）</div>
+        <div class="flow-arrow">+</div>
+        <div class="flow-box">web_search.py（DDGS 輿情）</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">🤖 Gemini AI（gemma-4-31b-it）</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">data/predictions.json（最近50筆）</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">evaluator.py（自動對獎）</div>
+        <div class="flow-arrow">→</div>
+        <div class="flow-box">data/performance.json</div>
+        <div class="flow-arrow">+</div>
+        <div class="flow-box">scientific_attribution.py（AI 歸因）</div>
+        <div class="flow-arrow">↓</div>
+      </div>
+      <div class="flow-row">
+        <div class="flow-box">🌍 GitHub Pages（前端展示）</div>
+        <div class="flow-arrow">+</div>
+        <div class="flow-box">📱 LINE 推播</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🗄️</span>資料檔案說明</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>檔案</th><th>內容</th><th>更新頻率</th></tr>
+          <tr><td><code>lotto649.json</code></td><td>大樂透歷史開獎（2007年起，含 draw_id、date、numbers、special_number）</td><td>每天 23:30</td></tr>
+          <tr><td><code>daily539.json</code></td><td>今彩539歷史開獎（同上格式）</td><td>每天 23:30</td></tr>
+          <tr><td><code>predictions.json</code></td><td>AI 預測紀錄，含預測組合、對獎結果、歸因報告（最多保留 50 筆）</td><td>每天 12:00</td></tr>
+          <tr><td><code>performance.json</code></td><td>各策略累計命中率、趨勢數據快照</td><td>對獎後更新</td></tr>
+          <tr><td><code>meta.json</code></td><td>系統狀態：最後更新時間、各遊戲總期數</td><td>資料更新時</td></tr>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🔍</span>科學歸因觸發邏輯</div>
+      <div class="code-block">evaluator.py 對獎後：
+  max_hits = 各策略中最高命中數
+
+  if max_hits < 3:
+      → 啟動 AttributionAnalyzer（呼叫 Gemini AI）
+      → 分析預測失準原因，寫入 attribution_report
+  else:
+      → "命中表現優良，無需特殊歸因"</div>
+      <p style="margin-top:10px;color:var(--muted);font-size:0.88rem;">此設計節省 API 用量，只在預測表現不佳時才觸發額外的 AI 分析。</p>
+    </div>
+  </div>
+
+  <!-- ══ DESIGN DECISIONS ══ -->
+  <div id="tab-design" class="section">
+    <div class="card">
+      <div class="card-title"><span class="icon">💡</span>關鍵設計決策</div>
+      <div class="grid-2">
+        <div class="stat-box" style="text-align:left;padding:20px;">
+          <div style="font-size:1.2rem;margin-bottom:8px;">🛡️ 離線備援機制</div>
+          <p style="font-size:0.88rem;">沒有 API Key 或 Gemini 呼叫失敗時，自動切換為隨機模擬預測（<code>_generate_mock_prediction</code>），整個管線不會中斷，LINE 推播仍會發出（標示為模擬）。</p>
+        </div>
+        <div class="stat-box" style="text-align:left;padding:20px;">
+          <div style="font-size:1.2rem;margin-bottom:8px;">🔄 DualVerifier 預留架構</div>
+          <p style="font-size:0.88rem;"><code>scraper_core.py</code> 已完整實作雙重驗證框架，但第三方爬蟲來源尚未開發，目前以單點官方 API 替代，未來可無縫接入。</p>
+        </div>
+        <div class="stat-box" style="text-align:left;padding:20px;">
+          <div style="font-size:1.2rem;margin-bottom:8px;">📏 預測紀錄上限 50 筆</div>
+          <p style="font-size:0.88rem;"><code>predictions.json</code> 只保留最近 50 筆，避免 JSON 檔案過大影響 GitHub Pages 載入速度與 Actions commit 效率。</p>
+        </div>
+        <div class="stat-box" style="text-align:left;padding:20px;">
+          <div style="font-size:1.2rem;margin-bottom:8px;">💰 API 用量節省</div>
+          <p style="font-size:0.88rem;">科學歸因只在命中數 &lt; 3 時觸發，避免每次對獎都呼叫 Gemini，大幅降低 API 費用。</p>
+        </div>
+        <div class="stat-box" style="text-align:left;padding:20px;">
+          <div style="font-size:1.2rem;margin-bottom:8px;">🗂️ scratch/ 目錄定位</div>
+          <p style="font-size:0.88rem;">存放大量一次性資料修補腳本（填補 2007-2026 歷史缺漏），屬於開發工具，不是正式自動化流程的一部分，不會被 Actions 執行。</p>
+        </div>
+        <div class="stat-box" style="text-align:left;padding:20px;">
+          <div style="font-size:1.2rem;margin-bottom:8px;">🤖 模型可切換設計</div>
+          <p style="font-size:0.88rem;">透過環境變數 <code>GEMINI_MODEL_PREDICTION</code> 和 <code>GEMINI_MODEL_ATTRIBUTION</code> 可隨時切換模型，預設為 <code>gemma-4-31b-it</code>，Gemma 系列有特殊處理（不支援 system_instruction / JSON mode）。</p>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">⚠️</span>已知限制與待改進項目</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>項目</th><th>現況</th><th>影響</th></tr>
+          <tr>
+            <td>DualVerifier 第三方來源</td>
+            <td><span class="badge badge-warn">未實作</span></td>
+            <td>資料驗證僅依賴單一官方 API，若官方 API 異常無法交叉比對</td>
+          </tr>
+          <tr>
+            <td>大樂透特別號</td>
+            <td><span class="badge badge-warn">已儲存未分析</span></td>
+            <td>special_number 欄位存在但統計分析未納入</td>
+          </tr>
+          <tr>
+            <td>預測紀錄上限</td>
+            <td><span class="badge badge-teal">50 筆</span></td>
+            <td>長期命中率趨勢分析受限</td>
+          </tr>
+          <tr>
+            <td>前端資料快取</td>
+            <td><span class="badge badge-warn">無快取</span></td>
+            <td>每次開啟頁面都重新 fetch 所有 JSON</td>
+          </tr>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title"><span class="icon">🚀</span>可擴展方向</div>
+      <ul>
+        <li>實作第三方爬蟲來源，啟用 DualVerifier 完整雙重驗證</li>
+        <li>加入特別號統計分析（大樂透）</li>
+        <li>前端加入 Service Worker 快取，提升離線體驗</li>
+        <li>擴充更多彩券遊戲（威力彩等）</li>
+        <li>加入 Telegram / Discord 推播選項</li>
+        <li>預測紀錄改用資料庫儲存，突破 50 筆限制</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer>
+    <p>小賽 AI 樂透預測系統 · 架構分析報告 · 由 Kiro 生成</p>
+    <p style="margin-top:6px;">⚠️ 本系統僅供娛樂參考，不構成任何投注建議。請理性投注，勿過度沉迷。</p>
+  </footer>
+</div>
+
+<script>
+  function showTab(id) {
+    document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    event.currentTarget.classList.add('active');
+  }
+</script>
+</body>
+</html>

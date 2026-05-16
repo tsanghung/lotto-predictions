@@ -46,22 +46,36 @@ class LineBotNotifier:
             logging.error(f"調用 LINE Messaging API 時發生例外: {e}")
             return False
 
-    def build_prediction_message(self, game_name: str, target_date: str, insight: str, combinations: dict) -> str:
+    def build_prediction_message(
+        self,
+        game_name: str,
+        target_date: str,
+        insight: str,
+        combinations: dict,
+        is_offline: bool = False,
+    ) -> str:
         """
-        組裝適合 LINE 閱讀的訊息格式
+        組裝適合 LINE 閱讀的訊息格式。
+        is_offline=True 時，標題明顯標示為離線模式（正常流程不應走到這裡，
+        但保留參數供未來需要時使用）。
         """
-        msg = f"🔮【小賽 AI 樂透預測】🔮\n\n"
+        if is_offline:
+            header = "⚠️【離線模式 — 隨機模擬，非 AI 預測】⚠️"
+        else:
+            header = "🔮【小賽 AI 樂透預測】🔮"
+
+        msg = f"{header}\n\n"
         msg += f"📅 日期：{target_date}\n"
         msg += f"🎯 遊戲：{game_name}\n"
         msg += f"──────────────────\n"
         msg += f"📊 統計洞察：\n{insight}\n"
         msg += f"──────────────────\n"
         msg += f"💡 推薦組合：\n"
-        
+
         for strategy, nums in combinations.items():
             num_str = ", ".join([f"{n:02d}" for n in nums])
             msg += f"[{strategy}]:\n{num_str}\n\n"
-            
+
         msg += f"──────────────────\n"
         msg += "⚠️ 提醒：請理性投注，勿過度沉迷。"
         return msg

@@ -4,7 +4,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 .env
-.agent/
+.agent/*
+!.agent/skills/
+.agent/skills/*
+!.agent/skills/karpathy-guidelines/
+!.agent/skills/karpathy-guidelines/**
 
 # Logs
 *.log

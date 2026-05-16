@@ -32,14 +32,16 @@ class AIPredictor:
 
     def _generate_mock_prediction(self, stats_context: str, reason: str = "未提供有效的 Gemini API Key") -> dict:
         """
-        當沒有 API Key 或呼叫失敗時的離線備援方案 (Fallback)
+        當沒有 API Key 或呼叫失敗時的離線備援方案 (Fallback)。
+        回傳結果帶有 is_offline=True 旗標，供上層決定是否跳過推播。
         """
         logging.info("執行離線模擬預測...")
         import random
-        # 從 stats context 中隨便抓幾個字當作 mock
         nums = list(range(1, self.stats_engine.max_number + 1))
-        
+
         return {
+            "is_offline": True,           # ← 離線旗標，上層用來判斷是否推播
+            "offline_reason": reason,
             "reasoning": f"此為離線模擬預測。原因：{reason}",
             "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
             "combinations": {
@@ -165,13 +167,24 @@ class AIPredictor:
             logging.warning("啟動容錯機制，使用模擬預測。")
             return self._generate_mock_prediction(full_context, reason=f"API 發生錯誤: {e}")
 
-def save_predictions(game_name: str, prediction: dict, file_path: str = "data/predictions.json"):
+def save_predictions(
+    game_name: str,
+    prediction: dict,
+    file_path: str = "data/predictions.json",
+    archive_path: str = "data/predictions_archive.json",
+    recent_limit: int = 50,
+):
     """
-    將預測結果儲存至 predictions.json
+    將預測結果同時寫入：
+    - predictions.json        ← 最近 recent_limit 筆，供前端展示
+    - predictions_archive.json ← 完整歷史，供長期績效分析（不截斷）
+
+    離線模擬預測（is_offline=True）同樣儲存，但標記清楚。
     """
     record = {
         "timestamp": datetime.now().isoformat(),
         "game_name": game_name,
+        "is_offline": prediction.get("is_offline", False),
         "prediction": prediction,
         "is_evaluated": False,
         "evaluation": {
@@ -181,24 +194,34 @@ def save_predictions(game_name: str, prediction: dict, file_path: str = "data/pr
             "attribution_report": None
         }
     }
-    
-    predictions_history = []
+
+    # ── 1. 寫入近期快取（predictions.json，保留最近 N 筆）──
+    recent = []
     if os.path.exists(file_path):
         with open(file_path, 'r', encoding='utf-8') as f:
             try:
-                predictions_history = json.load(f)
+                recent = json.load(f)
             except json.JSONDecodeError:
                 pass
-                
-    predictions_history.append(record)
-    
-    # 只保留最近 50 次預測，避免檔案過大
-    if len(predictions_history) > 50:
-        predictions_history = predictions_history[-50:]
-        
+    recent.append(record)
+    if len(recent) > recent_limit:
+        recent = recent[-recent_limit:]
     with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(predictions_history, f, ensure_ascii=False, indent=2)
-    logging.info(f"預測結果已成功儲存至 {file_path}")
+        json.dump(recent, f, ensure_ascii=False, indent=2)
+    logging.info(f"預測結果已儲存至 {file_path}（保留最近 {recent_limit} 筆）")
+
+    # ── 2. 寫入完整歸檔（predictions_archive.json，永不截斷）──
+    archive = []
+    if os.path.exists(archive_path):
+        with open(archive_path, 'r', encoding='utf-8') as f:
+            try:
+                archive = json.load(f)
+            except json.JSONDecodeError:
+                pass
+    archive.append(record)
+    with open(archive_path, 'w', encoding='utf-8') as f:
+        json.dump(archive, f, ensure_ascii=False, indent=2)
+    logging.info(f"預測結果已歸檔至 {archive_path}（共 {len(archive)} 筆）")
 
 if __name__ == "__main__":
     # 測試大樂透 AI 預測

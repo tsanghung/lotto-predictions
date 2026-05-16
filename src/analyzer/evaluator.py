@@ -1,11 +1,21 @@
 import os
 import json
+import random
 import logging
 from datetime import datetime
 
 from .scientific_attribution import AttributionAnalyzer
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# ── 歸因閾值設定（按遊戲分開）──────────────────────────────────────────────
+# 命中數「低於」此值時，視為表現不佳，強制觸發歸因
+ATTRIBUTION_THRESHOLD = {
+    "大樂透": 3,   # 選 6 個，命中 < 3 (< 50%) 才歸因
+    "今彩539": 3,  # 選 5 個，命中 < 3 (< 60%) 才歸因
+}
+# 命中數「達到或超過」閾值時，仍有此機率隨機觸發歸因（分析成功案例）
+SUCCESS_ATTRIBUTION_RATE = 0.2  # 20% 機率
 
 class Evaluator:
     def __init__(self, predictions_file="data/predictions.json", data_dir="data"):
@@ -100,16 +110,31 @@ class Evaluator:
                     "miss_count": len(misses),
                     "missed_numbers": sorted(misses)
                 }
-            # 檢查是否需要進行科學歸因 (最高命中數小於 3 時觸發)
-            max_hits = 0
-            for stats in evaluation["strategies"].values():
-                if stats["hits"] > max_hits:
-                    max_hits = stats["hits"]
-                    
-            if max_hits < 3:
-                logging.info(f"最高命中數 ({max_hits}) 不如預期，啟動科學歸因 AI...")
+            # ── 決定是否觸發科學歸因 ──────────────────────────────────────────
+            max_hits = max((s["hits"] for s in evaluation["strategies"].values()), default=0)
+            threshold = ATTRIBUTION_THRESHOLD.get(game_name, 3)
+            num_picks = len(next(iter(combinations.values()), []))
+
+            need_attribution = False
+            attribution_trigger = ""
+
+            if max_hits < threshold:
+                # 表現不佳：強制歸因
+                need_attribution = True
+                hit_rate = f"{max_hits}/{num_picks}"
+                attribution_trigger = f"表現不佳（最高命中 {hit_rate}，低於閾值 {threshold}）"
+            elif random.random() < SUCCESS_ATTRIBUTION_RATE:
+                # 表現良好：20% 機率隨機歸因，分析成功案例
+                need_attribution = True
+                attribution_trigger = f"成功案例隨機抽樣歸因（最高命中 {max_hits}/{num_picks}）"
+
+            if need_attribution:
+                logging.info(f"啟動科學歸因 AI — {attribution_trigger}")
                 max_number = 49 if game_name == "大樂透" else 39
-                history_file = os.path.join(self.data_dir, "lotto649.json" if game_name == "大樂透" else "daily539.json")
+                history_file = os.path.join(
+                    self.data_dir,
+                    "lotto649.json" if game_name == "大樂透" else "daily539.json"
+                )
                 analyzer = AttributionAnalyzer(history_file, max_number)
                 report = analyzer.generate_attribution_report(
                     game_name=game_name,
@@ -118,8 +143,12 @@ class Evaluator:
                     actual_numbers=actual_numbers
                 )
                 evaluation["attribution_report"] = report
+                evaluation["attribution_trigger"] = attribution_trigger
             else:
-                evaluation["attribution_report"] = "命中表現優良，無需特殊歸因。"
+                evaluation["attribution_report"] = (
+                    f"命中表現良好（最高命中 {max_hits}/{num_picks}），本次跳過歸因分析。"
+                )
+                evaluation["attribution_trigger"] = "跳過"
                 
             record["is_evaluated"] = True
             record["evaluation"] = evaluation
