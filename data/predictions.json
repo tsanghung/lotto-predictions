@@ -2721,12 +2721,57 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000120",
+      "actual_numbers": [
+        2,
+        11,
+        28,
+        32,
+        33
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            9,
+            30,
+            36,
+            37,
+            39
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            7,
+            15,
+            26,
+            29
+          ]
+        },
+        "統計趨勢": {
+          "hits": 2,
+          "matches": [
+            28,
+            33
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            13,
+            16,
+            27
+          ]
+        }
+      },
+      "attribution_report": "本期結果呈現典型的「隨機漫步 (Random Walk)」特性。開獎號碼 [2, 11, 28, 32, 33] 中，32 與 33 屬於全歷史冷門號碼，其出現屬於機率論中的隨機離群值 (Outlier)，在獨立隨機分佈中具有合理性。\n\n預測未能全中之科學歸因如下：樂透抽樣為獨立事件，不存在自相關性 (Autocorrelation)。儘管「統計趨勢」命中 28 與 33，但單次抽樣的樣本偏差 (Sample Bias) 極大。根據大數法則 (Law of Large Numbers)，頻率趨同僅發生於極大量樣本，單期結果受高變異數 (Variance) 影響，短期分佈呈現隨機波動，非線性統計趨勢可完全覆蓋。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   },
   {
@@ -2773,12 +2818,59 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000120",
+      "actual_numbers": [
+        2,
+        11,
+        28,
+        32,
+        33
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            2,
+            33
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            1,
+            5,
+            29
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            32
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            14,
+            15,
+            37
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            11
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            6,
+            8,
+            21,
+            25
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
