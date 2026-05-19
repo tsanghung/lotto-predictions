@@ -50,9 +50,10 @@ jobs:
           python -m src.main_predict --game 539
 
       - name: Run Lotto 649 Prediction
-        # [Bug #5 修復] 移除了永遠為 False 的 contains() 條件
         # schedule 與 workflow_dispatch 皆允許進入此 step
         # 實際的週二/週五判斷由 shell 內部 DAYOFWEEK 變數控制
+        # 注意：使用 TZ=Asia/Taipei date +%u 確保時區正確，
+        #       避免 GitHub runner 預設 UTC 導致星期判斷偏差
         if: github.event_name == 'schedule' || github.event.inputs.game_type == '649'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -60,8 +61,9 @@ jobs:
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
-          # 檢查今天是星期幾 (1=週一 ... 7=週日)
-          DAYOFWEEK=$(date +%u)
+          # 明確指定台灣時區取得星期幾 (1=週一 ... 7=週日)
+          DAYOFWEEK=$(TZ=Asia/Taipei date +%u)
+          echo "Taiwan time day of week: $DAYOFWEEK ($(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z'))"
           if [ "$DAYOFWEEK" -eq 2 ] || [ "$DAYOFWEEK" -eq 5 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "Today is Tuesday or Friday (or manual trigger), running Lotto 649 prediction..."
             python -m src.main_predict --game 649
