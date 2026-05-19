@@ -2917,12 +2917,58 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000121",
+      "actual_numbers": [
+        8,
+        15,
+        20,
+        32,
+        33
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            15
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            5,
+            12,
+            30,
+            38
+          ]
+        },
+        "穩健平衡": {
+          "hits": 2,
+          "matches": [
+            8,
+            15
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            11,
+            30,
+            31
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            14,
+            22,
+            25,
+            27
+          ]
+        }
+      },
+      "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
