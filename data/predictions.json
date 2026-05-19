@@ -2970,5 +2970,101 @@
       "attribution_report": "【系統錯誤】歸因分析引擎發生異常，無法生成報告。",
       "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
+  },
+  {
+    "timestamp": "2026-05-19T15:47:29.701348",
+    "game_name": "今彩539",
+    "is_offline": false,
+    "prediction": {
+      "reasoning": "Step 1: 近 300 期最熱號碼為 8 (49次)、11 (48次)、22 (47次)；最冷號碼（遺漏最高）為 5 (22期)、29 (20期)、30 (15期)。Step 2: 全歷史和值平均 99.9，±10% 區間為 [89.9, 109.9]，±20% 區間為 [79.9, 119.9]；平均奇偶比約 2.5:2.5。Step 3: 激進包牌選取冷門池 {5, 29, 30}，搭配 12, 24，和值 100 (落於 ±20% 區間)；穩健平衡選取熱門 {8, 11, 22} 與冷門 {21, 39}，和值 101 (落於 ±10% 區間)，奇偶比 3:2；統計趨勢選取熱門池 {11, 27, 36}，搭配 15, 18，和值 107 (落於 ±10% 區間)。Step 4: 檢查所有組合，無全奇偶，無 4 連號，三組間重複號碼僅 11 (共 1 個)，均符合硬性約束。",
+      "risk_warning": "博弈預測基於機率統計，不保證絕對中獎，請理性投注。",
+      "self_check": {
+        "和值": [
+          100,
+          101,
+          107
+        ],
+        "奇偶比": [
+          "2:3",
+          "3:2",
+          "3:2"
+        ],
+        "通過硬性約束": true
+      },
+      "combinations": {
+        "激進包牌": [
+          5,
+          12,
+          24,
+          29,
+          30
+        ],
+        "穩健平衡": [
+          8,
+          11,
+          21,
+          22,
+          39
+        ],
+        "統計趨勢": [
+          11,
+          15,
+          18,
+          27,
+          36
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
+  },
+  {
+    "timestamp": "2026-05-19T15:47:37.286367",
+    "game_name": "大樂透",
+    "is_offline": true,
+    "prediction": {
+      "is_offline": true,
+      "offline_reason": "API 發生錯誤（重試 3 次仍失敗）: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "reasoning": "此為離線模擬預測。原因：API 發生錯誤（重試 3 次仍失敗）: 500 INTERNAL. {'error': {'code': 500, 'message': 'Internal error encountered.', 'status': 'INTERNAL'}}",
+      "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
+      "combinations": {
+        "激進包牌": [
+          13,
+          14,
+          18,
+          23,
+          35,
+          38
+        ],
+        "穩健平衡": [
+          5,
+          16,
+          20,
+          23,
+          25,
+          34
+        ],
+        "統計趨勢": [
+          3,
+          9,
+          10,
+          12,
+          14,
+          29
+        ]
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
