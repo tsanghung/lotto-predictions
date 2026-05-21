@@ -70390,5 +70390,17 @@
       32
     ],
     "special_number": null
+  },
+  {
+    "draw_id": "115000123",
+    "date": "2026-05-20",
+    "numbers": [
+      1,
+      20,
+      21,
+      23,
+      35
+    ],
+    "special_number": null
   }
 ]
