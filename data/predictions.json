@@ -3601,12 +3601,56 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000126",
+      "actual_numbers": [
+        6,
+        15,
+        16,
+        24,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            12,
+            18,
+            29,
+            30
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            14,
+            19,
+            27,
+            31
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            22,
+            25,
+            28
+          ]
+        }
+      },
+      "attribution_report": "本期未命中之歸因在於樂透開獎本質上屬於「隨機漫步 (Random Walk)」過程，各期結果之間不存在「自相關性 (Autocorrelation)」。\n\n預測系統採用的熱門/冷門分析雖基於「大數法則 (Law of Large Numbers)」，但在單次抽樣中，歷史頻率無法預測短期走勢，此即「樣本偏差 (Sample Bias)」導致的預測失效。實際開獎號碼 [6, 15, 16, 24, 38] 在 $\\binom{39}{5}$ 的組合空間中僅為一個隨機「離群值 (Outlier)」。由於每顆球被抽出的機率獨立且均等，任何基於趨勢的權重分佈在單次隨機事件中均不具備統計顯著性。",
+      "attribution_trigger": "表現不佳（最高命中 0/5，低於閾值 3）"
     }
   }
 ]
