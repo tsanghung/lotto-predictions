@@ -3697,12 +3697,57 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000127",
+      "actual_numbers": [
+        5,
+        6,
+        12,
+        36,
+        37
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            5,
+            12
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            25,
+            29,
+            30
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            3,
+            8,
+            22,
+            29,
+            38
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            22,
+            27,
+            31
+          ]
+        }
+      },
+      "attribution_report": "本期結果 [5, 6, 12, 36, 37] 呈現高度的「熱號聚集」現象。從機率論分析，樂透開獎屬於獨立同分佈 (IID) 的隨機過程，符合隨機漫步 (Random Walk) 特徵。預測組合中過度權重於「冷門池」號碼（如 29, 30, 3），此為典型的樣本偏差 (Sample Bias) 與對均值回歸 (Mean Reversion) 的誤判。\n\n根據大數法則 (LLN)，頻率趨同僅在極大樣本量下成立，單次抽樣的變異數 (Variance) 極高。本次開獎結果在統計分佈上雖偏向熱門端，但仍處於隨機分佈的合理區間內，屬於機率論中的隨機離群值 (Outlier)，與預測模型的權重分配不匹配導致未命中。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
