@@ -3998,12 +3998,58 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000129",
+      "actual_numbers": [
+        2,
+        3,
+        18,
+        19,
+        21
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            3
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            12,
+            25,
+            29,
+            30
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            21
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            11,
+            24,
+            39
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            15,
+            20,
+            36
+          ]
+        }
+      },
+      "attribution_report": "本期未命中主因在於開獎結果呈現顯著的「隨機漫步 (Random Walk)」特性。實際號碼 [2, 3, 18, 19, 21] 出現兩組連續號碼，屬於局部高變異數的離群值 (Outlier)，導致基於近 300 期數據建構的預測模型產生樣本偏差 (Sample Bias)。\n\n儘管 19 與 21 處於歷史冷門區，但根據獨立試驗原則，各期開獎間不存在自相關性 (Autocorrelation)。大數法則 (Law of Large Numbers) 僅在極大量樣本中趨向平均，無法預測單次抽樣的偏態分佈 (Skewness)。此次結果為隨機過程中的機率波動，在數學上完全合理。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   }
 ]
