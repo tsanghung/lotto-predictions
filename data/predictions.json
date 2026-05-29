@@ -4096,12 +4096,57 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000130",
+      "actual_numbers": [
+        6,
+        9,
+        12,
+        19,
+        31
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            12
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            15,
+            17,
+            29,
+            30
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            25,
+            27,
+            28
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            10,
+            11,
+            14,
+            36,
+            37
+          ]
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎本質為「隨機漫步 (Random Walk)」，每期結果均為獨立事件。預測模型基於歷史頻率構建，實則陷入「樣本偏差 (Sample Bias)」，誤將長期分佈趨勢視為短期「自相關性 (Autocorrelation)」。\n\n實際開獎號碼 [6, 9, 12, 19, 31] 呈現高變異數 (Variance)：其中 6, 12, 31 屬近 300 期熱門，而 19 則屬史上冷門。這種跨分佈的組合導致單一策略（如純冷或純熱）失效。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅發生於極大樣本量，單期結果之離群值 (Outlier) 在機率論上完全合理。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   }
 ]
