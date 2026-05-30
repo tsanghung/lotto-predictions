@@ -4193,12 +4193,58 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000131",
+      "actual_numbers": [
+        12,
+        15,
+        20,
+        34,
+        35
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            12
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            11,
+            17,
+            29,
+            30
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            17,
+            21,
+            22,
+            31
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            15
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            18,
+            22,
+            36
+          ]
+        }
+      },
+      "attribution_report": "本次未命中主因在於樂透開獎本質為「隨機漫步 (Random Walk)」，每期抽樣為獨立事件。預測模型基於歷史頻率（如近 300 期熱門號碼），在統計學上易產生「樣本偏差 (Sample Bias)」，將短期波動誤認為趨勢。\n\n實際結果 [12, 15, 20, 34, 35] 呈現高「變異數 (Variance)」，其中 20 與 35 為非趨勢號碼，屬機率分佈中的隨機離群值 (Outlier)。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅在極大樣本量下成立，短期內號碼間缺乏「自相關性 (Autocorrelation)」，故歷史數據無法對單次隨機抽樣產生決定性預測。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   },
   {
@@ -4248,12 +4294,61 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000057",
+      "actual_numbers": [
+        20,
+        26,
+        29,
+        31,
+        37,
+        49
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 3,
+          "matches": [
+            20,
+            31,
+            49
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            4,
+            12,
+            34
+          ]
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            11,
+            17,
+            22,
+            24,
+            25,
+            42
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            8,
+            15,
+            22,
+            25,
+            39,
+            41
+          ]
+        }
+      },
+      "attribution_report": "命中表現良好（最高命中 3/6），本次跳過歸因分析。",
+      "attribution_trigger": "跳過"
     }
   }
 ]
