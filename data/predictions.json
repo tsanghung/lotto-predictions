@@ -4395,12 +4395,58 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000132",
+      "actual_numbers": [
+        2,
+        3,
+        4,
+        13,
+        39
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            4
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            17,
+            20,
+            29,
+            30
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            39
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            11,
+            21,
+            22
+          ]
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            7,
+            11,
+            22,
+            24,
+            36
+          ]
+        }
+      },
+      "attribution_report": "本期結果呈現典型的「隨機漫步 (Random Walk)」特徵。實際開獎號碼的和值為 61，遠低於歷史平均值 99.9，在統計分佈上屬於顯著的離群值 (Outlier)，顯示該單次樣本具有極高的變異數 (Variance)。\n\n預測系統基於熱門/冷門趨勢進行組合，實則陷入了「樣本偏差 (Sample Bias)」以及對「自相關性 (Autocorrelation)」的誤判。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅發生於極大樣本量，單次抽樣仍遵循獨立同分佈 (i.i.d.)。本次冷門號碼 (39, 13, 3) 同時出現，在機率論上屬低機率但合理的隨機分佈，而非統計趨勢失效。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   }
 ]
