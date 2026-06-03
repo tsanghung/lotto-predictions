@@ -32,6 +32,33 @@ class StatsEngine:
         df = df.sort_values("date").reset_index(drop=True)
         return df
 
+    def _compute_z_scores(self, values: Dict[int, int]) -> Dict[int, float]:
+        vals = list(values.values())
+        n = len(vals)
+        if n == 0:
+            return {}
+        mean = sum(vals) / n
+        variance = sum((v - mean) ** 2 for v in vals) / n
+        std = variance ** 0.5
+        if std == 0:
+            return {k: 0.0 for k in values}
+        return {k: (v - mean) / std for k, v in values.items()}
+
+    def get_cold_pool(self, z_threshold: float = 1.5, min_size: int = 5) -> Dict[int, int]:
+        missing = self.get_missing_values()
+        missing_z = self._compute_z_scores(missing)
+        candidates = {k: missing[k] for k, z in missing_z.items() if z >= z_threshold}
+        if len(candidates) < min_size:
+            sorted_by_z = sorted(missing_z.items(), key=lambda x: x[1], reverse=True)
+            return {k: missing[k] for k, _ in sorted_by_z[:min_size]}
+        return candidates
+
+    def get_hot_pool(self, periods: int, z_threshold: float = 1.0) -> Dict[int, int]:
+        stats = self.get_hot_cold_stats(periods)
+        freq = stats["frequencies"]
+        hot_z = self._compute_z_scores(freq)
+        return {n: c for n, c in freq.items() if hot_z.get(n, 0) >= z_threshold}
+
     def get_missing_values(self) -> Dict[int, int]:
         """
         精確計算每個號碼目前連續未開出的期數 (遺漏值)。
@@ -170,6 +197,51 @@ class StatsEngine:
             "aggregate_odd_even_ratio": f"{odd_total}:{even_total}",
         }
 
+    def get_gap_analysis(self) -> Dict[int, dict]:
+        gaps = {}
+        total = len(self.df)
+        for num in range(1, self.max_number + 1):
+            positions = [idx for idx, nums in enumerate(self.df["numbers"]) if num in nums]
+            if not positions:
+                gaps[num] = {"current_gap": total, "avg_gap": None}
+                continue
+            current_gap = total - positions[-1] - 1
+            if len(positions) < 2:
+                gaps[num] = {"current_gap": current_gap, "avg_gap": None}
+                continue
+            between = [positions[i] - positions[i-1] - 1 for i in range(1, len(positions))]
+            gaps[num] = {
+                "current_gap": current_gap,
+                "avg_gap": round(sum(between) / len(between), 1),
+                "max_gap": max(between),
+            }
+        return gaps
+
+    def get_tail_distribution(self, periods: int) -> Dict[str, Any]:
+        if len(self.df) < periods:
+            periods = len(self.df)
+        recent = self.df.tail(periods)
+        freq = {t: 0 for t in range(10)}
+        for nums in recent["numbers"]:
+            for n in nums:
+                freq[n % 10] += 1
+        return {"periods": periods, "frequencies": freq}
+
+    def get_zone_distribution(self, periods: int, num_zones: int = 4) -> Dict[str, Any]:
+        if len(self.df) < periods:
+            periods = len(self.df)
+        recent = self.df.tail(periods)
+        zone_size = self.max_number // num_zones
+        zones = {}
+        for i in range(num_zones):
+            lo = i * zone_size + 1
+            hi = self.max_number if i == num_zones - 1 else (i + 1) * zone_size
+            count = 0
+            for nums in recent["numbers"]:
+                count += sum(1 for n in nums if lo <= n <= hi)
+            zones[f"{lo}~{hi}"] = count
+        return {"periods": periods, "zones": zones, "zone_count": num_zones}
+
     def generate_full_report(self) -> str:
         """
         產出供 LLM 推理的 Context 字串
@@ -181,34 +253,19 @@ class StatsEngine:
             all_time = self.get_all_time_stats()
             dist = self.get_distribution_features()
 
-            # 冷門池：先取遺漏 >= 30 期的嚴格冷門，若不足 MIN_POOL_SIZE 顆，依遺漏期數補齊
-            MIN_POOL_SIZE = 5
-            strict_cold = {k: v for k, v in missing.items() if v >= 30}
-            if len(strict_cold) < MIN_POOL_SIZE:
-                sorted_missing = sorted(missing.items(), key=lambda x: x[1], reverse=True)
-                cold_pool = dict(sorted_missing[:MIN_POOL_SIZE])
-                pool_note = f"（嚴格冷門池僅 {len(strict_cold)} 顆，已擴充為遺漏 Top {MIN_POOL_SIZE}）"
-            else:
-                cold_pool = strict_cold
-                pool_note = ""
-            # 統計趨勢策略熱門池：
-            #   大樂透(49)：近 100 期（約一年）≥ 15 次
-            #   今彩539   ：近 300 期（約一年）≥ 40 次
             if self.max_number == 49:
-                trend_periods, trend_min_freq = 100, 15
-                recent_periods = 100   # 近期報告用的期數
+                trend_periods = 100
+                recent_periods = 100
             else:
-                trend_periods, trend_min_freq = 300, 40
-                recent_periods = 300   # 近期報告用的期數
+                trend_periods = 300
+                recent_periods = 300
+
+            cold_pool = self.get_cold_pool()
+            trend_hot_pool = self.get_hot_pool(trend_periods)
 
             hot_cold_recent = self.get_hot_cold_stats(recent_periods)
             sum_stats_recent = self.get_sum_stats(recent_periods)
             oe_stats_recent = self.get_odd_even_stats(recent_periods)
-
-            hot_cold_trend = self.get_hot_cold_stats(trend_periods)
-            trend_hot_pool = {
-                n: c for n, c in hot_cold_trend["frequencies"].items() if c >= trend_min_freq
-            }
             # 近 recent_periods 期熱門前 10（含次數）
             top_recent = sorted(hot_cold_recent["frequencies"].items(), key=lambda x: x[1], reverse=True)[:10]
 
@@ -239,15 +296,31 @@ class StatsEngine:
                 f"近 {recent_periods} 期平均奇偶比 (每期): 奇={oe_stats_recent['avg_odd_per_draw']:.2f}, "
                 f"偶={oe_stats_recent['avg_even_per_draw']:.2f}\n\n"
             )
-            report += f"冷門池 (號碼:遺漏期數){pool_note}: {cold_pool}\n"
+            report += f"冷門池 (號碼:遺漏期數): {cold_pool}\n"
             report += (
-                f"【統計趨勢熱門池】近 {trend_periods} 期出現 >= {trend_min_freq} 次 "
+                f"【統計趨勢熱門池】近 {trend_periods} 期 "
                 f"(號碼:次數): {trend_hot_pool}\n\n"
             )
             report += (
                 f"上一期 ({dist['latest_draw_id']}) 奇偶比: {dist['odd_even_ratio']}, "
                 f"大小比: {dist['large_small_ratio']}\n"
             )
+
+            gaps = self.get_gap_analysis()
+            notable = [(n, d) for n, d in gaps.items() if d["avg_gap"] and d["current_gap"] > d["avg_gap"] * 1.5]
+            notable.sort(key=lambda x: -x[1]["current_gap"])
+            if notable:
+                lines = []
+                for n, d in notable[:5]:
+                    lines.append(f"{n}(漏{d['current_gap']}期/均{d['avg_gap']}期/最大{d['max_gap']}期)")
+                report += "【逾期號碼】(目前遺漏 > 1.5倍歷史平均間隔): " + ", ".join(lines) + "\n"
+
+            tail_freq = self.get_tail_distribution(recent_periods)["frequencies"]
+            sorted_tail = sorted(tail_freq.items(), key=lambda x: -x[1])
+            report += f"【尾數分佈】近{recent_periods}期 (尾數:次數): {dict(sorted_tail)}\n"
+
+            zones = self.get_zone_distribution(recent_periods)
+            report += f"【區間分佈】近{recent_periods}期: {zones['zones']}\n"
 
             return report
 

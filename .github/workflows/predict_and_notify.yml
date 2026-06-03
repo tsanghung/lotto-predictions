@@ -47,7 +47,7 @@ jobs:
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
-          python -m src.main_predict --game 539
+          python -m src.main_predict --game 539 --ensemble 3
 
       - name: Run Lotto 649 Prediction
         # schedule 與 workflow_dispatch 皆允許進入此 step
@@ -66,7 +66,7 @@ jobs:
           echo "Taiwan time day of week: $DAYOFWEEK ($(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z'))"
           if [ "$DAYOFWEEK" -eq 2 ] || [ "$DAYOFWEEK" -eq 5 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             echo "Today is Tuesday or Friday (or manual trigger), running Lotto 649 prediction..."
-            python -m src.main_predict --game 649
+            python -m src.main_predict --game 649 --ensemble 3
           else
             echo "Today is not Tuesday or Friday, skipping Lotto 649."
           fi
