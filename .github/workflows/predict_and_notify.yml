@@ -2,9 +2,9 @@ name: AI Prediction and Notify
 
 on:
   schedule:
-    # 台灣時間 12:00 相當於 UTC 04:00
+    # 台灣時間 10:00 相當於 UTC 02:00
     # 每天的星期一至星期六觸發 (今彩 539)
-    - cron: '0 4 * * 1-6'
+    - cron: '0 2 * * 1-6'
   workflow_dispatch:
     inputs:
       game_type:
