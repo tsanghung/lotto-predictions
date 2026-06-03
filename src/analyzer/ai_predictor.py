@@ -9,6 +9,7 @@ from google import genai
 from google.genai import types
 
 from .stats_engine import StatsEngine
+from .strategy_sampler import StrategySampler, StrategyProfile
 from .web_search import WebSearcher
 from .gemini_config import get_prediction_model, is_api_key_configured, is_gemma_model
 
@@ -52,6 +53,45 @@ class AIPredictor:
             }
         }
 
+    def _sample_from_profiles(self, llm_strategies: dict, recent_periods: int) -> dict:
+        """
+        將 LLM 提供的『決策方向』轉為實際號碼。
+        和值區間、min_from_pool 等數值約束由 Python 端依統計決定，不依賴 LLM。
+        """
+        import random as _random
+
+        sampler = StrategySampler(self.stats_engine, self.num_picks, recent_periods)
+        sum_stats = self.stats_engine.get_sum_stats(None)
+        oe = self.stats_engine.get_odd_even_stats(None)
+        band10 = (sum_stats["band_minus_10pct"], sum_stats["band_plus_10pct"])
+        band20 = (sum_stats["band_minus_20pct"], sum_stats["band_plus_20pct"])
+        target_odd = round(oe["avg_odd_per_draw"])
+
+        # 各策略的 Python 端參數（和值區間、奇偶目標、冷熱門池）
+        defaults = {
+            "激進包牌": dict(bias="cold", sum_band=band20),
+            "穩健平衡": dict(bias="balanced", sum_band=band10, target_odd=target_odd),
+            "統計趨勢": dict(bias="hot", sum_band=band10),
+        }
+        rng = _random.Random()
+        combinations = {}
+        for name, cfg in defaults.items():
+            spec = llm_strategies.get(name, {}) if isinstance(llm_strategies, dict) else {}
+            prefer = [int(n) for n in spec.get("prefer", []) if isinstance(n, (int, float))]
+            avoid = [int(n) for n in spec.get("avoid", []) if isinstance(n, (int, float))]
+            profile = StrategyProfile(
+                name=name,
+                bias=cfg["bias"],
+                sum_band=cfg.get("sum_band"),
+                target_odd=cfg.get("target_odd"),
+                prefer=prefer,
+                avoid=avoid,
+                min_from_pool=3 if prefer else 0,
+                pool=prefer,
+            )
+            combinations[name] = sampler.sample(profile, rng)
+        return combinations
+
     def generate_prediction(self) -> dict:
         """
         獲取統計特徵與輿情，然後交給 LLM 推理
@@ -67,69 +107,45 @@ class AIPredictor:
         if not self.client:
             return self._generate_mock_prediction(full_context)
 
-        if self.stats_engine.max_number == 49:
-            # 大樂透：近 100 期（約一年）為基準
-            recent_periods = 100
-            trend_strategy_rule = (
-                "- 統計趨勢：至少 3 個號碼來自【近 100 期出現 15 次以上】的熱門池\n"
-            )
-            reasoning_example = (
-                '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
-                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 100 期出現 Z 次』\",\n"
-            )
-        else:
-            # 今彩539：近 300 期（約一年）為基準
-            recent_periods = 300
-            trend_strategy_rule = (
-                "- 統計趨勢：至少 3 個號碼來自【近 300 期出現 40 次以上】的熱門池\n"
-            )
-            reasoning_example = (
-                '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
-                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 300 期出現 Z 次』\",\n"
-            )
-            
+        # 近期基準期數：大樂透近 100 期、今彩539 近 300 期
+        recent_periods = 100 if self.stats_engine.max_number == 49 else 300
+
         # 2. 定義 System Prompt 與 User Prompt
+        #    重要變更：LLM 只負責「決策方向」，實際選號由 Python 端 StrategySampler 完成，
+        #    徹底消除 LLM 算術錯誤（和值/奇偶/連號）導致的無效組合。
         system_instruction = (
             "你是一位『頂級博弈精算師』，精通機率論、統計學與大數據分析。"
             "請基於提供的『自 2007 年至今超過 10 年』的歷史累計數據與最新網路輿情，進行深度推估。"
-            "你必須綜合考量長期的規律性與短期的熱冷門趨勢，提供具備科學依據的預測。"
+            "你的任務不是直接報出號碼，而是為每種策略決定『選號方向』"
+            "（偏熱門/偏冷門/平衡、想要的奇偶結構、特別看好或想避開的號碼）。"
+            "實際選號將由系統依你的方向自動完成並驗證所有硬性約束。"
             "分析結果必須嚴格遵守 JSON 格式回傳，不可包含任何額外字串或 Markdown 標記。"
         )
-        
+
         prompt = (
-            f"任務：為【{self.game_name}】預測下一期號碼（從 1 到 {self.stats_engine.max_number} 選 {self.num_picks} 個）\n\n"
-            "== 必須遵守的硬性約束（違反任何一條視為無效，必須重新選號）==\n"
-            f"1. 每個號碼必須在 1 到 {self.stats_engine.max_number} 之間，不可重複\n"
-            f"2. 每組必須剛好 {self.num_picks} 個號碼\n"
-            "3. 禁止全奇或全偶；禁止 4 個以上連續整數\n"
-            "4. 三種策略之間，重複號碼不得超過 2 個（確保差異化）\n"
-            "5. 禁止與近 3 期開獎號碼完全相同\n"
-            "6. 【激進包牌】和值必須落在全歷史平均的 ±20% 區間內（背景資料已提供區間）\n"
-            "7. 【穩健平衡】和值必須落在全歷史平均的 ±10% 區間內（背景資料已提供區間）\n"
-            "8. 【統計趨勢】和值必須落在全歷史平均的 ±10% 區間內（背景資料已提供區間）\n\n"
-            "== 推理步驟（請依序在 reasoning 欄說明）==\n"
-            f"Step 1: 從統計資料中，列出近 {recent_periods} 期【最熱】3 個號碼與【最冷】3 個號碼（須引用實際出現次數或隔期數）\n"
-            "Step 2: 從背景資料讀取全歷史【和值平均】與【奇偶比】，以及 ±10%/±20% 區間數值\n"
-            "Step 3: 根據三種策略的定義（見下方），各別選號，並計算每組和值確認落在規定區間\n"
-            "Step 4: 自我檢查：每組是否符合所有硬性約束？和值是否在規定區間？是否與近 3 期開獎號完全相同？\n\n"
-            "== 三種策略的明確定義 ==\n"
-            "- 激進包牌：至少 3 個號碼來自背景資料中的【冷門池】；和值必須在全歷史平均 ±20% 區間內\n"
-            "- 穩健平衡：奇偶比接近全歷史每期平均或 3:3/3:2；和值落在全歷史平均 ±10% 區間內；冷熱門各半\n"
-            f"{trend_strategy_rule}\n"
+            f"任務：為【{self.game_name}】（從 1 到 {self.stats_engine.max_number} 選 {self.num_picks} 個）"
+            "決定三種策略的『選號方向』。\n\n"
+            "== 三種策略的定位 ==\n"
+            "- 激進包牌：偏好冷門/久未開出的號碼，搏冷門反彈（bias=cold）\n"
+            "- 穩健平衡：奇偶與冷熱兼顧，追求穩定結構（bias=balanced）\n"
+            "- 統計趨勢：偏好近期熱門號碼，順勢操作（bias=hot）\n\n"
+            "== 你要為每種策略提供 ==\n"
+            "- bias: 固定為上述對應值（cold / balanced / hot）\n"
+            f"- prefer: 1~6 個你特別看好的號碼（須在 1~{self.stats_engine.max_number}），並在 reasoning 引用其統計依據\n"
+            "- avoid: 0~4 個你建議避開的號碼（可留空陣列）\n"
+            "（和值區間、不重複、非全奇全偶、無連號等硬性約束由系統自動處理，你無需計算）\n\n"
+            "== 推理要求（寫在 reasoning，須引用背景資料的具體數字）==\n"
+            f"列出近 {recent_periods} 期最熱與最冷的號碼及其次數/遺漏期數，"
+            "並說明各策略 prefer 號碼的挑選理由。\n\n"
             f"== 背景資料 ==\n{full_context}\n\n"
             "== 輸出格式（嚴格 JSON，不可有 Markdown）==\n"
             "{\n"
-            f"{reasoning_example}"
+            '  "reasoning": "依背景資料的具體數字說明三種策略的選號方向與理由",\n'
             '  "risk_warning": "一句風險提示",\n'
-            '  "self_check": {\n'
-            '    "和值": [激進和值, 穩健和值, 趨勢和值],\n'
-            '    "奇偶比": ["激進X:Y", "穩健X:Y", "趨勢X:Y"],\n'
-            '    "通過硬性約束": true\n'
-            "  },\n"
-            '  "combinations": {\n'
-            f'    "激進包牌": [選擇 {self.num_picks} 個數字的陣列],\n'
-            f'    "穩健平衡": [選擇 {self.num_picks} 個數字的陣列],\n'
-            f'    "統計趨勢": [選擇 {self.num_picks} 個數字的陣列]\n'
+            '  "strategies": {\n'
+            '    "激進包牌": {"bias": "cold", "prefer": [數字...], "avoid": [數字...]},\n'
+            '    "穩健平衡": {"bias": "balanced", "prefer": [數字...], "avoid": [數字...]},\n'
+            '    "統計趨勢": {"bias": "hot", "prefer": [數字...], "avoid": [數字...]}\n'
             "  }\n"
             "}"
         )
@@ -168,11 +184,15 @@ class AIPredictor:
                     clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
                     result = json.loads(clean_text)
 
-                # 驗證結構
-                if "combinations" not in result or "reasoning" not in result:
-                    raise ValueError("LLM 回傳的 JSON 缺少必要的欄位。")
+                # 驗證結構：新版要求 strategies（決策方向）
+                if "strategies" not in result or "reasoning" not in result:
+                    raise ValueError("LLM 回傳的 JSON 缺少必要的欄位（strategies / reasoning）。")
 
-                logging.info(f"{self.model} 推理完成！")
+                # 由 Python 端依 LLM 決策方向確定性選號，保證滿足所有硬性約束
+                combinations = self._sample_from_profiles(result["strategies"], recent_periods)
+                result["combinations"] = combinations
+
+                logging.info(f"{self.model} 推理完成，號碼由採樣器確定性產生！")
                 return result
 
             except Exception as e:
