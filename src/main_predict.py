@@ -7,11 +7,11 @@ from notifier.notifier import LineBotNotifier
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def run_prediction_pipeline(game_name: str, data_file: str, max_number: int, num_picks: int):
+def run_prediction_pipeline(game_name: str, data_file: str, max_number: int, num_picks: int, ensemble_size: int = 1):
     logging.info(f"啟動 {game_name} 預測與推播管線...")
 
     # 1. 執行 AI 預測
-    predictor = AIPredictor(game_name, data_file, max_number, num_picks)
+    predictor = AIPredictor(game_name, data_file, max_number, num_picks, ensemble_size=ensemble_size)
     result = predictor.generate_prediction()
 
     # 2. 儲存預測結果（同時寫入近期快取與完整歸檔）
@@ -48,9 +48,10 @@ def run_prediction_pipeline(game_name: str, data_file: str, max_number: int, num
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="執行樂透 AI 預測與推播")
     parser.add_argument("--game", type=str, choices=["649", "539"], required=True, help="選擇遊戲類型: 649 (大樂透) 或 539 (今彩539)")
+    parser.add_argument("--ensemble", type=int, default=1, help="Ensemble 次數 (預設 1=單次; 3=三次投票融合)")
     args = parser.parse_args()
     
     if args.game == "649":
-        run_prediction_pipeline("大樂透", "data/lotto649.json", 49, 6)
+        run_prediction_pipeline("大樂透", "data/lotto649.json", 49, 6, ensemble_size=args.ensemble)
     elif args.game == "539":
-        run_prediction_pipeline("今彩539", "data/daily539.json", 39, 5)
+        run_prediction_pipeline("今彩539", "data/daily539.json", 39, 5, ensemble_size=args.ensemble)

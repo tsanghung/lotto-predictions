@@ -3,6 +3,7 @@ import json
 import re
 import time
 import logging
+from collections import Counter
 from datetime import datetime
 from dotenv import load_dotenv
 from google import genai
@@ -11,14 +12,17 @@ from google.genai import types
 from .stats_engine import StatsEngine
 from .web_search import WebSearcher
 from .gemini_config import get_prediction_model, is_api_key_configured, is_gemma_model
+from .performance_tracker import PerformanceTracker
+from .statistical_model import StatisticalModel
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class AIPredictor:
-    def __init__(self, game_name: str, data_file: str, max_number: int, num_picks: int):
+    def __init__(self, game_name: str, data_file: str, max_number: int, num_picks: int, ensemble_size: int = 1):
         self.game_name = game_name
-        self.num_picks = num_picks # 大樂透為 6 碼，今彩 539 為 5 碼
-        
+        self.num_picks = num_picks
+        self.ensemble_size = max(1, ensemble_size)
+
         load_dotenv()
         self.api_key = os.getenv("GEMINI_API_KEY")
         self.model = get_prediction_model()
@@ -27,21 +31,18 @@ class AIPredictor:
         else:
             self.client = None
             logging.warning("未設定 GEMINI_API_KEY，將啟用離線模擬預測模式。")
-            
+
         self.stats_engine = StatsEngine(data_file, max_number)
         self.web_searcher = WebSearcher()
+        self.perf_tracker = PerformanceTracker()
 
     def _generate_mock_prediction(self, stats_context: str, reason: str = "未提供有效的 Gemini API Key") -> dict:
-        """
-        當沒有 API Key 或呼叫失敗時的離線備援方案 (Fallback)。
-        回傳結果帶有 is_offline=True 旗標，供上層決定是否跳過推播。
-        """
         logging.info("執行離線模擬預測...")
         import random
         nums = list(range(1, self.stats_engine.max_number + 1))
 
         return {
-            "is_offline": True,           # ← 離線旗標，上層用來判斷是否推播
+            "is_offline": True,
             "offline_reason": reason,
             "reasoning": f"此為離線模擬預測。原因：{reason}",
             "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
@@ -52,50 +53,27 @@ class AIPredictor:
             }
         }
 
-    def generate_prediction(self) -> dict:
-        """
-        獲取統計特徵與輿情，然後交給 LLM 推理
-        """
-        logging.info(f"開始 {self.game_name} 的 AI 預測流程...")
-        
-        # 1. 取得 Context
-        stats_context = self.stats_engine.generate_full_report()
-        news_context = self.web_searcher.get_lottery_news_context(self.game_name)
-        
-        full_context = f"{stats_context}\n{news_context}"
-        
-        if not self.client:
-            return self._generate_mock_prediction(full_context)
-
+    def _build_contents_and_config(self, full_context: str, temperature: float = 0.5):
         if self.stats_engine.max_number == 49:
-            # 大樂透：近 100 期（約一年）為基準
             recent_periods = 100
-            trend_strategy_rule = (
-                "- 統計趨勢：至少 3 個號碼來自【近 100 期出現 15 次以上】的熱門池\n"
-            )
-            reasoning_example = (
-                '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
-                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 100 期出現 Z 次』\",\n"
-            )
         else:
-            # 今彩539：近 300 期（約一年）為基準
             recent_periods = 300
-            trend_strategy_rule = (
-                "- 統計趨勢：至少 3 個號碼來自【近 300 期出現 40 次以上】的熱門池\n"
-            )
-            reasoning_example = (
-                '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
-                "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在近 300 期出現 Z 次』\",\n"
-            )
-            
-        # 2. 定義 System Prompt 與 User Prompt
+
+        trend_strategy_rule = (
+            "- 統計趨勢：至少 3 個號碼來自背景資料中的【統計趨勢熱門池】\n"
+        )
+        reasoning_example = (
+            '  "reasoning": "依 Step1-4 推理，須引用具體數字，'
+            "例如『全歷史和值平均 X、奇偶比 Y；號碼 7 在統計報告中出現 Z 次』\",\n"
+        )
+
         system_instruction = (
             "你是一位『頂級博弈精算師』，精通機率論、統計學與大數據分析。"
             "請基於提供的『自 2007 年至今超過 10 年』的歷史累計數據與最新網路輿情，進行深度推估。"
             "你必須綜合考量長期的規律性與短期的熱冷門趨勢，提供具備科學依據的預測。"
             "分析結果必須嚴格遵守 JSON 格式回傳，不可包含任何額外字串或 Markdown 標記。"
         )
-        
+
         prompt = (
             f"任務：為【{self.game_name}】預測下一期號碼（從 1 到 {self.stats_engine.max_number} 選 {self.num_picks} 個）\n\n"
             "== 必須遵守的硬性約束（違反任何一條視為無效，必須重新選號）==\n"
@@ -135,30 +113,20 @@ class AIPredictor:
         )
 
         if is_gemma_model(self.model):
-            # Gemma 不支援 system_instruction / JSON mode，角色設定併入主 prompt
-            contents = f"{system_instruction}\n\n{prompt}"
-            config = types.GenerateContentConfig(temperature=0.5)
-        else:
-            contents = prompt
-            config = types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=0.5,
-                response_mime_type="application/json",
-            )
+            return f"{system_instruction}\n\n{prompt}", types.GenerateContentConfig(temperature=temperature)
+        return prompt, types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+            response_mime_type="application/json",
+        )
 
+    def _call_llm_once(self, contents, config, full_context: str) -> dict:
         MAX_RETRIES = 3
-        last_error = None
-
         for attempt in range(1, MAX_RETRIES + 1):
             try:
-                logging.info(f"正在呼叫 {self.model} 進行推理（第 {attempt}/{MAX_RETRIES} 次）...")
-
                 response = self.client.models.generate_content(
-                    model=self.model,
-                    contents=contents,
-                    config=config,
+                    model=self.model, contents=contents, config=config,
                 )
-
                 raw_text = response.text.strip()
                 try:
                     result = json.loads(raw_text)
@@ -167,30 +135,127 @@ class AIPredictor:
                     clean_text = json_match.group(1) if json_match else raw_text
                     clean_text = re.sub(r'\\(?!["\\/bfnrtu])', '', clean_text)
                     result = json.loads(clean_text)
-
-                # 驗證結構
                 if "combinations" not in result or "reasoning" not in result:
                     raise ValueError("LLM 回傳的 JSON 缺少必要的欄位。")
-
-                logging.info(f"{self.model} 推理完成！")
                 return result
-
             except Exception as e:
-                last_error = e
-                # 500 / 503 / 429 都值得重試；其他錯誤也重試，最多 MAX_RETRIES 次
                 if attempt < MAX_RETRIES:
-                    wait_sec = 2 ** (attempt - 1)  # 1s → 2s → 4s 指數退避
-                    logging.warning(
-                        f"第 {attempt} 次呼叫失敗（{e}），{wait_sec}s 後重試..."
-                    )
-                    time.sleep(wait_sec)
+                    time.sleep(2 ** (attempt - 1))
                 else:
-                    logging.error(f"已重試 {MAX_RETRIES} 次，全部失敗。最後錯誤：{e}")
+                    return self._generate_mock_prediction(
+                        full_context, reason=f"API error (retry {MAX_RETRIES}): {e}"
+                    )
 
-        logging.warning("啟動容錯機制，使用模擬預測。")
-        return self._generate_mock_prediction(
-            full_context, reason=f"API 發生錯誤（重試 {MAX_RETRIES} 次仍失敗）: {last_error}"
+    def generate_prediction(self) -> dict:
+        logging.info(f"開始 {self.game_name} 的 AI 預測流程...")
+        stats_context = self.stats_engine.generate_full_report()
+        news_context = self.web_searcher.get_lottery_news_context(self.game_name)
+        perf_context = self.perf_tracker.get_strategy_context(self.game_name)
+        trend_context = self.perf_tracker.get_recent_trend(self.game_name)
+        feedback = "\n".join(filter(None, [perf_context, trend_context]))
+        full_context = f"{stats_context}\n{news_context}\n{feedback}"
+
+        if self.ensemble_size > 1:
+            return self._run_ensemble(full_context)
+        if not self.client:
+            return self._generate_mock_prediction(full_context)
+        return self._run_single(full_context)
+
+    def _run_single(self, full_context: str) -> dict:
+        contents, config = self._build_contents_and_config(full_context, temperature=0.5)
+        return self._call_llm_once(contents, config, full_context)
+
+    def _ensemble_temperatures(self) -> list:
+        if self.ensemble_size == 1:
+            return [0.5]
+        step = 0.4 / (self.ensemble_size - 1)
+        return [round(0.3 + i * step, 1) for i in range(self.ensemble_size)]
+
+    def _run_ensemble(self, full_context: str) -> dict:
+        temperatures = self._ensemble_temperatures()
+        member_combos = []
+        reasonings = []
+
+        for i, temp in enumerate(temperatures):
+            logging.info(f"Ensemble member {i+1}/{self.ensemble_size} (temp={temp})...")
+            contents, config = self._build_contents_and_config(full_context, temperature=temp)
+            result = self._call_llm_once(contents, config, full_context)
+            if result.get("is_offline"):
+                logging.warning(f"Ensemble member {i+1} 失敗，跳過。")
+                continue
+            member_combos.append(result.get("combinations", {}))
+            reasonings.append(result.get("reasoning", ""))
+
+        ml_model = StatisticalModel(self.stats_engine)
+        ml_result = ml_model.predict()
+        member_combos.append(ml_result)
+        reasonings.append("統計模型: 多信號加權評分 (間隔/頻率/尾數/區間)")
+        logging.info(f"統計模型加入 ensemble，共 {len(member_combos)} 個 member")
+
+        valid_count = len(member_combos)
+        if valid_count == 0:
+            return self._generate_mock_prediction(
+                full_context, reason="所有 Ensemble member 皆失敗"
+            )
+
+        trend_periods = 100 if self.stats_engine.max_number == 49 else 300
+        cold_pool = self.stats_engine.get_cold_pool()
+        hot_pool = self.stats_engine.get_hot_pool(trend_periods)
+        sum_stats = self.stats_engine.get_sum_stats(None)
+
+        strategies = ["激進包牌", "穩健平衡", "統計趨勢"]
+        final_combinations = {}
+        for strategy in strategies:
+            all_nums = []
+            for c in member_combos:
+                all_nums.extend(c.get(strategy, []))
+            final_combinations[strategy] = self._ensemble_vote(
+                all_nums, strategy, cold_pool, hot_pool, sum_stats
+            )
+
+        ensemble_reasoning = (
+            f"【Ensemble 預測】共 {valid_count}/{self.ensemble_size} 個 member 投票融合。\n"
+            + "\n".join(f"Member {i+1}: {r}" for i, r in enumerate(reasonings[:3]))
         )
+
+        return {
+            "is_offline": False,
+            "reasoning": ensemble_reasoning,
+            "risk_warning": "此為多模型 Ensemble 投票結果，僅供參考。",
+            "combinations": final_combinations,
+            "ensemble_metadata": {
+                "ensemble_size": self.ensemble_size,
+                "successful_members": valid_count,
+                "temperatures": temperatures,
+            }
+        }
+
+    def _ensemble_vote(self, all_numbers: list, strategy: str, cold_pool: dict, hot_pool: dict, sum_stats: dict) -> list:
+        vote_counts = Counter(all_numbers)
+        avg_sum = sum_stats["average"]
+        perf_weights = self.perf_tracker.get_strategy_weights(self.game_name)
+        perf_bonus = perf_weights.get(strategy, 1.0)
+
+        scored = []
+        for n, votes in vote_counts.items():
+            if strategy == "激進包牌":
+                base = 2.0 if n in cold_pool else (0.4 if n in hot_pool else 0.8)
+            elif strategy == "統計趨勢":
+                base = 2.0 if n in hot_pool else (0.4 if n in cold_pool else 0.8)
+            else:
+                base = 0.4 if n in cold_pool or n in hot_pool else 1.6
+            scored.append((n, votes * base * perf_bonus))
+
+        scored.sort(key=lambda x: (-x[1], -vote_counts[x[0]]))
+        selected = [n for n, _ in scored[:self.num_picks]]
+
+        if len(selected) < self.num_picks:
+            available = [n for n in range(1, self.stats_engine.max_number + 1) if n not in selected]
+            import random
+            while len(selected) < self.num_picks:
+                selected.append(random.choice(available))
+
+        return sorted(selected[:self.num_picks])
 
 def save_predictions(
     game_name: str,
