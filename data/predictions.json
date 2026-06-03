@@ -4590,12 +4590,59 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000134",
+      "actual_numbers": [
+        7,
+        12,
+        22,
+        26,
+        30
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            12,
+            30
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            15,
+            17,
+            29
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            30
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            11,
+            25,
+            31
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            22
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            15,
+            19,
+            36
+          ]
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎本質上屬於「隨機漫步 (Random Walk)」，各期結果之間不存在「自相關性 (Autocorrelation)」。預測系統採用的熱門/冷門分析實為基於歷史數據的「樣本偏差 (Sample Bias)」，試圖以「大數法則 (Law of Large Numbers)」的長期趨勢推論短期單次事件，這在統計學上屬於邏輯謬誤。\n\n本期開獎號碼 [7, 12, 22, 26, 30] 的奇偶比 (1:4) 呈現明顯的「偏態分佈 (Skewness)」，屬於機率分佈中的正常隨機波動。由於單次抽樣的「變異數 (Variance)」極高，任何基於頻率的預測模型在面對獨立隨機事件時，其命中率均趨近於理論機率，而非統計趨勢。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   },
   {
@@ -4645,12 +4692,63 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000058",
+      "actual_numbers": [
+        8,
+        9,
+        16,
+        20,
+        37,
+        49
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            9
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            15,
+            23,
+            34,
+            46
+          ]
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            8
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            12,
+            25,
+            42,
+            47
+          ]
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            20
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            15,
+            25,
+            39,
+            43
+          ]
+        }
+      },
+      "attribution_report": "本期結果 [8, 9, 16, 20, 37, 49] 呈現典型的「隨機漫步 (Random Walk)」特徵。從統計學分析，開獎號碼橫跨歷史熱門 (8)、歷史冷門 (9) 及近期熱門 (16, 20)，顯示單次抽樣分佈具有高變異數 (Variance)。\n\n預測組合未能命中，主因在於模型將歷史頻率作為權重，產生了「樣本偏差 (Sample Bias)」，試圖在獨立隨機事件中尋找規律。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅在極大樣本量下成立，單期結果屬於機率分佈中的隨機離群值 (Outlier)，與前序數據無「自相關性 (Autocorrelation)」。此結果在數學上完全合理。",
+      "attribution_trigger": "表現不佳（最高命中 1/6，低於閾值 3）"
     }
   }
 ]
