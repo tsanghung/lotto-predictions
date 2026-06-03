@@ -6,10 +6,23 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class StatsEngine:
-    def __init__(self, data_file: str, max_number: int):
+    def __init__(self, data_file: str | None = None, max_number: int = 49, df: pd.DataFrame | None = None):
+        """
+        data_file : JSON 歷史檔路徑（df 未提供時由此載入）
+        max_number: 號碼上限（大樂透 49, 今彩539 為 39）
+        df        : 直接注入已排序的 DataFrame（供回測切片重用，避免重複讀檔）
+        """
         self.data_file = data_file
-        self.max_number = max_number # 大樂透為 49, 539 為 39
-        self.df = self._load_data()
+        self.max_number = max_number
+        if df is not None:
+            # 直接重用既有 DataFrame（回測時切片用）
+            self.df = df.reset_index(drop=True)
+        else:
+            self.df = self._load_data()
+
+    def head(self, n: int) -> "StatsEngine":
+        """回傳僅含『最舊 n 期』的新 StatsEngine（回測時模擬當下可見的歷史）。"""
+        return StatsEngine(max_number=self.max_number, df=self.df.head(n).copy())
 
     def _load_data(self) -> pd.DataFrame:
         with open(self.data_file, 'r', encoding='utf-8') as f:
