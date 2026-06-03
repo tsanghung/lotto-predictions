@@ -1,15 +1,30 @@
 import pandas as pd
 import json
-from typing import Dict, List, Any
+from itertools import combinations
+from collections import Counter
+from typing import Dict, List, Any, Tuple
 import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 class StatsEngine:
-    def __init__(self, data_file: str, max_number: int):
+    def __init__(self, data_file: str | None = None, max_number: int = 49, df: pd.DataFrame | None = None):
+        """
+        data_file : JSON 歷史檔路徑（df 未提供時由此載入）
+        max_number: 號碼上限（大樂透 49, 今彩539 為 39）
+        df        : 直接注入已排序的 DataFrame（供回測切片重用，避免重複讀檔）
+        """
         self.data_file = data_file
-        self.max_number = max_number # 大樂透為 49, 539 為 39
-        self.df = self._load_data()
+        self.max_number = max_number
+        if df is not None:
+            # 直接重用既有 DataFrame（回測時切片用）
+            self.df = df.reset_index(drop=True)
+        else:
+            self.df = self._load_data()
+
+    def head(self, n: int) -> "StatsEngine":
+        """回傳僅含『最舊 n 期』的新 StatsEngine（回測時模擬當下可見的歷史）。"""
+        return StatsEngine(max_number=self.max_number, df=self.df.head(n).copy())
 
     def _load_data(self) -> pd.DataFrame:
         with open(self.data_file, 'r', encoding='utf-8') as f:
@@ -144,6 +159,52 @@ class StatsEngine:
             "band_plus_20pct": avg * 1.2,
         }
 
+    def get_pair_frequencies(self, periods: int | None = None, top_k: int = 10) -> Dict[str, Any]:
+        """
+        號碼對 (pair) 共現頻率：哪些『兩號組合』最常同時開出。
+        相較單號頻率，號碼對更能捕捉號碼間的連帶結構。
+        periods=None 表示使用全部歷史資料。
+        """
+        if periods is None:
+            periods = len(self.df)
+        elif len(self.df) < periods:
+            periods = len(self.df)
+        recent_df = self.df.tail(periods)
+
+        pair_counter: Counter = Counter()
+        for nums in recent_df["numbers"]:
+            for a, b in combinations(sorted(nums), 2):
+                pair_counter[(a, b)] += 1
+
+        # 同時快取一份 frozenset -> count，供 StrategySampler 取用
+        self.pair_freq_cache = {frozenset(k): v for k, v in pair_counter.items()}
+
+        return {
+            "period_count": periods,
+            "top_pairs": [(list(k), v) for k, v in pair_counter.most_common(top_k)],
+        }
+
+    def get_triplet_frequencies(self, periods: int | None = None, top_k: int = 8) -> Dict[str, Any]:
+        """
+        三聯 (triplet) 共現頻率：哪些『三號組合』最常同時開出。
+        periods=None 表示使用全部歷史資料。
+        """
+        if periods is None:
+            periods = len(self.df)
+        elif len(self.df) < periods:
+            periods = len(self.df)
+        recent_df = self.df.tail(periods)
+
+        trip_counter: Counter = Counter()
+        for nums in recent_df["numbers"]:
+            for combo in combinations(sorted(nums), 3):
+                trip_counter[combo] += 1
+
+        return {
+            "period_count": periods,
+            "top_triplets": [(list(k), v) for k, v in trip_counter.most_common(top_k)],
+        }
+
     def get_odd_even_stats(self, periods: int | None = None) -> Dict[str, Any]:
         """
         奇偶統計：每期平均奇/偶顆數，以及累計奇:偶比。
@@ -246,7 +307,19 @@ class StatsEngine:
             )
             report += (
                 f"上一期 ({dist['latest_draw_id']}) 奇偶比: {dist['odd_even_ratio']}, "
-                f"大小比: {dist['large_small_ratio']}\n"
+                f"大小比: {dist['large_small_ratio']}\n\n"
+            )
+
+            # 號碼對 / 三聯共現頻率（捕捉號碼間的連帶結構）
+            pairs = self.get_pair_frequencies(recent_periods, top_k=10)
+            triplets = self.get_triplet_frequencies(recent_periods, top_k=8)
+            report += (
+                f"近 {recent_periods} 期【最常同開號碼對】Top10 (號碼對,次數): "
+                f"{pairs['top_pairs']}\n"
+            )
+            report += (
+                f"近 {recent_periods} 期【最常同開三聯】Top8 (三號,次數): "
+                f"{triplets['top_triplets']}\n"
             )
 
             return report

@@ -98,17 +98,32 @@ class Evaluator:
             
             # 計算各策略的命中情況
             actual_set = set(actual_numbers)
+            actual_sum = sum(actual_numbers)
+            actual_odd = sum(1 for n in actual_numbers if n % 2)
             combinations = record.get("prediction", {}).get("combinations", {})
             for strategy_name, predicted_nums in combinations.items():
                 pred_set = set(predicted_nums)
                 matches = list(pred_set.intersection(actual_set))
                 misses = list(pred_set.difference(actual_set))
-                
+
+                # ── 預測偏差追蹤：量化系統性誤差方向 ──────────────────
+                pred_sum = sum(predicted_nums)
+                pred_odd = sum(1 for n in predicted_nums if n % 2)
+                bias = {
+                    "pred_sum": pred_sum,
+                    "actual_sum": actual_sum,
+                    "sum_error": pred_sum - actual_sum,          # 正=猜太大, 負=猜太小
+                    "pred_odd_count": pred_odd,
+                    "actual_odd_count": actual_odd,
+                    "odd_error": pred_odd - actual_odd,           # 正=奇數猜太多
+                }
+
                 evaluation["strategies"][strategy_name] = {
                     "hits": len(matches),
                     "matches": sorted(matches),
                     "miss_count": len(misses),
-                    "missed_numbers": sorted(misses)
+                    "missed_numbers": sorted(misses),
+                    "bias": bias
                 }
             # ── 決定是否觸發科學歸因 ──────────────────────────────────────────
             max_hits = max((s["hits"] for s in evaluation["strategies"].values()), default=0)
@@ -202,24 +217,52 @@ class Evaluator:
                 if strategy not in game_perf["strategies"]:
                     game_perf["strategies"][strategy] = {
                         "total_hits": 0,
-                        "total_misses": 0
+                        "total_misses": 0,
+                        "_sum_error_total": 0,
+                        "_odd_error_total": 0,
+                        "_abs_sum_error_total": 0,
+                        "_bias_samples": 0,
                     }
-                    
+
                 hits = stats.get("hits", 0)
                 misses = stats.get("miss_count", 0)
-                
-                game_perf["strategies"][strategy]["total_hits"] += hits
-                game_perf["strategies"][strategy]["total_misses"] += misses
-                
+
+                sp = game_perf["strategies"][strategy]
+                sp["total_hits"] += hits
+                sp["total_misses"] += misses
+
+                # 累計偏差，供後續計算平均偏差方向
+                bias = stats.get("bias")
+                if bias:
+                    sp["_sum_error_total"] += bias.get("sum_error", 0)
+                    sp["_odd_error_total"] += bias.get("odd_error", 0)
+                    sp["_abs_sum_error_total"] += abs(bias.get("sum_error", 0))
+                    sp["_bias_samples"] += 1
+
                 trend_data["strategies"][strategy] = hits
                 
             game_perf["trend"].append(trend_data)
             
-        # 計算最終的 win_rate
+        # 計算最終的 win_rate 與平均偏差
         for game_name, game_perf in performance["games"].items():
             for strategy, stats in game_perf["strategies"].items():
                 total = stats["total_hits"] + stats["total_misses"]
                 stats["win_rate"] = round(stats["total_hits"] / total, 4) if total > 0 else 0
+
+                n = stats.pop("_bias_samples", 0)
+                sum_err = stats.pop("_sum_error_total", 0)
+                odd_err = stats.pop("_odd_error_total", 0)
+                abs_sum_err = stats.pop("_abs_sum_error_total", 0)
+                if n > 0:
+                    stats["bias_summary"] = {
+                        "samples": n,
+                        # 平均和值偏差：正=系統性猜太大, 負=系統性猜太小
+                        "avg_sum_error": round(sum_err / n, 2),
+                        # 平均和值絕對誤差：與實際和值的離散程度
+                        "avg_abs_sum_error": round(abs_sum_err / n, 2),
+                        # 平均奇偶偏差：正=奇數系統性偏多
+                        "avg_odd_error": round(odd_err / n, 2),
+                    }
                 
         perf_file = os.path.join(self.data_dir, "performance.json")
         self._save_json(perf_file, performance)
