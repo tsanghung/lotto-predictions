@@ -42,8 +42,12 @@ class StrategySampler:
         hc = stats_engine.get_hot_cold_stats(recent_periods)
         self.recent_freq: Dict[int, int] = hc["frequencies"]
         self.missing: Dict[int, int] = stats_engine.get_missing_values()
-        # 號碼對頻率（步驟 3 加入；若引擎尚無此能力則為空）
+        # 號碼對頻率（步驟 3）：優先取快取，否則就近期視窗即時計算
         self.pair_freq: Dict[frozenset, int] = getattr(stats_engine, "pair_freq_cache", {}) or {}
+        if not self.pair_freq and hasattr(stats_engine, "get_pair_frequencies"):
+            stats_engine.get_pair_frequencies(recent_periods)
+            self.pair_freq = getattr(stats_engine, "pair_freq_cache", {}) or {}
+        self.max_pair = max(self.pair_freq.values()) if self.pair_freq else 1
 
         # 近 3 期開獎（用於排除完全相同）
         self.last_draws = [set(n) for n in stats_engine.df.tail(3)["numbers"]]
@@ -117,11 +121,22 @@ class StrategySampler:
         pool = nums[:]
         wmap = dict(weights)
         for _ in range(self.num_picks):
-            total = sum(wmap[n] for n in pool)
+            # 號碼對連帶加權：已選號碼會提升其高頻共現夥伴的權重
+            if chosen and self.pair_freq:
+                eff = {}
+                for n in pool:
+                    bonus = 1.0
+                    for c in chosen:
+                        pf = self.pair_freq.get(frozenset((n, c)), 0)
+                        bonus += 0.5 * (pf / self.max_pair)
+                    eff[n] = wmap[n] * bonus
+            else:
+                eff = wmap
+            total = sum(eff[n] for n in pool)
             r = rng.uniform(0, total)
             acc = 0.0
             for n in pool:
-                acc += wmap[n]
+                acc += eff[n]
                 if r <= acc:
                     chosen.append(n)
                     pool.remove(n)
