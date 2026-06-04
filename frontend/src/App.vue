@@ -8,6 +8,7 @@ import PerformanceChart from './components/PerformanceChart.vue'
 import AttributionReport from './components/AttributionReport.vue'
 import HeatmapChart from './components/HeatmapChart.vue'
 import DistributionChart from './components/DistributionChart.vue'
+import SectionHeader from './components/SectionHeader.vue'
 
 const { meta, predictions, history, performance, loading, error, fetchData } = useLottoData()
 const activeTab = ref('649')
@@ -41,7 +42,7 @@ const formatDate = (iso) => {
       <header style="text-align:center;margin-bottom:48px;">
         <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;">
           <div style="width:10px;height:10px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 12px rgba(45,212,191,0.8);animation:pulse 2s infinite;"></div>
-          <span style="font-size:26px;font-weight:600;color:#64748b;letter-spacing:0.15em;text-transform:uppercase;">Live Dashboard</span>
+          <span style="font-size:16px;font-weight:600;color:#64748b;letter-spacing:0.15em;text-transform:uppercase;">Live Dashboard</span>
         </div>
         <h1 style="font-size:clamp(2rem,5vw,3.5rem);font-weight:900;background:linear-gradient(135deg,#2dd4bf 0%,#3b82f6 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0 0 12px;line-height:1.1;">
           小賽 AI 樂透預測
@@ -53,28 +54,28 @@ const formatDate = (iso) => {
         <!-- Status badges -->
         <div style="display:flex;flex-wrap:wrap;justify-content:center;gap:10px;">
           <div style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
-            <span style="font-size:24px;color:#94a3b8;">系統狀態</span>
-            <span v-if="loading" style="display:flex;align-items:center;gap:6px;color:#f59e0b;font-size:24px;">
+            <span style="font-size:15px;color:#94a3b8;">系統狀態</span>
+            <span v-if="loading" style="display:flex;align-items:center;gap:6px;color:#f59e0b;font-size:15px;">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
               同步中...
             </span>
-            <span v-else-if="error" style="color:#f43f5e;font-size:24px;">⚠ 連線失敗</span>
-            <span v-else style="display:flex;align-items:center;gap:6px;color:#10b981;font-size:24px;">
+            <span v-else-if="error" style="color:#f43f5e;font-size:15px;">⚠ 連線失敗</span>
+            <span v-else style="display:flex;align-items:center;gap:6px;color:#10b981;font-size:15px;">
               <span style="width:6px;height:6px;border-radius:50%;background:#10b981;box-shadow:0 0 8px #10b981;"></span>
               在線且最新
             </span>
           </div>
           <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
-            <span style="font-size:24px;color:#94a3b8;">最後更新</span>
-            <span style="font-size:24px;color:#cbd5e1;">{{ formatDate(meta.last_updated) }}</span>
+            <span style="font-size:15px;color:#94a3b8;">最後更新</span>
+            <span style="font-size:15px;color:#cbd5e1;">{{ formatDate(meta.last_updated) }}</span>
           </div>
           <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
-            <span style="font-size:24px;color:#94a3b8;">大樂透期數</span>
-            <span style="font-size:24px;font-weight:700;color:#2dd4bf;">{{ meta.lotto649_total }} 期</span>
+            <span style="font-size:15px;color:#94a3b8;">大樂透期數</span>
+            <span style="font-size:15px;font-weight:700;color:#2dd4bf;">{{ meta.lotto649_total }} 期</span>
           </div>
           <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
-            <span style="font-size:24px;color:#94a3b8;">今彩539期數</span>
-            <span style="font-size:24px;font-weight:700;color:#a78bfa;">{{ meta.daily539_total }} 期</span>
+            <span style="font-size:15px;color:#94a3b8;">今彩539期數</span>
+            <span style="font-size:15px;font-weight:700;color:#a78bfa;">{{ meta.daily539_total }} 期</span>
           </div>
         </div>
       </header>
@@ -88,7 +89,7 @@ const formatDate = (iso) => {
       <!-- ══ ERROR STATE ══ -->
       <div v-else-if="error" style="background:rgba(244,63,94,0.08);border:1px solid rgba(244,63,94,0.3);border-radius:16px;padding:32px;text-align:center;margin-bottom:32px;">
         <p style="color:#f43f5e;margin-bottom:16px;">無法載入資料：{{ error }}</p>
-        <button @click="fetchData" style="background:rgba(244,63,94,0.15);color:#f87171;border:1px solid rgba(244,63,94,0.3);border-radius:8px;padding:8px 20px;cursor:pointer;font-size:28px;">重新嘗試</button>
+        <button @click="fetchData" style="background:rgba(244,63,94,0.15);color:#f87171;border:1px solid rgba(244,63,94,0.3);border-radius:8px;padding:8px 20px;cursor:pointer;font-size:17px;">重新嘗試</button>
       </div>
 
       <!-- ══ MAIN CONTENT ══ -->
@@ -99,7 +100,7 @@ const formatDate = (iso) => {
           <button @click="activeTab='649'"
             :style="{
               padding:'10px 28px', borderRadius:'10px', border:'none', cursor:'pointer',
-              fontWeight:'700', fontSize:'28px', transition:'all 0.2s',
+              fontWeight:'700', fontSize:'17px', transition:'all 0.2s',
               background: activeTab==='649' ? 'linear-gradient(135deg,#0e7490,#1d4ed8)' : 'transparent',
               color: activeTab==='649' ? '#fff' : '#64748b',
               boxShadow: activeTab==='649' ? '0 2px 12px rgba(45,212,191,0.25)' : 'none'
@@ -109,7 +110,7 @@ const formatDate = (iso) => {
           <button @click="activeTab='539'"
             :style="{
               padding:'10px 28px', borderRadius:'10px', border:'none', cursor:'pointer',
-              fontWeight:'700', fontSize:'28px', transition:'all 0.2s',
+              fontWeight:'700', fontSize:'17px', transition:'all 0.2s',
               background: activeTab==='539' ? 'linear-gradient(135deg,#6d28d9,#9333ea)' : 'transparent',
               color: activeTab==='539' ? '#fff' : '#64748b',
               boxShadow: activeTab==='539' ? '0 2px 12px rgba(167,139,250,0.25)' : 'none'
@@ -118,100 +119,91 @@ const formatDate = (iso) => {
           </button>
         </div>
 
-        <!-- Main grid -->
-        <div style="display:grid;grid-template-columns:1fr;gap:24px;">
-          
-          <!-- 大樂透 -->
-          <div v-show="activeTab==='649'">
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
-              <PredictionCard
-                game-name="大樂透"
-                :prediction-data="predictions"
-                :history-data="history['大樂透']"
-                accent="#2dd4bf"
-              />
-              <StatsPanel
-                game-name="大樂透"
-                :history-data="history['大樂透']"
-                :max-number="49"
-                accent="#2dd4bf"
-              />
-            </div>
-            <div style="margin-top:24px;">
-              <HotColdChart
-                game-name="大樂透"
-                :history-data="history['大樂透']"
-                :max-number="49"
-                accent="#2dd4bf"
-              />
-              <HeatmapChart
-                game-name="大樂透"
-                :history-data="history['大樂透']"
-              />
-              <DistributionChart
-                game-name="大樂透"
-                :history-data="history['大樂透']"
-              />
-              <AttributionReport
-                :prediction="[...predictions].reverse().find(p => p.game_name === '大樂透')"
-              />
-              <PerformanceChart
-                game-name="大樂透"
-                :performance-data="performance"
-              />
-            </div>
-          </div>
+        <!-- 大樂透 -->
+        <div v-show="activeTab==='649'" style="display:flex;flex-direction:column;gap:56px;">
 
-          <!-- 今彩539 -->
-          <div v-show="activeTab==='539'">
+          <!-- 區塊一：AI 預測與統計 -->
+          <section>
+            <SectionHeader label="AI Prediction" title="AI 預測與即時統計"
+              desc="Gemini 推理生成的投注組合，並列歷史熱冷號與近期開獎概況" accent="#2dd4bf" />
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
-              <PredictionCard
-                game-name="今彩539"
-                :prediction-data="predictions"
-                :history-data="history['今彩539']"
-                accent="#a78bfa"
-              />
-              <StatsPanel
-                game-name="今彩539"
-                :history-data="history['今彩539']"
-                :max-number="39"
-                accent="#a78bfa"
-              />
+              <PredictionCard game-name="大樂透" :prediction-data="predictions"
+                :history-data="history['大樂透']" accent="#2dd4bf" />
+              <StatsPanel game-name="大樂透" :history-data="history['大樂透']"
+                :max-number="49" accent="#2dd4bf" />
             </div>
-            <div style="margin-top:24px;">
-              <HotColdChart
-                game-name="今彩539"
-                :history-data="history['今彩539']"
-                :max-number="39"
-                accent="#a78bfa"
-              />
-              <HeatmapChart
-                game-name="今彩539"
-                :history-data="history['今彩539']"
-              />
-              <DistributionChart
-                game-name="今彩539"
-                :history-data="history['今彩539']"
-              />
-              <AttributionReport
-                :prediction="[...predictions].reverse().find(p => p.game_name === '今彩539')"
-              />
-              <PerformanceChart
-                game-name="今彩539"
-                :performance-data="performance"
-              />
-            </div>
-          </div>
+          </section>
 
+          <!-- 區塊二：號碼分析 -->
+          <section>
+            <SectionHeader label="Number Analysis" title="號碼熱度與分佈"
+              desc="從全歷史與近期視窗觀察號碼頻率、熱力分佈與奇偶大小結構" accent="#2dd4bf" />
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              <HotColdChart game-name="大樂透" :history-data="history['大樂透']"
+                :max-number="49" accent="#2dd4bf" />
+              <HeatmapChart game-name="大樂透" :history-data="history['大樂透']" />
+              <DistributionChart game-name="大樂透" :history-data="history['大樂透']" />
+            </div>
+          </section>
+
+          <!-- 區塊三：成效追蹤 -->
+          <section>
+            <SectionHeader label="Performance" title="AI 預測成效追蹤"
+              desc="歷次對獎的命中率、走勢與科學歸因分析" accent="#2dd4bf" />
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              <AttributionReport
+                :prediction="[...predictions].reverse().find(p => p.game_name === '大樂透')" />
+              <PerformanceChart game-name="大樂透" :performance-data="performance" />
+            </div>
+          </section>
+        </div>
+
+        <!-- 今彩539 -->
+        <div v-show="activeTab==='539'" style="display:flex;flex-direction:column;gap:56px;">
+
+          <!-- 區塊一：AI 預測與統計 -->
+          <section>
+            <SectionHeader label="AI Prediction" title="AI 預測與即時統計"
+              desc="Gemini 推理生成的投注組合，並列歷史熱冷號與近期開獎概況" accent="#a78bfa" />
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
+              <PredictionCard game-name="今彩539" :prediction-data="predictions"
+                :history-data="history['今彩539']" accent="#a78bfa" />
+              <StatsPanel game-name="今彩539" :history-data="history['今彩539']"
+                :max-number="39" accent="#a78bfa" />
+            </div>
+          </section>
+
+          <!-- 區塊二：號碼分析 -->
+          <section>
+            <SectionHeader label="Number Analysis" title="號碼熱度與分佈"
+              desc="從全歷史與近期視窗觀察號碼頻率、熱力分佈與奇偶大小結構" accent="#a78bfa" />
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              <HotColdChart game-name="今彩539" :history-data="history['今彩539']"
+                :max-number="39" accent="#a78bfa" />
+              <HeatmapChart game-name="今彩539" :history-data="history['今彩539']" />
+              <DistributionChart game-name="今彩539" :history-data="history['今彩539']" />
+            </div>
+          </section>
+
+          <!-- 區塊三：成效追蹤 -->
+          <section>
+            <SectionHeader label="Performance" title="AI 預測成效追蹤"
+              desc="歷次對獎的命中率、走勢與科學歸因分析" accent="#a78bfa" />
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              <AttributionReport
+                :prediction="[...predictions].reverse().find(p => p.game_name === '今彩539')" />
+              <PerformanceChart game-name="今彩539" :performance-data="performance" />
+            </div>
+          </section>
         </div>
       </div>
 
       <!-- Footer -->
       <footer style="text-align:center;margin-top:60px;padding-top:32px;border-top:1px solid rgba(255,255,255,0.06);">
-        <p style="font-size:24px;color:#334155;">
+        <p style="font-size:15px;color:#334155;">
           ⚠️ 本系統僅供娛樂參考，不構成任何投注建議。請理性投注，勿過度沉迷。
         </p>
-        <p style="font-size:22px;color:#1e293b;margin-top:8px;">
+        <p style="font-size:14px;color:#1e293b;margin-top:8px;">
           由 Gemini AI × GitHub Actions 全自動驅動 · 資料來源：台灣彩券官方網站
         </p>
       </footer>

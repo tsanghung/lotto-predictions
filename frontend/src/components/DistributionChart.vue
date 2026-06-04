@@ -102,7 +102,7 @@ const largeSmallData = computed(() => ({
 </script>
 
 <template>
-  <div class="mt-8 grid grid-cols-2 gap-4">
+  <div class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 grid grid-cols-2 gap-4">
     <div class="bg-slate-900/40 rounded-xl p-4 ring-1 ring-white/5">
       <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">歷史奇偶分佈</h4>
       <div class="relative h-32 w-full">

@@ -134,7 +134,7 @@ const hitMissChartData = computed(() => {
 </script>
 
 <template>
-  <div v-if="gamePerf" class="mt-8 space-y-6">
+  <div v-if="gamePerf" class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 space-y-6">
     <div class="flex items-center gap-2 mb-2">
       <span class="text-xl">📊</span>
       <h3 class="text-lg font-bold text-slate-200">成效分析看板</h3>
