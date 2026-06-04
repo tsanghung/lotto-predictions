@@ -7,6 +7,7 @@ import HotColdChart from './components/HotColdChart.vue'
 import PerformanceChart from './components/PerformanceChart.vue'
 import AttributionReport from './components/AttributionReport.vue'
 import HeatmapChart from './components/HeatmapChart.vue'
+import IntervalAnalysis from './components/IntervalAnalysis.vue'
 import DistributionChart from './components/DistributionChart.vue'
 import SectionHeader from './components/SectionHeader.vue'
 
@@ -142,6 +143,8 @@ const formatDate = (iso) => {
               <HotColdChart game-name="大樂透" :history-data="history['大樂透']"
                 :max-number="49" accent="#2dd4bf" />
               <HeatmapChart game-name="大樂透" :history-data="history['大樂透']" />
+              <IntervalAnalysis game-name="大樂透" :history-data="history['大樂透']"
+                :max-number="49" accent="#2dd4bf" />
               <DistributionChart game-name="大樂透" :history-data="history['大樂透']" />
             </div>
           </section>
@@ -181,6 +184,8 @@ const formatDate = (iso) => {
               <HotColdChart game-name="今彩539" :history-data="history['今彩539']"
                 :max-number="39" accent="#a78bfa" />
               <HeatmapChart game-name="今彩539" :history-data="history['今彩539']" />
+              <IntervalAnalysis game-name="今彩539" :history-data="history['今彩539']"
+                :max-number="39" accent="#a78bfa" />
               <DistributionChart game-name="今彩539" :history-data="history['今彩539']" />
             </div>
           </section>

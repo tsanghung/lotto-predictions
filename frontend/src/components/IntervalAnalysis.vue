@@ -1,0 +1,157 @@
+<script setup>
+import { computed } from 'vue'
+
+const props = defineProps({
+  gameName: { type: String, required: true },
+  historyData: { type: Array, default: () => [] },
+  maxNumber: { type: Number, default: 49 },
+  accent: { type: String, default: '#2dd4bf' }
+})
+
+// 計算每個號碼的「遺漏值」分析：平均間隔、目前已隔、即將開出指數
+// 即將開出指數 = 目前已隔期數 ÷ 平均間隔期數，數值越大代表越久沒開（相對越冷）
+const analysis = computed(() => {
+  const data = props.historyData
+  const maxN = props.maxNumber
+  if (!data || data.length === 0) return []
+
+  const DAY = 86400000
+  const lastIndex = data.length - 1
+  const lastDate = new Date(data[lastIndex].date)
+
+  // 單次掃描建立 號碼 -> [出現的期序] 對照表
+  const idxMap = {}
+  for (let i = 0; i < data.length; i++) {
+    for (const n of data[i].numbers) {
+      (idxMap[n] || (idxMap[n] = [])).push(i)
+    }
+  }
+
+  const rows = []
+  for (let n = 1; n <= maxN; n++) {
+    const idxs = idxMap[n] || []
+    if (idxs.length === 0) {
+      rows.push({ num: n, appearances: 0, avgDraw: 0, avgDay: 0, maxDraw: 0, curGapDraw: lastIndex, curGapDay: null, index: 99 })
+      continue
+    }
+    const appearances = idxs.length
+
+    // 期數間隔
+    let sumDraw = 0, maxDraw = 0
+    for (let k = 1; k < idxs.length; k++) {
+      const d = idxs[k] - idxs[k - 1]
+      sumDraw += d
+      if (d > maxDraw) maxDraw = d
+    }
+    const avgDraw = appearances > 1 ? sumDraw / (appearances - 1) : data.length / appearances
+
+    // 天數間隔
+    const firstDate = new Date(data[idxs[0]].date)
+    const lastAppDate = new Date(data[idxs[idxs.length - 1]].date)
+    const avgDay = appearances > 1 ? (lastAppDate - firstDate) / DAY / (appearances - 1) : null
+
+    const lastAppIdx = idxs[idxs.length - 1]
+    const curGapDraw = lastIndex - lastAppIdx
+    const curGapDay = Math.round((lastDate - lastAppDate) / DAY)
+    const index = avgDraw > 0 ? curGapDraw / avgDraw : 0
+
+    rows.push({ num: n, appearances, avgDraw, avgDay, maxDraw, curGapDraw, curGapDay, index })
+  }
+  return rows
+})
+
+// 依即將開出指數由高至低排序
+const sortedByIndex = computed(() =>
+  [...analysis.value].sort((a, b) => b.index - a.index)
+)
+
+// 即將開出候選：指數最高的前 8 名
+const dueCandidates = computed(() => sortedByIndex.value.slice(0, 8))
+
+// 依指數回傳色階（紅=久未開/最overdue → 藍=剛開出）
+const indexStyle = (index) => {
+  if (index >= 2.0) return { bg: 'rgba(239,68,68,0.85)',  border: 'rgba(239,68,68,0.6)',  text: '#fff' }
+  if (index >= 1.4) return { bg: 'rgba(249,115,22,0.80)', border: 'rgba(249,115,22,0.5)', text: '#fff' }
+  if (index >= 1.0) return { bg: 'rgba(234,179,8,0.75)',  border: 'rgba(234,179,8,0.5)',  text: '#1c1917' }
+  if (index >= 0.5) return { bg: 'rgba(34,197,94,0.55)',  border: 'rgba(34,197,94,0.4)',  text: '#fff' }
+  return                   { bg: 'rgba(59,130,246,0.55)', border: 'rgba(59,130,246,0.4)', text: '#fff' }
+}
+
+const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
+</script>
+
+<template>
+  <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:24px;">
+    <!-- 標題 -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+      <h3 style="font-size:17px;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
+        ⏳ 號碼遺漏分析
+        <span style="font-size:14px;font-weight:400;color:#475569;">即將開出推估</span>
+      </h3>
+      <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#64748b;">
+        <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#3b82f6;display:inline-block;"></span>剛開出</span>
+        <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#eab308;display:inline-block;"></span>接近週期</span>
+        <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#ef4444;display:inline-block;"></span>久未開出</span>
+      </div>
+    </div>
+    <p style="font-size:13px;color:#64748b;line-height:1.6;margin-bottom:18px;">
+      即將開出指數 = <span style="color:#94a3b8;">目前已隔期數 ÷ 該號平均間隔</span>，數值越高代表越久沒開、相對越「冷」。
+    </p>
+
+    <!-- 即將開出候選 Top 8 -->
+    <div style="margin-bottom:22px;">
+      <h4 style="font-size:14px;font-weight:600;color:#cbd5e1;margin-bottom:12px;">🎯 即將開出候選（指數 Top 8）</h4>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+        <div v-for="item in dueCandidates" :key="item.num"
+          :style="{
+            background: indexStyle(item.index).bg,
+            border: `1px solid ${indexStyle(item.index).border}`,
+            borderRadius:'14px', padding:'12px 10px',
+            display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'
+          }">
+          <span :style="{ fontSize:'24px', fontWeight:'900', fontFamily:'monospace', lineHeight:'1', color: indexStyle(item.index).text }">
+            {{ item.num.toString().padStart(2,'0') }}
+          </span>
+          <span :style="{ fontSize:'12px', fontWeight:'700', color: indexStyle(item.index).text, opacity:0.95 }">
+            指數 {{ fmt(item.index, 2) }}
+          </span>
+          <span :style="{ fontSize:'11px', color: indexStyle(item.index).text, opacity:0.8 }">
+            已隔 {{ item.curGapDay }} 天
+          </span>
+          <span :style="{ fontSize:'11px', color: indexStyle(item.index).text, opacity:0.7 }">
+            均 {{ fmt(item.avgDay, 0) }} 天 / {{ fmt(item.avgDraw, 1) }} 期
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 全部號碼遺漏表（依指數排序） -->
+    <h4 style="font-size:14px;font-weight:600;color:#cbd5e1;margin-bottom:12px;">全部號碼遺漏指數（高 → 低）</h4>
+    <div style="display:grid;gap:6px;" :style="{ gridTemplateColumns: `repeat(${maxNumber <= 39 ? 8 : 10}, 1fr)` }">
+      <div v-for="item in sortedByIndex" :key="item.num"
+        :title="`號碼 ${item.num}｜已隔 ${item.curGapDraw} 期 / ${item.curGapDay} 天｜平均間隔 ${fmt(item.avgDraw,1)} 期 / ${fmt(item.avgDay,1)} 天｜最大遺漏 ${item.maxDraw} 期｜出現 ${item.appearances} 次｜指數 ${fmt(item.index,2)}`"
+        :style="{
+          background: indexStyle(item.index).bg,
+          border: `1px solid ${indexStyle(item.index).border}`,
+          borderRadius:'8px', padding:'7px 2px',
+          display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
+          cursor:'default', transition:'transform 0.15s'
+        }"
+        @mouseenter="e => e.currentTarget.style.transform='scale(1.12)'"
+        @mouseleave="e => e.currentTarget.style.transform='scale(1)'"
+      >
+        <span :style="{ fontSize:'14px', fontWeight:'800', fontFamily:'monospace', lineHeight:'1.1', color: indexStyle(item.index).text }">
+          {{ item.num.toString().padStart(2,'0') }}
+        </span>
+        <span :style="{ fontSize:'10px', lineHeight:'1.2', color: indexStyle(item.index).text, opacity:0.8 }">
+          {{ item.curGapDraw }}期
+        </span>
+      </div>
+    </div>
+
+    <!-- 免責說明 -->
+    <p style="font-size:12px;color:#475569;line-height:1.6;margin-top:18px;padding-top:14px;border-top:1px solid rgba(255,255,255,0.05);">
+      ⚠️ 注意：每期開獎在統計上為獨立事件，「久未開出」在數學上並不會提高下次開出的真實機率（賭徒謬誤）。本分析屬描述性統計，僅供參考娛樂，請理性購彩。
+    </p>
+  </div>
+</template>
