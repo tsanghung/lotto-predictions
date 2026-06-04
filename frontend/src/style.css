@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* 全站字型放大 200%：設定 root font-size 讓所有 rem/em 單位自動 x2 */
+html {
+  font-size: 200%;
+}
+
 /* 基礎深色模式背景與文字設定 */
 body {
   background-color: #0f172a;

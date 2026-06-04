@@ -40,11 +40,11 @@ const heatColor = (ratio) => {
 <template>
   <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:24px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
-      <h3 style="font-size:14px;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
+      <h3 style="font-size:28px;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
         📈 號碼頻率熱力圖
-        <span style="font-size:11px;font-weight:400;color:#475569;">全期統計</span>
+        <span style="font-size:22px;font-weight:400;color:#475569;">全期統計</span>
       </h3>
-      <div style="display:flex;align-items:center;gap:12px;font-size:10px;color:#64748b;">
+      <div style="display:flex;align-items:center;gap:12px;font-size:20px;color:#64748b;">
         <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#3b82f6;display:inline-block;"></span>冷門</span>
         <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#ef4444;display:inline-block;"></span>熱門</span>
       </div>
@@ -65,10 +65,10 @@ const heatColor = (ratio) => {
         @mouseenter="e => e.target.style.transform='scale(1.15)'"
         @mouseleave="e => e.target.style.transform='scale(1)'"
       >
-        <span :style="{ fontSize:'10px', fontWeight:'800', fontFamily:'monospace', color: item.ratio > 0.3 ? '#fff' : '#94a3b8', lineHeight:'1' }">
+        <span :style="{ fontSize:'20px', fontWeight:'800', fontFamily:'monospace', color: item.ratio > 0.3 ? '#fff' : '#94a3b8', lineHeight:'1' }">
           {{ item.num.toString().padStart(2,'0') }}
         </span>
-        <span :style="{ fontSize:'8px', color: item.ratio > 0.3 ? 'rgba(255,255,255,0.7)' : '#475569', lineHeight:'1', marginTop:'1px' }">
+        <span :style="{ fontSize:'16px', color: item.ratio > 0.3 ? 'rgba(255,255,255,0.7)' : '#475569', lineHeight:'1', marginTop:'1px' }">
           {{ item.count }}
         </span>
       </div>
