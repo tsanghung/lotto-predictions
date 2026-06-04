@@ -108,8 +108,8 @@ const largeSmallData = computed(() => ({
       <div class="relative h-32 w-full">
         <Doughnut :data="oddEvenData" :options="chartOptions" />
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-5">
-          <span class="text-xs text-slate-500">奇偶比</span>
-          <span class="text-sm font-bold text-slate-300">{{ distribution.odd }}:{{ distribution.even }}</span>
+          <span class="text-xs text-slate-500">奇 / 偶</span>
+          <span class="text-sm font-bold text-slate-300">{{ Math.round(distribution.odd / (distribution.odd + distribution.even) * 100) }}% / {{ Math.round(distribution.even / (distribution.odd + distribution.even) * 100) }}%</span>
         </div>
       </div>
     </div>
@@ -119,8 +119,8 @@ const largeSmallData = computed(() => ({
       <div class="relative h-32 w-full">
         <Doughnut :data="largeSmallData" :options="chartOptions" />
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-5">
-          <span class="text-xs text-slate-500">大小比</span>
-          <span class="text-sm font-bold text-slate-300">{{ distribution.large }}:{{ distribution.small }}</span>
+          <span class="text-xs text-slate-500">大 / 小</span>
+          <span class="text-sm font-bold text-slate-300">{{ Math.round(distribution.large / (distribution.large + distribution.small) * 100) }}% / {{ Math.round(distribution.small / (distribution.large + distribution.small) * 100) }}%</span>
         </div>
       </div>
     </div>
