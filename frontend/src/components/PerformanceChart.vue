@@ -143,7 +143,7 @@ const hitMissChartData = computed(() => {
       </span>
     </div>
     
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 gap-6">
       
       <!-- 長條圖: 命中與未命中對比 -->
       <div class="bg-slate-900/60 rounded-2xl p-5 ring-1 ring-white/10 backdrop-blur-md">
