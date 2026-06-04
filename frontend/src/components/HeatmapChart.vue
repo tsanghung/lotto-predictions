@@ -12,63 +12,85 @@ const props = defineProps({
   }
 })
 
-// 計算號碼出現頻率
+const maxNum = computed(() => (props.gameName === '大樂透' ? 49 : 39))
+// 大樂透近 100 期、今彩539 近 300 期
+const periods = computed(() => (props.gameName === '大樂透' ? 100 : 300))
+
+// 計算近 N 期各號碼出現頻率
 const frequencies = computed(() => {
-  const maxNum = props.gameName === '大樂透' ? 49 : 39
-  const freqs = Array.from({ length: maxNum }, (_, i) => ({ number: i + 1, count: 0 }))
-  
+  const m = maxNum.value
+  const freqs = Array.from({ length: m }, (_, i) => ({ number: i + 1, count: 0 }))
   if (!props.historyData || props.historyData.length === 0) return freqs
 
-  // 大樂透近 100 期、今彩539 近 300 期
-  const periods = props.gameName === '大樂透' ? 100 : 300
-  const recentData = props.historyData.slice(-periods)
-  
+  const recentData = props.historyData.slice(-periods.value)
   recentData.forEach(draw => {
     draw.numbers.forEach(n => {
-      if (n > 0 && n <= maxNum) {
-        freqs[n - 1].count += 1
-      }
+      if (n > 0 && n <= m) freqs[n - 1].count += 1
     })
   })
-
   return freqs
 })
 
-const maxFrequency = computed(() => {
-  if (frequencies.value.length === 0) return 1
-  return Math.max(...frequencies.value.map(f => f.count))
-})
+const counts = computed(() => frequencies.value.map(f => f.count))
+const maxFreq = computed(() => Math.max(...counts.value, 1))
+const minFreq = computed(() => Math.min(...counts.value, 0))
 
-// 根據頻率決定背景顏色亮度
-const getHeatmapColor = (count) => {
-  const ratio = count / (maxFrequency.value || 1)
-  
-  if (ratio === 0) return 'bg-slate-800 text-slate-500' // 未出現
-  if (ratio < 0.25) return props.gameName === '大樂透' ? 'bg-teal-900/40 text-teal-300/60' : 'bg-purple-900/40 text-purple-300/60'
-  if (ratio < 0.5) return props.gameName === '大樂透' ? 'bg-teal-700/60 text-teal-200' : 'bg-purple-700/60 text-purple-200'
-  if (ratio < 0.75) return props.gameName === '大樂透' ? 'bg-teal-500 text-white' : 'bg-purple-500 text-white'
-  
-  // 最熱門
-  return props.gameName === '大樂透' ? 'bg-teal-400 text-slate-900 font-bold shadow-[0_0_10px_rgba(45,212,191,0.6)]' : 'bg-pink-400 text-slate-900 font-bold shadow-[0_0_10px_rgba(244,114,182,0.6)]'
+// 主題色階（由冷到熱，刻意拉大明度對比，確保肉眼可辨）
+//   大樂透：暗墨綠 → 亮青；今彩539：暗紫 → 亮洋紅
+const palette = computed(() =>
+  props.gameName === '大樂透'
+    ? ['#0c1f22', '#0f3f3b', '#0d9488', '#2dd4bf', '#5eead4', '#a7f3e4']
+    : ['#1c1233', '#4c1d95', '#a21caf', '#d946ef', '#e879f9', '#f7c8fd']
+)
+
+// min-max 正規化：把實際出現範圍（最冷~最熱）攤平到 0~1，避免顏色擠在同一段
+const bandIndex = (count) => {
+  const spread = (maxFreq.value - minFreq.value) || 1
+  const r = (count - minFreq.value) / spread
+  return r >= 0.999 ? 5 : Math.floor(r * 6) // 0~5 共 6 段
+}
+
+const cellStyle = (count) => {
+  const idx = bandIndex(count)
+  const pal = palette.value
+  return {
+    background: pal[idx],
+    color: idx >= 4 ? '#0f172a' : '#e2e8f0',          // 亮色用深字、暗色用淺字
+    fontWeight: idx >= 4 ? 800 : 600,
+    boxShadow: idx === 5 ? `0 0 12px ${pal[5]}aa` : 'none'
+  }
 }
 </script>
 
 <template>
   <div class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6">
-    <h3 class="text-base font-semibold text-slate-200 mb-5 flex items-center">
-      <span class="mr-2">🔥</span> 近 {{ gameName === '大樂透' ? 100 : 300 }} 期熱力圖
-    </h3>
-    
-    <div class="grid grid-cols-7 sm:grid-cols-10 gap-1.5 sm:gap-2">
+    <div class="flex items-center justify-between flex-wrap gap-2 mb-5">
+      <h3 class="text-base font-semibold text-slate-200 flex items-center">
+        <span class="mr-2">🔥</span> 近 {{ periods }} 期熱力圖
+      </h3>
+      <!-- 冷熱色階圖例 -->
+      <div class="flex items-center gap-1.5 text-xs text-slate-500">
+        <span>冷</span>
+        <span v-for="(c, i) in palette" :key="i"
+              :style="{ width: '15px', height: '15px', borderRadius: '3px', background: c, display: 'inline-block' }"></span>
+        <span>熱</span>
+      </div>
+    </div>
+
+    <div class="grid gap-1.5 sm:gap-2"
+         :style="{ gridTemplateColumns: `repeat(${maxNum <= 39 ? 8 : 10}, minmax(0, 1fr))` }">
       <div v-for="item in frequencies" :key="item.number"
-           class="relative flex items-center justify-center aspect-square rounded-md sm:rounded-lg text-xs sm:text-sm transition-all duration-300 hover:scale-110 cursor-pointer group"
-           :class="getHeatmapColor(item.count)">
-        {{ item.number }}
-        
-        <!-- Tooltip -->
-        <div class="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 px-2 py-1 bg-slate-900 text-slate-200 text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none z-10 shadow-xl ring-1 ring-white/20">
-          出 {{ item.count }} 次
-        </div>
+           :title="`號碼 ${item.number}：近 ${periods} 期開出 ${item.count} 次`"
+           :style="{
+             ...cellStyle(item.count),
+             aspectRatio: '1', borderRadius: '10px',
+             display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+             transition: 'transform 0.15s', cursor: 'default'
+           }"
+           @mouseenter="e => e.currentTarget.style.transform = 'scale(1.12)'"
+           @mouseleave="e => e.currentTarget.style.transform = 'scale(1)'">
+        <span style="font-size:15px;font-family:monospace;line-height:1;">{{ item.number }}</span>
+        <span :style="{ fontSize: '10px', opacity: 0.75, lineHeight: 1, marginTop: '2px' }">{{ item.count }}</span>
       </div>
     </div>
   </div>
