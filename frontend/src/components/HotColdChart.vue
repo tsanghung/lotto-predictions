@@ -73,10 +73,10 @@ const heatStyle = (ratio) => {
         @mouseenter="e => e.target.style.transform='scale(1.15)'"
         @mouseleave="e => e.target.style.transform='scale(1)'"
       >
-        <span :style="{ fontSize:'13px', fontWeight:'800', fontFamily:'monospace', color: item.ratio > 0.3 ? '#fff' : '#94a3b8', lineHeight:'1' }">
+        <span :style="{ fontSize:'26px', fontWeight:'800', fontFamily:'monospace', color: item.ratio > 0.3 ? '#fff' : '#94a3b8', lineHeight:'1' }">
           {{ item.num.toString().padStart(2,'0') }}
         </span>
-        <span :style="{ fontSize:'11px', color: item.ratio > 0.3 ? 'rgba(255,255,255,0.7)' : '#475569', lineHeight:'1', marginTop:'1px' }">
+        <span :style="{ fontSize:'20px', color: item.ratio > 0.3 ? 'rgba(255,255,255,0.7)' : '#475569', lineHeight:'1', marginTop:'3px' }">
           {{ item.count }}
         </span>
       </div>
