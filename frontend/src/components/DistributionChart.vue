@@ -16,19 +16,18 @@ const props = defineProps({
   }
 })
 
-// 計算最近 50 期的奇偶、大小比例
+// 計算全歷史的奇偶、大小比例
 const distribution = computed(() => {
   let odd = 0
   let even = 0
   let large = 0
   let small = 0
-  
+
   if (!props.historyData || props.historyData.length === 0) return { odd, even, large, small }
-  
-  const recentData = props.historyData.slice(-50)
+
   const midPoint = props.gameName === '大樂透' ? 24.5 : 19.5
-  
-  recentData.forEach(draw => {
+
+  props.historyData.forEach(draw => {
     draw.numbers.forEach(n => {
       if (n % 2 !== 0) odd++
       else even++
@@ -103,25 +102,25 @@ const largeSmallData = computed(() => ({
 </script>
 
 <template>
-  <div class="mt-8 grid grid-cols-2 gap-4">
-    <div class="bg-slate-900/40 rounded-xl p-4 ring-1 ring-white/5">
-      <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">近 50 期奇偶分佈</h4>
-      <div class="relative h-32 w-full">
+  <div class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-8 grid grid-cols-2 gap-8">
+    <div class="bg-slate-900/40 rounded-xl p-8 ring-1 ring-white/5">
+      <h4 class="text-base font-semibold text-slate-400 text-center mb-6">歷史奇偶分佈</h4>
+      <div class="relative h-64 w-full">
         <Doughnut :data="oddEvenData" :options="chartOptions" />
-        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-5">
-          <span class="text-xs text-slate-500">奇偶比</span>
-          <span class="text-sm font-bold text-slate-300">{{ distribution.odd }}:{{ distribution.even }}</span>
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-10">
+          <span class="text-sm text-slate-500">奇 / 偶</span>
+          <span class="text-xl font-bold text-slate-300">{{ Math.round(distribution.odd / (distribution.odd + distribution.even) * 100) }}% / {{ Math.round(distribution.even / (distribution.odd + distribution.even) * 100) }}%</span>
         </div>
       </div>
     </div>
-    
-    <div class="bg-slate-900/40 rounded-xl p-4 ring-1 ring-white/5">
-      <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">近 50 期大小分佈</h4>
-      <div class="relative h-32 w-full">
+
+    <div class="bg-slate-900/40 rounded-xl p-8 ring-1 ring-white/5">
+      <h4 class="text-base font-semibold text-slate-400 text-center mb-6">歷史大小分佈</h4>
+      <div class="relative h-64 w-full">
         <Doughnut :data="largeSmallData" :options="chartOptions" />
-        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-5">
-          <span class="text-xs text-slate-500">大小比</span>
-          <span class="text-sm font-bold text-slate-300">{{ distribution.large }}:{{ distribution.small }}</span>
+        <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-10">
+          <span class="text-sm text-slate-500">大 / 小</span>
+          <span class="text-xl font-bold text-slate-300">{{ Math.round(distribution.large / (distribution.large + distribution.small) * 100) }}% / {{ Math.round(distribution.small / (distribution.large + distribution.small) * 100) }}%</span>
         </div>
       </div>
     </div>

@@ -134,7 +134,7 @@ const hitMissChartData = computed(() => {
 </script>
 
 <template>
-  <div v-if="gamePerf" class="mt-8 space-y-6">
+  <div v-if="gamePerf" class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6 space-y-6">
     <div class="flex items-center gap-2 mb-2">
       <span class="text-xl">📊</span>
       <h3 class="text-lg font-bold text-slate-200">成效分析看板</h3>
@@ -143,7 +143,7 @@ const hitMissChartData = computed(() => {
       </span>
     </div>
     
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 gap-6">
       
       <!-- 長條圖: 命中與未命中對比 -->
       <div class="bg-slate-900/60 rounded-2xl p-5 ring-1 ring-white/10 backdrop-blur-md">
