@@ -42,6 +42,11 @@ class StrategySampler:
         hc = stats_engine.get_hot_cold_stats(recent_periods)
         self.recent_freq: Dict[int, int] = hc["frequencies"]
         self.missing: Dict[int, int] = stats_engine.get_missing_values()
+        # 即將開出指數（目前遺漏 ÷ 該號平均間隔）：比原始遺漏期數更能反映相對週期
+        self.overdue: Dict[int, float] = (
+            stats_engine.get_overdue_index()
+            if hasattr(stats_engine, "get_overdue_index") else {}
+        )
         # 號碼對頻率（步驟 3）：優先取快取，否則就近期視窗即時計算
         self.pair_freq: Dict[frozenset, int] = getattr(stats_engine, "pair_freq_cache", {}) or {}
         if not self.pair_freq and hasattr(stats_engine, "get_pair_frequencies"):
@@ -61,12 +66,16 @@ class StrategySampler:
         for n in range(1, self.max_number + 1):
             freq_norm = self.recent_freq.get(n, 0) / max_freq      # 0~1，越熱越高
             miss_norm = self.missing.get(n, 0) / max_miss          # 0~1，越冷越高
+            # 即將開出指數正規化：指數 >= 2.0 視為 1.0（與前端紅色門檻一致）
+            overdue_norm = min(self.overdue.get(n, 0.0) / 2.0, 1.0)  # 0~1，越 overdue 越高
             if bias == "hot":
-                w = 0.2 + freq_norm
+                # 熱門為主，並對 overdue 號碼給予小幅加成
+                w = 0.2 + freq_norm + 0.2 * overdue_norm
             elif bias == "cold":
-                w = 0.2 + miss_norm
-            else:  # balanced：輕微偏好近期出現但不過度
-                w = 0.5 + 0.5 * freq_norm
+                # 冷門策略改以「即將開出指數」為主訊號，輔以原始遺漏期數
+                w = 0.2 + 0.4 * miss_norm + 0.8 * overdue_norm
+            else:  # balanced：輕微偏好近期出現，並適度納入 overdue 週期訊號
+                w = 0.5 + 0.4 * freq_norm + 0.3 * overdue_norm
             weights[n] = w
         return weights
 
