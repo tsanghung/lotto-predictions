@@ -122,28 +122,28 @@ const sortedInsights = computed(() => {
 
         <!-- 今日選號理由 -->
         <div v-if="sortedInsights.length" style="margin-top:16px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:14px;">
-          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:12px;">🔍 今日選號理由</p>
-          <div style="display:flex;flex-direction:column;gap:10px;">
+          <p style="font-size:18px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">🔍 今日選號理由</p>
+          <div style="display:flex;flex-direction:column;gap:14px;">
             <div v-for="item in sortedInsights" :key="item.num"
-              style="display:flex;align-items:flex-start;gap:10px;">
+              style="display:flex;align-items:flex-start;gap:12px;">
               <span :style="{
-                flexShrink:0, width:'34px', height:'34px', borderRadius:'50%',
+                flexShrink:0, width:'44px', height:'44px', borderRadius:'50%',
                 background: tagStyle(item.tag).bg, border: `1px solid ${tagStyle(item.tag).border}`,
                 display:'flex', alignItems:'center', justifyContent:'center',
-                fontSize:'15px', fontWeight:'800', fontFamily:'monospace', color: tagStyle(item.tag).color
+                fontSize:'20px', fontWeight:'800', fontFamily:'monospace', color: tagStyle(item.tag).color
               }">
                 {{ item.num.toString().padStart(2, '0') }}
               </span>
-              <div style="display:flex;flex-direction:column;gap:3px;min-width:0;">
+              <div style="display:flex;flex-direction:column;gap:5px;min-width:0;">
                 <span :style="{
-                  alignSelf:'flex-start', fontSize:'11px', fontWeight:'700', padding:'1px 7px', borderRadius:'100px',
+                  alignSelf:'flex-start', fontSize:'14px', fontWeight:'700', padding:'2px 10px', borderRadius:'100px',
                   background: tagStyle(item.tag).bg, border: `1px solid ${tagStyle(item.tag).border}`, color: tagStyle(item.tag).color
                 }">{{ tagStyle(item.tag).label }}</span>
-                <span style="font-size:14px;color:#94a3b8;line-height:1.5;">{{ item.reason }}</span>
+                <span style="font-size:18px;color:#94a3b8;line-height:1.6;">{{ item.reason }}</span>
               </div>
             </div>
           </div>
-          <p style="font-size:12px;color:#475569;line-height:1.6;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.05);">
+          <p style="font-size:14px;color:#475569;line-height:1.6;margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.05);">
             ⚠️ 以上為號碼的客觀統計特徵，各期開獎在機率上仍為獨立事件，僅供參考。
           </p>
         </div>
