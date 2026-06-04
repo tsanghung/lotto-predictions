@@ -108,6 +108,67 @@ class StatsEngine:
             for i in range(1, self.max_number + 1)
         }
 
+    def get_number_profiles(self, recent_periods: int | None = None) -> Dict[int, Dict[str, Any]]:
+        """
+        彙整每個號碼的完整檔案，供「選號理由」說明使用：
+          appearances（史上出現次數）、recent_freq（近 N 期次數）、
+          gap_draws / gap_days（目前已隔期數 / 天數）、
+          avg_interval_draws / avg_interval_days（平均間隔 期 / 天）、
+          overdue_index（即將開出指數 = gap_draws ÷ avg_interval_draws）。
+        """
+        from datetime import datetime
+
+        total = len(self.df)
+        if total == 0:
+            return {}
+
+        def pdate(s):
+            return datetime.strptime(str(s)[:10], "%Y-%m-%d").date()
+
+        dates = [pdate(d) for d in self.df["date"]]
+        last_date_overall = dates[-1]
+        rp = min(recent_periods or total, total)
+        recent_start = total - rp
+
+        idxs_map: Dict[int, List[int]] = {i: [] for i in range(1, self.max_number + 1)}
+        recent_freq: Dict[int, int] = {i: 0 for i in range(1, self.max_number + 1)}
+        for idx, nums in enumerate(self.df["numbers"]):
+            for n in nums:
+                if 1 <= n <= self.max_number:
+                    idxs_map[n].append(idx)
+                    if idx >= recent_start:
+                        recent_freq[n] += 1
+
+        out: Dict[int, Dict[str, Any]] = {}
+        for n in range(1, self.max_number + 1):
+            idxs = idxs_map[n]
+            app = len(idxs)
+            if not idxs:
+                out[n] = {
+                    "appearances": 0, "recent_freq": 0,
+                    "gap_draws": total, "gap_days": None,
+                    "avg_interval_draws": float(total), "avg_interval_days": None,
+                    "overdue_index": 99.0,
+                }
+                continue
+            gaps = [idxs[k] - idxs[k - 1] for k in range(1, len(idxs))]
+            avg_draw = sum(gaps) / len(gaps) if gaps else total / app
+            last_app_idx = idxs[-1]
+            gap_draws = (total - 1) - last_app_idx
+            avg_days = (dates[last_app_idx] - dates[idxs[0]]).days / (app - 1) if app > 1 else None
+            gap_days = (last_date_overall - dates[last_app_idx]).days
+            overdue = gap_draws / avg_draw if avg_draw else 0.0
+            out[n] = {
+                "appearances": app,
+                "recent_freq": recent_freq[n],
+                "gap_draws": gap_draws,
+                "gap_days": gap_days,
+                "avg_interval_draws": round(avg_draw, 1),
+                "avg_interval_days": round(avg_days, 1) if avg_days is not None else None,
+                "overdue_index": round(overdue, 2),
+            }
+        return out
+
     def get_hot_cold_stats(self, periods: int) -> Dict[str, Any]:
         """
         計算近 N 期的熱門與冷門號碼
