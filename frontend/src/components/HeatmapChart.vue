@@ -19,8 +19,9 @@ const frequencies = computed(() => {
   
   if (!props.historyData || props.historyData.length === 0) return freqs
 
-  // 只取最近 100 期計算熱力
-  const recentData = props.historyData.slice(-100)
+  // 大樂透近 100 期、今彩539 近 300 期
+  const periods = props.gameName === '大樂透' ? 100 : 300
+  const recentData = props.historyData.slice(-periods)
   
   recentData.forEach(draw => {
     draw.numbers.forEach(n => {
@@ -55,7 +56,7 @@ const getHeatmapColor = (count) => {
 <template>
   <div class="mt-6 pt-6 border-t border-white/10">
     <h3 class="text-sm font-semibold text-slate-300 mb-4 flex items-center">
-      <span class="mr-2">🔥</span> 近 100 期熱力圖
+      <span class="mr-2">🔥</span> 近 {{ gameName === '大樂透' ? 100 : 300 }} 期熱力圖
     </h3>
     
     <div class="grid grid-cols-7 sm:grid-cols-10 gap-1.5 sm:gap-2">
