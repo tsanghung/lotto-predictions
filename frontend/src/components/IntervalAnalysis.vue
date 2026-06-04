@@ -84,41 +84,41 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
   <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:24px;">
     <!-- 標題 -->
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-      <h3 style="font-size:17px;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
+      <h3 style="font-size:21px;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
         ⏳ 號碼遺漏分析
-        <span style="font-size:14px;font-weight:400;color:#475569;">即將開出推估</span>
+        <span style="font-size:16px;font-weight:400;color:#475569;">即將開出推估</span>
       </h3>
-      <div style="display:flex;align-items:center;gap:10px;font-size:12px;color:#64748b;">
+      <div style="display:flex;align-items:center;gap:10px;font-size:14px;color:#64748b;">
         <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#3b82f6;display:inline-block;"></span>剛開出</span>
         <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#eab308;display:inline-block;"></span>接近週期</span>
         <span style="display:flex;align-items:center;gap:4px;"><span style="width:10px;height:10px;border-radius:2px;background:#ef4444;display:inline-block;"></span>久未開出</span>
       </div>
     </div>
-    <p style="font-size:13px;color:#64748b;line-height:1.6;margin-bottom:18px;">
+    <p style="font-size:15px;color:#64748b;line-height:1.6;margin-bottom:18px;">
       即將開出指數 = <span style="color:#94a3b8;">目前已隔期數 ÷ 該號平均間隔</span>，數值越高代表越久沒開、相對越「冷」。
     </p>
 
     <!-- 即將開出候選 Top 8 -->
     <div style="margin-bottom:22px;">
-      <h4 style="font-size:14px;font-weight:600;color:#cbd5e1;margin-bottom:12px;">🎯 即將開出候選（指數 Top 8）</h4>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;">
+      <h4 style="font-size:18px;font-weight:600;color:#cbd5e1;margin-bottom:14px;">🎯 即將開出候選（指數 Top 8）</h4>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
         <div v-for="item in dueCandidates" :key="item.num"
           :style="{
             background: indexStyle(item.index).bg,
             border: `1px solid ${indexStyle(item.index).border}`,
-            borderRadius:'14px', padding:'12px 10px',
-            display:'flex', flexDirection:'column', alignItems:'center', gap:'4px'
+            borderRadius:'14px', padding:'18px 12px',
+            display:'flex', flexDirection:'column', alignItems:'center', gap:'7px'
           }">
-          <span :style="{ fontSize:'24px', fontWeight:'900', fontFamily:'monospace', lineHeight:'1', color: indexStyle(item.index).text }">
+          <span :style="{ fontSize:'40px', fontWeight:'900', fontFamily:'monospace', lineHeight:'1', color: indexStyle(item.index).text }">
             {{ item.num.toString().padStart(2,'0') }}
           </span>
-          <span :style="{ fontSize:'12px', fontWeight:'700', color: indexStyle(item.index).text, opacity:0.95 }">
+          <span :style="{ fontSize:'18px', fontWeight:'700', color: indexStyle(item.index).text, opacity:0.95 }">
             指數 {{ fmt(item.index, 2) }}
           </span>
-          <span :style="{ fontSize:'11px', color: indexStyle(item.index).text, opacity:0.8 }">
+          <span :style="{ fontSize:'16px', color: indexStyle(item.index).text, opacity:0.85 }">
             已隔 {{ item.curGapDay }} 天
           </span>
-          <span :style="{ fontSize:'11px', color: indexStyle(item.index).text, opacity:0.7 }">
+          <span :style="{ fontSize:'15px', color: indexStyle(item.index).text, opacity:0.75 }">
             均 {{ fmt(item.avgDay, 0) }} 天 / {{ fmt(item.avgDraw, 1) }} 期
           </span>
         </div>
@@ -126,7 +126,7 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
     </div>
 
     <!-- 全部號碼遺漏表（依指數排序） -->
-    <h4 style="font-size:14px;font-weight:600;color:#cbd5e1;margin-bottom:12px;">全部號碼遺漏指數（高 → 低）</h4>
+    <h4 style="font-size:18px;font-weight:600;color:#cbd5e1;margin-bottom:14px;">全部號碼遺漏指數（高 → 低）</h4>
     <div style="display:grid;gap:6px;" :style="{ gridTemplateColumns: `repeat(${maxNumber <= 39 ? 8 : 10}, 1fr)` }">
       <div v-for="item in sortedByIndex" :key="item.num"
         :title="`號碼 ${item.num}｜已隔 ${item.curGapDraw} 期 / ${item.curGapDay} 天｜平均間隔 ${fmt(item.avgDraw,1)} 期 / ${fmt(item.avgDay,1)} 天｜最大遺漏 ${item.maxDraw} 期｜出現 ${item.appearances} 次｜指數 ${fmt(item.index,2)}`"
