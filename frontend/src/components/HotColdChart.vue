@@ -19,12 +19,15 @@ const frequency = computed(() => {
 })
 
 const maxFreq = computed(() => Math.max(...Object.values(frequency.value)))
+const minFreq = computed(() => Math.min(...Object.values(frequency.value)))
 
 const numbers = computed(() => {
+  const spread = (maxFreq.value - minFreq.value) || 1
   return Array.from({ length: props.maxNumber }, (_, i) => i + 1).map(n => ({
     num: n,
     count: frequency.value[n] || 0,
-    ratio: frequency.value[n] / (maxFreq.value || 1)
+    // 相對分布：最冷=0（藍），最熱=1（紅），中間平均散開
+    ratio: ((frequency.value[n] || 0) - minFreq.value) / spread
   }))
 })
 
