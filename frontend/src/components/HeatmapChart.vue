@@ -54,8 +54,8 @@ const getHeatmapColor = (count) => {
 </script>
 
 <template>
-  <div class="mt-6 pt-6 border-t border-white/10">
-    <h3 class="text-sm font-semibold text-slate-300 mb-4 flex items-center">
+  <div class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6">
+    <h3 class="text-base font-semibold text-slate-200 mb-5 flex items-center">
       <span class="mr-2">🔥</span> 近 {{ gameName === '大樂透' ? 100 : 300 }} 期熱力圖
     </h3>
     

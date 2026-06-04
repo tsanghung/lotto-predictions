@@ -27,7 +27,7 @@ const isGoodPerformance = computed(() => {
 </script>
 
 <template>
-  <div v-if="evaluation" class="mt-6 border-t border-white/10 pt-6">
+  <div v-if="evaluation" class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6">
     <div class="flex items-center justify-between mb-4 cursor-pointer group" @click="isExpanded = !isExpanded">
       <div class="flex items-center gap-2">
         <span class="text-xl">🔬</span>
