@@ -4707,12 +4707,82 @@
         ]
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000135",
+      "actual_numbers": [
+        2,
+        8,
+        17,
+        25,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            17,
+            25
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            10,
+            14,
+            29
+          ],
+          "bias": {
+            "pred_sum": 95,
+            "actual_sum": 90,
+            "sum_error": 5,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            8
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            11,
+            16,
+            22,
+            33
+          ],
+          "bias": {
+            "pred_sum": 90,
+            "actual_sum": 90,
+            "sum_error": 0,
+            "pred_odd_count": 2,
+            "actual_odd_count": 2,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            15,
+            18,
+            22,
+            36
+          ],
+          "bias": {
+            "pred_sum": 102,
+            "actual_sum": 90,
+            "sum_error": 12,
+            "pred_odd_count": 2,
+            "actual_odd_count": 2,
+            "odd_error": 0
+          }
+        }
+      },
+      "attribution_report": "本次未完全命中之歸因在於樂透開獎屬於**獨立同分佈 (IID)** 的隨機過程，符合**隨機漫步 (Random Walk)** 特徵。\n\n儘管預測組合參考了歷史頻率（如命中 17, 25, 8 等熱門號碼），但單期結果受**變異數 (Variance)** 影響極大，且號碼間缺乏**自相關性 (Autocorrelation)**。根據**大數法則 (Law of Large Numbers)**，頻率趨同僅在極大樣本量下成立，單期開獎結果在機率分佈上屬隨機抽樣之**離群值 (Outlier)**。預測模型在面對組合爆炸的樣本空間時，不可避免地產生**樣本偏差 (Sample Bias)**，導致未能精準覆蓋本次隨機分佈。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
