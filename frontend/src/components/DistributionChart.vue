@@ -16,19 +16,18 @@ const props = defineProps({
   }
 })
 
-// 計算最近 50 期的奇偶、大小比例
+// 計算全歷史的奇偶、大小比例
 const distribution = computed(() => {
   let odd = 0
   let even = 0
   let large = 0
   let small = 0
-  
+
   if (!props.historyData || props.historyData.length === 0) return { odd, even, large, small }
-  
-  const recentData = props.historyData.slice(-50)
+
   const midPoint = props.gameName === '大樂透' ? 24.5 : 19.5
-  
-  recentData.forEach(draw => {
+
+  props.historyData.forEach(draw => {
     draw.numbers.forEach(n => {
       if (n % 2 !== 0) odd++
       else even++
@@ -105,7 +104,7 @@ const largeSmallData = computed(() => ({
 <template>
   <div class="mt-8 grid grid-cols-2 gap-4">
     <div class="bg-slate-900/40 rounded-xl p-4 ring-1 ring-white/5">
-      <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">近 50 期奇偶分佈</h4>
+      <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">歷史奇偶分佈</h4>
       <div class="relative h-32 w-full">
         <Doughnut :data="oddEvenData" :options="chartOptions" />
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-5">
@@ -116,7 +115,7 @@ const largeSmallData = computed(() => ({
     </div>
     
     <div class="bg-slate-900/40 rounded-xl p-4 ring-1 ring-white/5">
-      <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">近 50 期大小分佈</h4>
+      <h4 class="text-xs font-semibold text-slate-400 text-center mb-4">歷史大小分佈</h4>
       <div class="relative h-32 w-full">
         <Doughnut :data="largeSmallData" :options="chartOptions" />
         <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-5">
