@@ -40,18 +40,87 @@ class AIPredictor:
         logging.info("執行離線模擬預測...")
         import random
         nums = list(range(1, self.stats_engine.max_number + 1))
+        recent_periods = 100 if self.stats_engine.max_number == 49 else 300
 
+        combinations = {
+            "激進包牌": sorted(random.sample(nums, self.num_picks)),
+            "穩健平衡": sorted(random.sample(nums, self.num_picks)),
+            "統計趨勢": sorted(random.sample(nums, self.num_picks))
+        }
         return {
             "is_offline": True,           # ← 離線旗標，上層用來判斷是否推播
             "offline_reason": reason,
             "reasoning": f"此為離線模擬預測。原因：{reason}",
             "risk_warning": "這只是隨機亂數，沒有任何 AI 推理。",
-            "combinations": {
-                "激進包牌": sorted(random.sample(nums, self.num_picks)),
-                "穩健平衡": sorted(random.sample(nums, self.num_picks)),
-                "統計趨勢": sorted(random.sample(nums, self.num_picks))
-            }
+            "combinations": combinations,
+            # 即便是離線亂數，仍附上各號碼的客觀統計理由（標示為統計事實，非 AI 推理）
+            "number_insights": self._build_number_insights(combinations, recent_periods),
         }
+
+    def _build_number_insights(self, combinations: dict, recent_periods: int) -> dict:
+        """
+        為每個被選中的號碼產生資料驅動的『選號理由』。
+        依該號最突出的統計特徵分類：久未開出(overdue) / 近期熱門(hot) /
+        剛開出(fresh) / 週期均衡(balanced)，並引用具體天數與次數。
+        """
+        try:
+            profiles = self.stats_engine.get_number_profiles(recent_periods)
+        except Exception as e:
+            logging.warning(f"產生選號理由失敗：{e}")
+            return {}
+
+        picked = sorted({int(n) for nums in combinations.values() for n in nums})
+        # 近 N 期單號理論平均出現次數，作為「熱門」門檻基準
+        avg_recent = recent_periods * self.num_picks / self.stats_engine.max_number
+
+        insights = {}
+        for n in picked:
+            p = profiles.get(n)
+            if not p:
+                continue
+            gap_days = p["gap_days"]
+            gap_draws = p["gap_draws"]
+            avg_days = p["avg_interval_days"]
+            idx = p["overdue_index"]
+            rf = p["recent_freq"]
+            app = p["appearances"]
+            avg_days_txt = f"{avg_days:.0f} 天" if avg_days else f"{p['avg_interval_draws']:.0f} 期"
+
+            if idx >= 1.5 and gap_days is not None:
+                tag = "overdue"
+                reason = (
+                    f"久未開出：已隔 {gap_days} 天（{gap_draws} 期未開），"
+                    f"約為自身平均週期 {avg_days_txt}的 {idx:.1f} 倍，醞釀反彈"
+                )
+            elif rf >= avg_recent * 1.3:
+                tag = "hot"
+                reason = (
+                    f"近期熱門：近 {recent_periods} 期開出 {rf} 次"
+                    f"（高於平均約 {avg_recent:.0f} 次），史上累計 {app} 次，氣勢正盛"
+                )
+            elif gap_draws <= 1:
+                tag = "fresh"
+                if gap_days is None or gap_days == 0:
+                    reason = "剛開出：上一期才剛開出，短期氣勢延續"
+                else:
+                    reason = f"剛開出：{gap_days} 天前才開出，短期氣勢延續"
+            else:
+                tag = "balanced"
+                base = f"週期均衡：已隔 {gap_days} 天" if gap_days is not None else f"已隔 {gap_draws} 期"
+                if avg_days:
+                    base += f"，貼近平均 {avg_days:.0f} 天"
+                reason = base + f"，近 {recent_periods} 期開出 {rf} 次，結構穩定"
+
+            insights[str(n)] = {
+                "reason": reason,
+                "tag": tag,
+                "gap_days": gap_days,
+                "gap_draws": gap_draws,
+                "avg_interval_days": avg_days,
+                "overdue_index": idx,
+                "recent_freq": rf,
+            }
+        return insights
 
     def _sample_from_profiles(self, llm_strategies: dict, recent_periods: int) -> dict:
         """
@@ -191,6 +260,8 @@ class AIPredictor:
                 # 由 Python 端依 LLM 決策方向確定性選號，保證滿足所有硬性約束
                 combinations = self._sample_from_profiles(result["strategies"], recent_periods)
                 result["combinations"] = combinations
+                # 為每個選中號碼附上資料驅動的選號理由
+                result["number_insights"] = self._build_number_insights(combinations, recent_periods)
 
                 logging.info(f"{self.model} 推理完成，號碼由採樣器確定性產生！")
                 return result
