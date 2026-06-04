@@ -8,13 +8,11 @@ const props = defineProps({
   accent: { type: String, default: '#2dd4bf' }
 })
 
-const last20 = computed(() => props.historyData.slice(-20))
-
-// Count frequency of each number in recent 20 draws
+// Count frequency of each number across ALL draws (all-time)
 const frequency = computed(() => {
   const freq = {}
   for (let i = 1; i <= props.maxNumber; i++) freq[i] = 0
-  last20.value.forEach(draw => {
+  props.historyData.forEach(draw => {
     draw.numbers.forEach(n => { freq[n] = (freq[n] || 0) + 1 })
   })
   return freq
@@ -30,14 +28,14 @@ const sorted = computed(() => {
 const hotNumbers = computed(() => sorted.value.slice(0, 5))
 const coldNumbers = computed(() => sorted.value.slice(-5).reverse())
 
-// Last 20 draws for trend
-const recentDraws = computed(() => props.historyData.slice(-5).reverse())
+// Last 10 draws for trend
+const recentDraws = computed(() => props.historyData.slice(-10).reverse())
 
 // Stats
 const totalDraws = computed(() => props.historyData.length)
 const avgSum = computed(() => {
-  if (!last20.value.length) return 0
-  const sums = last20.value.map(d => d.numbers.reduce((a, b) => a + b, 0))
+  if (!props.historyData.length) return 0
+  const sums = props.historyData.map(d => d.numbers.reduce((a, b) => a + b, 0))
   return Math.round(sums.reduce((a, b) => a + b, 0) / sums.length)
 })
 </script>
@@ -52,7 +50,7 @@ const avgSum = computed(() => {
         <p :style="{ fontSize:'1.8rem', fontWeight:'900', color: accent, fontFamily:'monospace' }">{{ totalDraws }}</p>
       </div>
       <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:14px;padding:16px;text-align:center;">
-        <p style="font-size:11px;color:#64748b;margin-bottom:6px;letter-spacing:0.05em;">近20期均值</p>
+        <p style="font-size:11px;color:#64748b;margin-bottom:6px;letter-spacing:0.05em;">歷史均值</p>
         <p style="font-size:1.8rem;font-weight:900;color:#f59e0b;font-family:monospace;">{{ avgSum }}</p>
       </div>
     </div>
@@ -60,7 +58,7 @@ const avgSum = computed(() => {
     <!-- Hot numbers -->
     <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:20px;">
       <h3 style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
-        🔥 近20期熱門號碼
+        🔥 歷史上熱門號碼
       </h3>
       <div style="display:flex;gap:10px;justify-content:center;">
         <div v-for="(item, i) in hotNumbers" :key="item.num" style="display:flex;flex-direction:column;align-items:center;gap:6px;">
@@ -83,7 +81,7 @@ const avgSum = computed(() => {
     <!-- Cold numbers -->
     <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:20px;">
       <h3 style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:14px;display:flex;align-items:center;gap:6px;">
-        🧊 近20期冷門號碼
+        🧊 歷史上冷門號碼
       </h3>
       <div style="display:flex;gap:10px;justify-content:center;">
         <div v-for="(item, i) in coldNumbers" :key="item.num" style="display:flex;flex-direction:column;align-items:center;gap:6px;">
@@ -105,7 +103,7 @@ const avgSum = computed(() => {
 
     <!-- Recent draws -->
     <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:20px;">
-      <h3 style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:14px;">📅 近5期開獎紀錄</h3>
+      <h3 style="font-size:13px;font-weight:700;color:#f1f5f9;margin-bottom:14px;">📅 近10期開獎紀錄</h3>
       <div style="display:flex;flex-direction:column;gap:10px;">
         <div v-for="draw in recentDraws" :key="draw.draw_id"
           style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.04);">
