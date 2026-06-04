@@ -89,8 +89,8 @@ const cellStyle = (count) => {
            }"
            @mouseenter="e => e.currentTarget.style.transform = 'scale(1.12)'"
            @mouseleave="e => e.currentTarget.style.transform = 'scale(1)'">
-        <span style="font-size:15px;font-family:monospace;line-height:1;">{{ item.number }}</span>
-        <span :style="{ fontSize: '10px', opacity: 0.75, lineHeight: 1, marginTop: '2px' }">{{ item.count }}</span>
+        <span style="font-size:30px;font-family:monospace;line-height:1;">{{ item.number }}</span>
+        <span :style="{ fontSize: '20px', opacity: 0.75, lineHeight: 1, marginTop: '4px' }">{{ item.count }}</span>
       </div>
     </div>
   </div>
