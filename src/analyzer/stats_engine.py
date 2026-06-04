@@ -62,8 +62,51 @@ class StatsEngine:
             # 有出現的歸 0
             for n in nums:
                 missing_dict[n] = 0
-                
+
         return missing_dict
+
+    def get_average_intervals(self) -> Dict[int, float]:
+        """
+        每個號碼歷史平均開出間隔（期數）。
+        以相鄰兩次出現的期序差取平均；出現 < 2 次者以 總期數/出現次數 估計。
+        """
+        total = len(self.df)
+        last_idx: Dict[int, int | None] = {i: None for i in range(1, self.max_number + 1)}
+        counts: Dict[int, int] = {i: 0 for i in range(1, self.max_number + 1)}
+        gap_sum: Dict[int, int] = {i: 0 for i in range(1, self.max_number + 1)}
+        gap_cnt: Dict[int, int] = {i: 0 for i in range(1, self.max_number + 1)}
+
+        for idx, nums in enumerate(self.df["numbers"]):
+            for n in nums:
+                if 1 <= n <= self.max_number:
+                    counts[n] += 1
+                    if last_idx[n] is not None:
+                        gap_sum[n] += idx - last_idx[n]
+                        gap_cnt[n] += 1
+                    last_idx[n] = idx
+
+        avg: Dict[int, float] = {}
+        for i in range(1, self.max_number + 1):
+            if gap_cnt[i] > 0:
+                avg[i] = gap_sum[i] / gap_cnt[i]
+            elif counts[i] > 0:
+                avg[i] = total / counts[i]
+            else:
+                avg[i] = float(total) if total else 1.0
+        return avg
+
+    def get_overdue_index(self) -> Dict[int, float]:
+        """
+        即將開出指數 = 目前遺漏期數 ÷ 該號平均間隔。
+        > 1 代表已超過自身平均週期（相對「久未開出」）；數值越高越 overdue。
+        注意：此為描述性統計，各期開獎在機率上仍為獨立事件。
+        """
+        missing = self.get_missing_values()
+        avg = self.get_average_intervals()
+        return {
+            i: (missing[i] / avg[i] if avg.get(i) else 0.0)
+            for i in range(1, self.max_number + 1)
+        }
 
     def get_hot_cold_stats(self, periods: int) -> Dict[str, Any]:
         """
@@ -301,6 +344,13 @@ class StatsEngine:
                 f"偶={oe_stats_recent['avg_even_per_draw']:.2f}\n\n"
             )
             report += f"冷門池 (號碼:遺漏期數){pool_note}: {cold_pool}\n"
+            # 即將開出指數 = 目前遺漏 ÷ 該號平均間隔（>1 代表超過自身週期，相對 overdue）
+            overdue = self.get_overdue_index()
+            top_overdue = sorted(overdue.items(), key=lambda x: x[1], reverse=True)[:8]
+            report += (
+                f"【即將開出指數】目前遺漏÷平均間隔 Top8 (號碼:指數): "
+                f"{[(n, round(v, 2)) for n, v in top_overdue]}\n"
+            )
             report += (
                 f"【統計趨勢熱門池】近 {trend_periods} 期出現 >= {trend_min_freq} 次 "
                 f"(號碼:次數): {trend_hot_pool}\n\n"
