@@ -8,6 +8,7 @@ import PerformanceChart from './components/PerformanceChart.vue'
 import AttributionReport from './components/AttributionReport.vue'
 import HeatmapChart from './components/HeatmapChart.vue'
 import IntervalAnalysis from './components/IntervalAnalysis.vue'
+import RandomnessAudit from './components/RandomnessAudit.vue'
 import DistributionChart from './components/DistributionChart.vue'
 import SectionHeader from './components/SectionHeader.vue'
 
@@ -159,6 +160,14 @@ const formatDate = (iso) => {
               <PerformanceChart game-name="大樂透" :performance-data="performance" />
             </div>
           </section>
+
+          <!-- 區塊四：公正性稽核 -->
+          <section>
+            <SectionHeader label="Fairness Audit" title="開獎公正性稽核"
+              desc="用多種統計檢定，從全歷史資料驗證開獎是否真隨機、有無人為操控指紋" accent="#2dd4bf" />
+            <RandomnessAudit game-name="大樂透" :history-data="history['大樂透']"
+              :max-number="49" :balls-per-draw="6" :has-special="true" accent="#2dd4bf" />
+          </section>
         </div>
 
         <!-- 今彩539 -->
@@ -199,6 +208,14 @@ const formatDate = (iso) => {
                 :prediction="[...predictions].reverse().find(p => p.game_name === '今彩539')" />
               <PerformanceChart game-name="今彩539" :performance-data="performance" />
             </div>
+          </section>
+
+          <!-- 區塊四：公正性稽核 -->
+          <section>
+            <SectionHeader label="Fairness Audit" title="開獎公正性稽核"
+              desc="用多種統計檢定，從全歷史資料驗證開獎是否真隨機、有無人為操控指紋" accent="#a78bfa" />
+            <RandomnessAudit game-name="今彩539" :history-data="history['今彩539']"
+              :max-number="39" :balls-per-draw="5" :has-special="false" accent="#a78bfa" />
           </section>
         </div>
       </div>
