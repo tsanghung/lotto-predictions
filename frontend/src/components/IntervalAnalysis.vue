@@ -133,17 +133,17 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
         :style="{
           background: indexStyle(item.index).bg,
           border: `1px solid ${indexStyle(item.index).border}`,
-          borderRadius:'8px', padding:'7px 2px',
+          borderRadius:'10px', padding:'12px 2px',
           display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
           cursor:'default', transition:'transform 0.15s'
         }"
         @mouseenter="e => e.currentTarget.style.transform='scale(1.12)'"
         @mouseleave="e => e.currentTarget.style.transform='scale(1)'"
       >
-        <span :style="{ fontSize:'14px', fontWeight:'800', fontFamily:'monospace', lineHeight:'1.1', color: indexStyle(item.index).text }">
+        <span :style="{ fontSize:'26px', fontWeight:'800', fontFamily:'monospace', lineHeight:'1.1', color: indexStyle(item.index).text }">
           {{ item.num.toString().padStart(2,'0') }}
         </span>
-        <span :style="{ fontSize:'10px', lineHeight:'1.2', color: indexStyle(item.index).text, opacity:0.8 }">
+        <span :style="{ fontSize:'17px', lineHeight:'1.2', color: indexStyle(item.index).text, opacity:0.85 }">
           {{ item.curGapDraw }}期
         </span>
       </div>
