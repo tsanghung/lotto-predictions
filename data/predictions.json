@@ -5024,12 +5024,81 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000136",
+      "actual_numbers": [
+        2,
+        8,
+        24,
+        29,
+        35
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            10,
+            20,
+            32,
+            33
+          ],
+          "bias": {
+            "pred_sum": 100,
+            "actual_sum": 98,
+            "sum_error": 2,
+            "pred_odd_count": 2,
+            "actual_odd_count": 2,
+            "odd_error": 0
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            10,
+            17,
+            22,
+            23,
+            37
+          ],
+          "bias": {
+            "pred_sum": 109,
+            "actual_sum": 98,
+            "sum_error": 11,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        },
+        "統計趨勢": {
+          "hits": 2,
+          "matches": [
+            8,
+            35
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            6,
+            27,
+            32
+          ],
+          "bias": {
+            "pred_sum": 108,
+            "actual_sum": 98,
+            "sum_error": 10,
+            "pred_odd_count": 2,
+            "actual_odd_count": 2,
+            "odd_error": 0
+          }
+        }
+      },
+      "attribution_report": "本期未完全命中之歸因分析如下：\n\n開獎結果 $[2, 8, 24, 29, 35]$ 呈現典型的**隨機漫步 (Random Walk)** 特徵。預測系統之「統計趨勢」命中 $8$ 與 $35$，驗證了短期高頻分佈的有效性；然而，未能捕捉 $24$ 與 $29$ 是因為該兩號碼處於長期冷門區間，其出現屬於機率論中的**離群值 (Outlier)**，符合**大數法則 (Law of Large Numbers)** 下的均值回歸現象。\n\n系統失效主因在於**樣本偏差 (Sample Bias)**：模型過度權重短期趨勢與遺漏指數，忽略了每期開獎為**獨立同分佈 (IID)** 事件，不存在**自相關性 (Autocorrelation)**。本次結果之**變異數 (Variance)** 超出模型預設之置信區間，屬隨機過程中的正常機率波動。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
