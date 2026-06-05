@@ -2,9 +2,9 @@ name: Daily Lotto Data Update
 
 on:
   schedule:
-    # 台灣時間 08:00 相當於 UTC 00:00
-    # 確保昨晚開獎結果在下午 4 點前已更新完畢
-    - cron: '0 0 * * *'
+    # 台灣時間 10:00 相當於 UTC 02:00
+    # 資料更新完成後 workflow_run 事件會自動串接 AI 預測
+    - cron: '0 2 * * *'
   workflow_dispatch: # 允許手動觸發
 
 jobs:
