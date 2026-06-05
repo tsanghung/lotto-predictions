@@ -1,9 +1,11 @@
 name: AI Prediction and Notify
 
 on:
+  workflow_run:
+    workflows: ["Daily Lotto Data Update"]
+    types: [completed]
   schedule:
-    # 台灣時間 10:00 相當於 UTC 02:00
-    # 每天的星期一至星期六觸發 (今彩 539)
+    # 備用排程：台灣時間 10:00 = UTC 02:00（主要由 workflow_run 串接觸發）
     - cron: '0 2 * * 1-6'
   workflow_dispatch:
     inputs:
@@ -19,11 +21,12 @@ on:
 jobs:
   predict-and-notify:
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
-      contents: write # 需要寫入權限才能 commit predictions.json
+      contents: write
     env:
       TZ: 'Asia/Taipei'
-    
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -40,28 +43,30 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Daily 539 Prediction
-        if: github.event_name == 'schedule' || github.event.inputs.game_type == '539'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event.inputs.game_type == '539'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
+          DAYOFWEEK=$(TZ=Asia/Taipei date +%u)
+          if [ "$DAYOFWEEK" -eq 7 ]; then
+            echo "週日今彩539不開獎，跳過。"
+            exit 0
+          fi
           python -m src.main_predict --game 539
 
       - name: Run Lotto 649 Prediction
-        # schedule 與 workflow_dispatch 皆允許進入此 step
+        # schedule / workflow_run / workflow_dispatch 皆允許進入此 step
         # 實際的週二/週五判斷由 shell 內部 DAYOFWEEK 變數控制
-        # 注意：使用 TZ=Asia/Taipei date +%u 確保時區正確，
-        #       避免 GitHub runner 預設 UTC 導致星期判斷偏差
-        if: github.event_name == 'schedule' || github.event.inputs.game_type == '649'
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event.inputs.game_type == '649'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
           LINE_USER_ID: ${{ secrets.LINE_USER_ID }}
           PYTHONPATH: src
         run: |
-          # 明確指定台灣時區取得星期幾 (1=週一 ... 7=週日)
           DAYOFWEEK=$(TZ=Asia/Taipei date +%u)
           echo "Taiwan time day of week: $DAYOFWEEK ($(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z'))"
           if [ "$DAYOFWEEK" -eq 2 ] || [ "$DAYOFWEEK" -eq 5 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
@@ -75,11 +80,11 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          
+
           if [ -n "$(git status --porcelain data/predictions.json data/predictions_archive.json)" ]; then
             echo "Predictions updated, committing..."
             git add data/predictions.json data/predictions_archive.json
-            git commit -m "Auto-predict: AI generated new predictions [skip ci]"
+            git commit -m "Auto-predict: AI generated new predictions"
             git push
           else
             echo "No new predictions to commit."
