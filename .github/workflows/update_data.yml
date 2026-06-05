@@ -56,7 +56,7 @@ jobs:
           if [ -n "$(git status --porcelain)" ]; then
             echo "Changes detected, committing updates..."
             git add data/*.json
-            git commit -m "Auto-update: Sync with Official NTA API & Latest Results [skip ci]"
+            git commit -m "Auto-update: Sync with Official NTA API & Latest Results"
             git push
           else
             echo "No new data to commit."
