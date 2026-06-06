@@ -70546,5 +70546,29 @@
       38
     ],
     "special_number": null
+  },
+  {
+    "draw_id": "115000136",
+    "date": "2026-06-04",
+    "numbers": [
+      2,
+      8,
+      24,
+      29,
+      35
+    ],
+    "special_number": null
+  },
+  {
+    "draw_id": "115000137",
+    "date": "2026-06-05",
+    "numbers": [
+      7,
+      21,
+      26,
+      27,
+      31
+    ],
+    "special_number": null
   }
 ]
