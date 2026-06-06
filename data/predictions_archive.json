@@ -1657,5 +1657,222 @@
       "strategies": {},
       "attribution_report": null
     }
+  },
+  {
+    "timestamp": "2026-06-06T13:56:24.448811",
+    "game_name": "今彩539",
+    "is_offline": false,
+    "prediction": {
+      "reasoning": "激進包牌策略聚焦於『即將開出指數』最高之號碼，優先選擇遺漏 26 期的 10 號 (指數 3.3) 以及遺漏 14-16 期的 33, 1, 32, 23 號，旨在博取極冷號碼的反彈。穩健平衡策略採取冷熱交替與結構修正，結合史上最熱的 37 (814次) 與 5 (800次)，搭配近 300 期熱門的 22 (46次) 與 11 (48次)，並加入史上最冷 30 (703次) 作為錨點，且針對上期 4:1 的奇偶比偏向，刻意增加偶數權重。統計趨勢策略則採取完全順勢操作，鎖定近 300 期出現頻率最高之 8 與 11 (均 48次)，以及強勢同開號碼對 [22, 27] (10次)，並納入熱門池中高頻的 6 與 28。",
+      "risk_warning": "機率分析僅供參考，彩券隨機性高，請理性投注，切勿過度投入。",
+      "strategies": {
+        "激進包牌": {
+          "bias": "cold",
+          "prefer": [
+            10,
+            33,
+            1,
+            32,
+            23
+          ],
+          "avoid": [
+            8,
+            11
+          ]
+        },
+        "穩健平衡": {
+          "bias": "balanced",
+          "prefer": [
+            37,
+            5,
+            22,
+            11,
+            30
+          ],
+          "avoid": []
+        },
+        "統計趨勢": {
+          "bias": "hot",
+          "prefer": [
+            8,
+            11,
+            22,
+            27,
+            28,
+            6
+          ],
+          "avoid": [
+            10
+          ]
+        }
+      },
+      "combinations": {
+        "激進包牌": [
+          1,
+          9,
+          15,
+          32,
+          33
+        ],
+        "穩健平衡": [
+          7,
+          11,
+          22,
+          30,
+          31
+        ],
+        "統計趨勢": [
+          6,
+          8,
+          21,
+          27,
+          35
+        ]
+      },
+      "number_insights": {
+        "1": {
+          "reason": "久未開出：已隔 16 天（14 期未開），約為自身平均週期 9 天的 1.9 倍，醞釀反彈",
+          "tag": "overdue",
+          "gap_days": 16,
+          "gap_draws": 14,
+          "avg_interval_days": 9.0,
+          "overdue_index": 1.88,
+          "recent_freq": 33
+        },
+        "6": {
+          "reason": "週期均衡：已隔 8 天，貼近平均 10 天，近 300 期開出 45 次，結構穩定",
+          "tag": "balanced",
+          "gap_days": 8,
+          "gap_draws": 7,
+          "avg_interval_days": 9.5,
+          "overdue_index": 0.89,
+          "recent_freq": 45
+        },
+        "7": {
+          "reason": "剛開出：上一期才剛開出，短期氣勢延續",
+          "tag": "fresh",
+          "gap_days": 0,
+          "gap_draws": 0,
+          "avg_interval_days": 9.4,
+          "overdue_index": 0.0,
+          "recent_freq": 43
+        },
+        "8": {
+          "reason": "剛開出：1 天前才開出，短期氣勢延續",
+          "tag": "fresh",
+          "gap_days": 1,
+          "gap_draws": 1,
+          "avg_interval_days": 9.4,
+          "overdue_index": 0.13,
+          "recent_freq": 48
+        },
+        "9": {
+          "reason": "週期均衡：已隔 8 天，貼近平均 9 天，近 300 期開出 34 次，結構穩定",
+          "tag": "balanced",
+          "gap_days": 8,
+          "gap_draws": 7,
+          "avg_interval_days": 9.4,
+          "overdue_index": 0.89,
+          "recent_freq": 34
+        },
+        "11": {
+          "reason": "週期均衡：已隔 10 天，貼近平均 9 天，近 300 期開出 48 次，結構穩定",
+          "tag": "balanced",
+          "gap_days": 10,
+          "gap_draws": 9,
+          "avg_interval_days": 9.3,
+          "overdue_index": 1.16,
+          "recent_freq": 48
+        },
+        "15": {
+          "reason": "週期均衡：已隔 7 天，貼近平均 10 天，近 300 期開出 36 次，結構穩定",
+          "tag": "balanced",
+          "gap_days": 7,
+          "gap_draws": 6,
+          "avg_interval_days": 9.6,
+          "overdue_index": 0.76,
+          "recent_freq": 36
+        },
+        "21": {
+          "reason": "剛開出：上一期才剛開出，短期氣勢延續",
+          "tag": "fresh",
+          "gap_days": 0,
+          "gap_draws": 0,
+          "avg_interval_days": 9.6,
+          "overdue_index": 0.0,
+          "recent_freq": 43
+        },
+        "22": {
+          "reason": "週期均衡：已隔 3 天，貼近平均 10 天，近 300 期開出 46 次，結構穩定",
+          "tag": "balanced",
+          "gap_days": 3,
+          "gap_draws": 3,
+          "avg_interval_days": 9.5,
+          "overdue_index": 0.38,
+          "recent_freq": 46
+        },
+        "27": {
+          "reason": "剛開出：上一期才剛開出，短期氣勢延續",
+          "tag": "fresh",
+          "gap_days": 0,
+          "gap_draws": 0,
+          "avg_interval_days": 9.1,
+          "overdue_index": 0.0,
+          "recent_freq": 44
+        },
+        "30": {
+          "reason": "週期均衡：已隔 3 天，貼近平均 10 天，近 300 期開出 32 次，結構穩定",
+          "tag": "balanced",
+          "gap_days": 3,
+          "gap_draws": 3,
+          "avg_interval_days": 10.1,
+          "overdue_index": 0.36,
+          "recent_freq": 32
+        },
+        "31": {
+          "reason": "剛開出：上一期才剛開出，短期氣勢延續",
+          "tag": "fresh",
+          "gap_days": 0,
+          "gap_draws": 0,
+          "avg_interval_days": 9.6,
+          "overdue_index": 0.0,
+          "recent_freq": 43
+        },
+        "32": {
+          "reason": "久未開出：已隔 17 天（15 期未開），約為自身平均週期 10 天的 1.9 倍，醞釀反彈",
+          "tag": "overdue",
+          "gap_days": 17,
+          "gap_draws": 15,
+          "avg_interval_days": 9.7,
+          "overdue_index": 1.86,
+          "recent_freq": 37
+        },
+        "33": {
+          "reason": "久未開出：已隔 18 天（16 期未開），約為自身平均週期 10 天的 1.9 倍，醞釀反彈",
+          "tag": "overdue",
+          "gap_days": 18,
+          "gap_draws": 16,
+          "avg_interval_days": 10.1,
+          "overdue_index": 1.92,
+          "recent_freq": 30
+        },
+        "35": {
+          "reason": "剛開出：1 天前才開出，短期氣勢延續",
+          "tag": "fresh",
+          "gap_days": 1,
+          "gap_draws": 1,
+          "avg_interval_days": 9.3,
+          "overdue_index": 0.13,
+          "recent_freq": 34
+        }
+      }
+    },
+    "is_evaluated": false,
+    "evaluation": {
+      "draw_id": null,
+      "actual_numbers": [],
+      "strategies": {},
+      "attribution_report": null
+    }
   }
 ]
