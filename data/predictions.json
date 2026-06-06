@@ -5132,12 +5132,81 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000137",
+      "actual_numbers": [
+        7,
+        21,
+        26,
+        27,
+        31
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            27
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            1,
+            4,
+            23,
+            32
+          ],
+          "bias": {
+            "pred_sum": 87,
+            "actual_sum": 112,
+            "sum_error": -25,
+            "pred_odd_count": 3,
+            "actual_odd_count": 4,
+            "odd_error": -1
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            11,
+            12,
+            34,
+            37
+          ],
+          "bias": {
+            "pred_sum": 99,
+            "actual_sum": 112,
+            "sum_error": -13,
+            "pred_odd_count": 3,
+            "actual_odd_count": 4,
+            "odd_error": -1
+          }
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            24,
+            25,
+            36
+          ],
+          "bias": {
+            "pred_sum": 104,
+            "actual_sum": 112,
+            "sum_error": -8,
+            "pred_odd_count": 2,
+            "actual_odd_count": 4,
+            "odd_error": -2
+          }
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎本質上屬於「隨機漫步 (Random Walk)」，每期結果為獨立隨機事件。預測系統基於歷史頻率（熱門/冷門）的建模存在「樣本偏差 (Sample Bias)」，將長期統計趨勢誤認為短期預測指標。\n\n實際開獎號碼包含歷史極冷門號 21 與近 300 期熱門號 7, 31，這種冷熱號碼的隨機共現導致結果呈現高「變異數 (Variance)」。根據「大數法則 (Law of Large Numbers)」，頻率趨同僅在極大樣本量下成立，單次抽樣的隨機性極強。本次結果屬機率分佈中的正常離群值 (Outlier)，且號碼間不存在顯著的「自相關性 (Autocorrelation)」，故任何基於歷史數據的統計模型均無法在單次試驗中精準捕捉。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   },
   {
@@ -5359,12 +5428,86 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000059",
+      "actual_numbers": [
+        12,
+        14,
+        25,
+        30,
+        32,
+        44
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            32
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            22,
+            28,
+            41,
+            46
+          ],
+          "bias": {
+            "pred_sum": 174,
+            "actual_sum": 157,
+            "sum_error": 17,
+            "pred_odd_count": 2,
+            "actual_odd_count": 1,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            7,
+            15,
+            18,
+            22,
+            28,
+            49
+          ],
+          "bias": {
+            "pred_sum": 139,
+            "actual_sum": 157,
+            "sum_error": -18,
+            "pred_odd_count": 3,
+            "actual_odd_count": 1,
+            "odd_error": 2
+          }
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            25
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            13,
+            20,
+            22,
+            24,
+            38
+          ],
+          "bias": {
+            "pred_sum": 142,
+            "actual_sum": 157,
+            "sum_error": -15,
+            "pred_odd_count": 2,
+            "actual_odd_count": 1,
+            "odd_error": 1
+          }
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎符合**隨機漫步 (Random Walk)** 特性，每期為獨立隨機事件，不存在**自相關性 (Autocorrelation)**。\n\n預測系統基於**樣本偏差 (Sample Bias)**（近100期趨勢）與**均值回歸 (Mean Reversion)**（遺漏指數）構建，但實際結果在奇偶比上呈現極端**偏態分佈 (Skewness)**（1:5），屬於機率論上的**離群值 (Outlier)**。儘管 [12, 14, 25] 符合統計熱門池，但單次抽樣的隨機波動遠超統計趨勢的覆蓋範圍。根據**大數法則 (Law of Large Numbers)**，短期波動無法由歷史頻率預測，本次偏差在數理統計的合理誤差區間內。",
+      "attribution_trigger": "表現不佳（最高命中 1/6，低於閾值 3）"
     }
   }
 ]
