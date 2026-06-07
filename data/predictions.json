@@ -5553,12 +5553,82 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000138",
+      "actual_numbers": [
+        13,
+        27,
+        30,
+        37,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            9,
+            15,
+            32,
+            33
+          ],
+          "bias": {
+            "pred_sum": 90,
+            "actual_sum": 145,
+            "sum_error": -55,
+            "pred_odd_count": 4,
+            "actual_odd_count": 3,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            30
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            7,
+            11,
+            22,
+            31
+          ],
+          "bias": {
+            "pred_sum": 101,
+            "actual_sum": 145,
+            "sum_error": -44,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            27
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            6,
+            8,
+            21,
+            35
+          ],
+          "bias": {
+            "pred_sum": 97,
+            "actual_sum": 145,
+            "sum_error": -48,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        }
+      },
+      "attribution_report": "本次未命中主因在於開獎結果呈現極高的**變異數 (Variance)**。實際號碼 [13, 27, 30, 37, 38] 同時包含了歷史極熱號碼 (37, 38, 27) 與極冷號碼 (13, 30)，這種極端分佈在單次隨機抽樣中屬於典型的**隨機漫步 (Random Walk)** 現象。\n\n「激進包牌」因過度權重遺漏指數而產生**樣本偏差 (Sample Bias)**；「穩健」與「趨勢」組合雖命中 30 與 27，但未能捕捉到 [37, 38] 的**自相關性 (Autocorrelation)** 簇群。根據**大數法則 (Law of Large Numbers)**，歷史頻率僅在極大樣本量下趨於穩定，單期結果為獨立隨機事件，本次結果屬機率分佈中的**離群值 (Outlier)**，在統計學上完全合理。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   },
   {
@@ -5755,12 +5825,82 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000138",
+      "actual_numbers": [
+        13,
+        27,
+        30,
+        37,
+        38
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            23,
+            25,
+            32,
+            33
+          ],
+          "bias": {
+            "pred_sum": 114,
+            "actual_sum": 145,
+            "sum_error": -31,
+            "pred_odd_count": 4,
+            "actual_odd_count": 3,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            37
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            3,
+            11,
+            22,
+            28
+          ],
+          "bias": {
+            "pred_sum": 101,
+            "actual_sum": 145,
+            "sum_error": -44,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 2,
+          "matches": [
+            27,
+            38
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            8,
+            11,
+            22
+          ],
+          "bias": {
+            "pred_sum": 106,
+            "actual_sum": 145,
+            "sum_error": -39,
+            "pred_odd_count": 2,
+            "actual_odd_count": 3,
+            "odd_error": -1
+          }
+        }
+      },
+      "attribution_report": "本期未完全命中之歸因分析如下：\n\n1. **隨機漫步 (Random Walk)**：樂透開獎為獨立同分佈 (IID) 事件，歷史頻率不影響單次機率。\n2. **樣本偏差 (Sample Bias)**：「激進包牌」過度依賴冷門池，預期**均值回歸 (Mean Reversion)**，但實際結果呈現熱門號碼的**自相關性 (Autocorrelation)**（如 27, 38）。\n3. **離群值 (Outlier)**：號碼 13 與 30 屬於歷史冷門，其出現為隨機過程中的**隨機波動 (Stochastic Fluctuation)**，在單次樣本中表現為離群值。\n4. **大數法則 (LLN)**：統計趨勢僅在極大樣本量下趨於穩定，單期結果受**變異數 (Variance)** 影響極大，導致預測組合與實際結果產生偏差。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
