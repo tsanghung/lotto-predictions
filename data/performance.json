@@ -1,58 +1,49 @@
 {
-  "last_updated": "2026-06-07T06:23:00.897410",
+  "last_updated": "2026-06-09T06:09:36.230419",
   "games": {
     "今彩539": {
-      "total_draws_evaluated": 38,
+      "total_draws_evaluated": 39,
       "strategies": {
         "激進包牌": {
-          "total_hits": 28,
-          "total_misses": 162,
-          "win_rate": 0.1474,
+          "total_hits": 27,
+          "total_misses": 168,
+          "win_rate": 0.1385,
           "bias_summary": {
-            "samples": 5,
-            "avg_sum_error": -20.8,
-            "avg_abs_sum_error": 23.6,
-            "avg_odd_error": 0.4
+            "samples": 7,
+            "avg_sum_error": -12.71,
+            "avg_abs_sum_error": 19.86,
+            "avg_odd_error": 0.71
           }
         },
         "穩健平衡": {
-          "total_hits": 25,
-          "total_misses": 165,
-          "win_rate": 0.1316,
+          "total_hits": 27,
+          "total_misses": 168,
+          "win_rate": 0.1385,
           "bias_summary": {
-            "samples": 5,
-            "avg_sum_error": -18.0,
-            "avg_abs_sum_error": 22.4,
-            "avg_odd_error": 0.0
+            "samples": 7,
+            "avg_sum_error": -8.0,
+            "avg_abs_sum_error": 20.86,
+            "avg_odd_error": 0.57
           }
         },
         "完全隨機": {
-          "total_hits": 3,
-          "total_misses": 7,
-          "win_rate": 0.3
+          "total_hits": 2,
+          "total_misses": 3,
+          "win_rate": 0.4
         },
         "統計趨勢": {
-          "total_hits": 19,
-          "total_misses": 161,
-          "win_rate": 0.1056,
+          "total_hits": 21,
+          "total_misses": 169,
+          "win_rate": 0.1105,
           "bias_summary": {
-            "samples": 5,
-            "avg_sum_error": -14.6,
-            "avg_abs_sum_error": 23.4,
-            "avg_odd_error": -0.6
+            "samples": 7,
+            "avg_sum_error": -6.71,
+            "avg_abs_sum_error": 20.43,
+            "avg_odd_error": 0.14
           }
         }
       },
       "trend": [
-        {
-          "date": "2026-04-28",
-          "draw_id": "115000104",
-          "strategies": {
-            "激進包牌": 1,
-            "穩健平衡": 0,
-            "完全隨機": 1
-          }
-        },
         {
           "date": "2026-04-28",
           "draw_id": "115000104",
@@ -385,16 +376,34 @@
             "穩健平衡": 1,
             "統計趨勢": 2
           }
+        },
+        {
+          "date": "2026-06-08",
+          "draw_id": "115000139",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 0,
+            "統計趨勢": 1
+          }
+        },
+        {
+          "date": "2026-06-08",
+          "draw_id": "115000139",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 2,
+            "統計趨勢": 1
+          }
         }
       ]
     },
     "大樂透": {
-      "total_draws_evaluated": 12,
+      "total_draws_evaluated": 11,
       "strategies": {
         "激進包牌": {
           "total_hits": 9,
-          "total_misses": 63,
-          "win_rate": 0.125,
+          "total_misses": 57,
+          "win_rate": 0.1364,
           "bias_summary": {
             "samples": 1,
             "avg_sum_error": 17.0,
@@ -403,20 +412,15 @@
           }
         },
         "穩健平衡": {
-          "total_hits": 7,
-          "total_misses": 65,
-          "win_rate": 0.0972,
+          "total_hits": 6,
+          "total_misses": 60,
+          "win_rate": 0.0909,
           "bias_summary": {
             "samples": 1,
             "avg_sum_error": -18.0,
             "avg_abs_sum_error": 18.0,
             "avg_odd_error": 2.0
           }
-        },
-        "完全隨機": {
-          "total_hits": 1,
-          "total_misses": 5,
-          "win_rate": 0.1667
         },
         "統計趨勢": {
           "total_hits": 4,
@@ -431,15 +435,6 @@
         }
       },
       "trend": [
-        {
-          "date": "2026-04-28",
-          "draw_id": "115000048",
-          "strategies": {
-            "激進包牌": 0,
-            "穩健平衡": 1,
-            "完全隨機": 1
-          }
-        },
         {
           "date": "2026-05-01",
           "draw_id": "115000049",
