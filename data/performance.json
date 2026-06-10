@@ -1,61 +1,101 @@
 {
-  "last_updated": "2026-06-09T06:09:36.230419",
+  "last_updated": "2026-06-10T06:23:40.985101",
   "games": {
-    "今彩539": {
-      "total_draws_evaluated": 39,
+    "大樂透": {
+      "total_draws_evaluated": 13,
       "strategies": {
         "激進包牌": {
-          "total_hits": 27,
-          "total_misses": 168,
-          "win_rate": 0.1385,
+          "total_hits": 11,
+          "total_misses": 67,
+          "win_rate": 0.141,
           "bias_summary": {
-            "samples": 7,
-            "avg_sum_error": -12.71,
-            "avg_abs_sum_error": 19.86,
-            "avg_odd_error": 0.71
+            "samples": 3,
+            "avg_sum_error": -23.33,
+            "avg_abs_sum_error": 34.67,
+            "avg_odd_error": 0.67
           }
         },
         "穩健平衡": {
-          "total_hits": 27,
-          "total_misses": 168,
-          "win_rate": 0.1385,
+          "total_hits": 8,
+          "total_misses": 70,
+          "win_rate": 0.1026,
           "bias_summary": {
-            "samples": 7,
-            "avg_sum_error": -8.0,
-            "avg_abs_sum_error": 20.86,
-            "avg_odd_error": 0.57
+            "samples": 3,
+            "avg_sum_error": -32.67,
+            "avg_abs_sum_error": 32.67,
+            "avg_odd_error": 0.67
           }
         },
-        "完全隨機": {
-          "total_hits": 2,
-          "total_misses": 3,
-          "win_rate": 0.4
-        },
         "統計趨勢": {
-          "total_hits": 21,
-          "total_misses": 169,
-          "win_rate": 0.1105,
+          "total_hits": 8,
+          "total_misses": 70,
+          "win_rate": 0.1026,
           "bias_summary": {
-            "samples": 7,
-            "avg_sum_error": -6.71,
-            "avg_abs_sum_error": 20.43,
-            "avg_odd_error": 0.14
+            "samples": 3,
+            "avg_sum_error": -30.0,
+            "avg_abs_sum_error": 30.0,
+            "avg_odd_error": 0.67
           }
         }
       },
       "trend": [
         {
-          "date": "2026-04-28",
-          "draw_id": "115000104",
+          "date": "2026-05-01",
+          "draw_id": "115000049",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 1,
+            "統計趨勢": 1
+          }
+        },
+        {
+          "date": "2026-05-05",
+          "draw_id": "115000050",
           "strategies": {
             "激進包牌": 0,
             "穩健平衡": 0,
-            "完全隨機": 2
+            "統計趨勢": 1
           }
         },
         {
-          "date": "2026-04-29",
-          "draw_id": "115000105",
+          "date": "2026-05-08",
+          "draw_id": "115000051",
+          "strategies": {
+            "激進包牌": 1,
+            "穩健平衡": 1,
+            "統計趨勢": 0
+          }
+        },
+        {
+          "date": "2026-05-12",
+          "draw_id": "115000052",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 0,
+            "統計趨勢": 0
+          }
+        },
+        {
+          "date": "2026-05-15",
+          "draw_id": "115000053",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 1,
+            "統計趨勢": 0
+          }
+        },
+        {
+          "date": "2026-05-19",
+          "draw_id": "115000054",
+          "strategies": {
+            "激進包牌": 1,
+            "穩健平衡": 1,
+            "統計趨勢": 0
+          }
+        },
+        {
+          "date": "2026-05-22",
+          "draw_id": "115000055",
           "strategies": {
             "激進包牌": 1,
             "穩健平衡": 0,
@@ -63,23 +103,99 @@
           }
         },
         {
-          "date": "2026-04-30",
-          "draw_id": "115000106",
+          "date": "2026-05-26",
+          "draw_id": "115000056",
           "strategies": {
             "激進包牌": 1,
-            "穩健平衡": 2,
+            "穩健平衡": 1,
             "統計趨勢": 0
           }
         },
         {
-          "date": "2026-05-01",
-          "draw_id": "115000107",
+          "date": "2026-05-29",
+          "draw_id": "115000057",
+          "strategies": {
+            "激進包牌": 3,
+            "穩健平衡": 0,
+            "統計趨勢": 0
+          }
+        },
+        {
+          "date": "2026-06-02",
+          "draw_id": "115000058",
+          "strategies": {
+            "激進包牌": 1,
+            "穩健平衡": 1,
+            "統計趨勢": 1
+          }
+        },
+        {
+          "date": "2026-06-05",
+          "draw_id": "115000059",
           "strategies": {
             "激進包牌": 1,
             "穩健平衡": 0,
             "統計趨勢": 1
           }
         },
+        {
+          "date": "2026-06-09",
+          "draw_id": "115000060",
+          "strategies": {
+            "激進包牌": 2,
+            "穩健平衡": 1,
+            "統計趨勢": 1
+          }
+        },
+        {
+          "date": "2026-06-09",
+          "draw_id": "115000060",
+          "strategies": {
+            "激進包牌": 0,
+            "穩健平衡": 1,
+            "統計趨勢": 3
+          }
+        }
+      ]
+    },
+    "今彩539": {
+      "total_draws_evaluated": 37,
+      "strategies": {
+        "激進包牌": {
+          "total_hits": 25,
+          "total_misses": 160,
+          "win_rate": 0.1351,
+          "bias_summary": {
+            "samples": 9,
+            "avg_sum_error": -11.67,
+            "avg_abs_sum_error": 17.89,
+            "avg_odd_error": 0.78
+          }
+        },
+        "穩健平衡": {
+          "total_hits": 26,
+          "total_misses": 159,
+          "win_rate": 0.1405,
+          "bias_summary": {
+            "samples": 9,
+            "avg_sum_error": -5.56,
+            "avg_abs_sum_error": 16.89,
+            "avg_odd_error": 0.67
+          }
+        },
+        "統計趨勢": {
+          "total_hits": 21,
+          "total_misses": 164,
+          "win_rate": 0.1135,
+          "bias_summary": {
+            "samples": 9,
+            "avg_sum_error": -6.11,
+            "avg_abs_sum_error": 16.78,
+            "avg_odd_error": 0.33
+          }
+        }
+      },
+      "trend": [
         {
           "date": "2026-05-02",
           "draw_id": "115000108",
@@ -394,131 +510,10 @@
             "穩健平衡": 2,
             "統計趨勢": 1
           }
-        }
-      ]
-    },
-    "大樂透": {
-      "total_draws_evaluated": 11,
-      "strategies": {
-        "激進包牌": {
-          "total_hits": 9,
-          "total_misses": 57,
-          "win_rate": 0.1364,
-          "bias_summary": {
-            "samples": 1,
-            "avg_sum_error": 17.0,
-            "avg_abs_sum_error": 17.0,
-            "avg_odd_error": 1.0
-          }
-        },
-        "穩健平衡": {
-          "total_hits": 6,
-          "total_misses": 60,
-          "win_rate": 0.0909,
-          "bias_summary": {
-            "samples": 1,
-            "avg_sum_error": -18.0,
-            "avg_abs_sum_error": 18.0,
-            "avg_odd_error": 2.0
-          }
-        },
-        "統計趨勢": {
-          "total_hits": 4,
-          "total_misses": 62,
-          "win_rate": 0.0606,
-          "bias_summary": {
-            "samples": 1,
-            "avg_sum_error": -15.0,
-            "avg_abs_sum_error": 15.0,
-            "avg_odd_error": 1.0
-          }
-        }
-      },
-      "trend": [
-        {
-          "date": "2026-05-01",
-          "draw_id": "115000049",
-          "strategies": {
-            "激進包牌": 0,
-            "穩健平衡": 1,
-            "統計趨勢": 1
-          }
         },
         {
-          "date": "2026-05-05",
-          "draw_id": "115000050",
-          "strategies": {
-            "激進包牌": 0,
-            "穩健平衡": 0,
-            "統計趨勢": 1
-          }
-        },
-        {
-          "date": "2026-05-08",
-          "draw_id": "115000051",
-          "strategies": {
-            "激進包牌": 1,
-            "穩健平衡": 1,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-05-12",
-          "draw_id": "115000052",
-          "strategies": {
-            "激進包牌": 0,
-            "穩健平衡": 0,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-05-15",
-          "draw_id": "115000053",
-          "strategies": {
-            "激進包牌": 0,
-            "穩健平衡": 1,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-05-19",
-          "draw_id": "115000054",
-          "strategies": {
-            "激進包牌": 1,
-            "穩健平衡": 1,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-05-22",
-          "draw_id": "115000055",
-          "strategies": {
-            "激進包牌": 1,
-            "穩健平衡": 0,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-05-26",
-          "draw_id": "115000056",
-          "strategies": {
-            "激進包牌": 1,
-            "穩健平衡": 1,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-05-29",
-          "draw_id": "115000057",
-          "strategies": {
-            "激進包牌": 3,
-            "穩健平衡": 0,
-            "統計趨勢": 0
-          }
-        },
-        {
-          "date": "2026-06-02",
-          "draw_id": "115000058",
+          "date": "2026-06-09",
+          "draw_id": "115000140",
           "strategies": {
             "激進包牌": 1,
             "穩健平衡": 1,
@@ -526,12 +521,12 @@
           }
         },
         {
-          "date": "2026-06-05",
-          "draw_id": "115000059",
+          "date": "2026-06-09",
+          "draw_id": "115000140",
           "strategies": {
-            "激進包牌": 1,
+            "激進包牌": 0,
             "穩健平衡": 0,
-            "統計趨勢": 1
+            "統計趨勢": 0
           }
         }
       ]

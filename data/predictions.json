@@ -6121,12 +6121,83 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000140",
+      "actual_numbers": [
+        10,
+        17,
+        20,
+        25,
+        28
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 1,
+          "matches": [
+            10
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            1,
+            5,
+            32,
+            33
+          ],
+          "bias": {
+            "pred_sum": 81,
+            "actual_sum": 100,
+            "sum_error": -19,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            17
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            11,
+            21,
+            22,
+            30
+          ],
+          "bias": {
+            "pred_sum": 101,
+            "actual_sum": 100,
+            "sum_error": 1,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            28
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            8,
+            15,
+            19,
+            27
+          ],
+          "bias": {
+            "pred_sum": 97,
+            "actual_sum": 100,
+            "sum_error": -3,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        }
+      },
+      "attribution_report": "本期未完全命中之歸因分析如下：\n\n樂透開獎本質為**隨機漫步 (Random Walk)**，每期結果相互獨立，不存在**自相關性 (Autocorrelation)**。預測系統雖利用**大數法則 (Law of Large Numbers)** 分析 5884 期數據以擬合分佈，但單次開獎屬於極小樣本，具有極高**變異數 (Variance)**。\n\n「激進包牌」過度依賴遺漏指數，產生**樣本偏差 (Sample Bias)**；「統計趨勢」則假設近期熱門號碼具有持續性，忽略了機率分佈的均勻性。實際結果 $[10, 17, 20, 25, 28]$ 在 $\\binom{39}{5}$ 的樣本空間中僅為一個隨機實現的**離群值 (Outlier)**，其出現機率與任何特定組合均等，符合機率論之隨機分佈特性。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   },
   {
@@ -6357,12 +6428,87 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000060",
+      "actual_numbers": [
+        13,
+        18,
+        25,
+        39,
+        40,
+        46
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            13,
+            46
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            4,
+            10,
+            34,
+            41
+          ],
+          "bias": {
+            "pred_sum": 148,
+            "actual_sum": 181,
+            "sum_error": -33,
+            "pred_odd_count": 2,
+            "actual_odd_count": 3,
+            "odd_error": -1
+          }
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            18
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            14,
+            22,
+            33,
+            47
+          ],
+          "bias": {
+            "pred_sum": 145,
+            "actual_sum": 181,
+            "sum_error": -36,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            39
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            8,
+            22,
+            23,
+            47
+          ],
+          "bias": {
+            "pred_sum": 140,
+            "actual_sum": 181,
+            "sum_error": -41,
+            "pred_odd_count": 4,
+            "actual_odd_count": 3,
+            "odd_error": 1
+          }
+        }
+      },
+      "attribution_report": "本期結果符合**隨機漫步 (Random Walk)** 特徵，每期開獎為獨立同分佈 (i.i.d.) 事件。預測系統基於歷史頻率與遺漏指數的建模，本質上是在嘗試從隨機噪聲中提取模式，易產生**樣本偏差 (Sample Bias)** 與過擬合。\n\n雖然**大數法則 (Law of Large Numbers)** 確保長期均值趨同，但單次抽樣的**變異數 (Variance)** 極高。本次未完全命中係因開獎組合在機率空間中屬於隨機分佈的**離群值 (Outlier)**。歷史同開號碼對的**自相關性 (Autocorrelation)** 在短期樣本中並不顯著，無法對單次隨機事件產生決定性預測。",
+      "attribution_trigger": "表現不佳（最高命中 2/6，低於閾值 3）"
     }
   },
   {
@@ -6551,12 +6697,80 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000140",
+      "actual_numbers": [
+        10,
+        17,
+        20,
+        25,
+        28
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            21,
+            23,
+            26,
+            32
+          ],
+          "bias": {
+            "pred_sum": 103,
+            "actual_sum": 100,
+            "sum_error": 3,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            14,
+            22,
+            27,
+            37
+          ],
+          "bias": {
+            "pred_sum": 105,
+            "actual_sum": 100,
+            "sum_error": 5,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            1,
+            6,
+            22,
+            27,
+            39
+          ],
+          "bias": {
+            "pred_sum": 95,
+            "actual_sum": 100,
+            "sum_error": -5,
+            "pred_odd_count": 3,
+            "actual_odd_count": 2,
+            "odd_error": 1
+          }
+        }
+      },
+      "attribution_report": "本期未命中之歸因分析如下：\n\n樂透開獎本質上屬於**隨機漫步 (Random Walk)** 過程，每期結果為獨立隨機變數，不存在**自相關性 (Autocorrelation)**。預測系統雖基於歷史頻率與遺漏指數，但此類分析在單次預測中易陷入**樣本偏差 (Sample Bias)** 與過擬合陷阱。\n\n根據**大數法則 (Law of Large Numbers)**，頻率趨同僅在極大樣本量下成立，單次開獎結果在機率分佈中僅為一個隨機實現的**離群值 (Outlier)**。本次開獎號碼雖包含歷史熱門號 (17) 與近期熱門號 (25, 28)，但其組合方式符合隨機分佈之高**變異數 (Variance)** 特性。\n\n結論：未命中乃機率論中必然存在的隨機波動，符合獨立隨機事件之數學定義。",
+      "attribution_trigger": "表現不佳（最高命中 0/5，低於閾值 3）"
     }
   },
   {
@@ -6779,12 +6993,86 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000060",
+      "actual_numbers": [
+        13,
+        18,
+        25,
+        39,
+        40,
+        46
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 6,
+          "missed_numbers": [
+            5,
+            11,
+            12,
+            15,
+            41,
+            43
+          ],
+          "bias": {
+            "pred_sum": 127,
+            "actual_sum": 181,
+            "sum_error": -54,
+            "pred_odd_count": 5,
+            "actual_odd_count": 3,
+            "odd_error": 2
+          }
+        },
+        "穩健平衡": {
+          "hits": 1,
+          "matches": [
+            39
+          ],
+          "miss_count": 5,
+          "missed_numbers": [
+            4,
+            11,
+            22,
+            23,
+            38
+          ],
+          "bias": {
+            "pred_sum": 137,
+            "actual_sum": 181,
+            "sum_error": -44,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 3,
+          "matches": [
+            25,
+            39,
+            40
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            7,
+            12,
+            24
+          ],
+          "bias": {
+            "pred_sum": 147,
+            "actual_sum": 181,
+            "sum_error": -34,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        }
+      },
+      "attribution_report": "命中表現良好（最高命中 3/6），本次跳過歸因分析。",
+      "attribution_trigger": "跳過"
     }
   }
 ]
