@@ -4,9 +4,6 @@ on:
   workflow_run:
     workflows: ["Daily Lotto Data Update"]
     types: [completed]
-  schedule:
-    # 備用排程：台灣時間 10:00 = UTC 02:00（主要由 workflow_run 串接觸發）
-    - cron: '0 2 * * 1-6'
   workflow_dispatch:
     inputs:
       game_type:
