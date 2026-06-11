@@ -70606,5 +70606,17 @@
       28
     ],
     "special_number": null
+  },
+  {
+    "draw_id": "115000141",
+    "date": "2026-06-10",
+    "numbers": [
+      1,
+      4,
+      32,
+      35,
+      39
+    ],
+    "special_number": null
   }
 ]

@@ -7090,12 +7090,81 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000141",
+      "actual_numbers": [
+        1,
+        4,
+        32,
+        35,
+        39
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            1,
+            32
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            9,
+            33,
+            37
+          ],
+          "bias": {
+            "pred_sum": 112,
+            "actual_sum": 111,
+            "sum_error": 1,
+            "pred_odd_count": 4,
+            "actual_odd_count": 3,
+            "odd_error": 1
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            17,
+            22,
+            27,
+            38
+          ],
+          "bias": {
+            "pred_sum": 109,
+            "actual_sum": 111,
+            "sum_error": -2,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            6,
+            11,
+            19,
+            26,
+            28
+          ],
+          "bias": {
+            "pred_sum": 90,
+            "actual_sum": 111,
+            "sum_error": -21,
+            "pred_odd_count": 2,
+            "actual_odd_count": 3,
+            "odd_error": -1
+          }
+        }
+      },
+      "attribution_report": "本次未命中主因在於樂透開獎本質為「隨機漫步 (Random Walk)」，每期結果相互獨立，不存在自相關性 (Autocorrelation)。\n\n預測模型嘗試透過歷史頻率捕捉分佈趨勢，但單次抽樣存在顯著的樣本偏差 (Sample Bias)。本次開獎號碼 [1, 4, 32, 35, 39] 同時包含極端熱門 (1, 4) 與極端冷門 (32, 39) 號碼，呈現高變異數 (Variance) 特徵，在統計學上屬於機率分佈中的離群值 (Outlier)。\n\n根據大數法則 (Law of Large Numbers)，頻率趨同僅在極大量樣本中成立，短期內隨機波動導致結果與統計預期脫節，此現象在機率論中完全合理。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   },
   {
@@ -7275,12 +7344,81 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000141",
+      "actual_numbers": [
+        1,
+        4,
+        32,
+        35,
+        39
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 2,
+          "matches": [
+            1,
+            32
+          ],
+          "miss_count": 3,
+          "missed_numbers": [
+            16,
+            23,
+            33
+          ],
+          "bias": {
+            "pred_sum": 105,
+            "actual_sum": 111,
+            "sum_error": -6,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            11,
+            16,
+            17,
+            22,
+            27
+          ],
+          "bias": {
+            "pred_sum": 93,
+            "actual_sum": 111,
+            "sum_error": -18,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            8,
+            11,
+            22,
+            27,
+            36
+          ],
+          "bias": {
+            "pred_sum": 104,
+            "actual_sum": 111,
+            "sum_error": -7,
+            "pred_odd_count": 2,
+            "actual_odd_count": 3,
+            "odd_error": -1
+          }
+        }
+      },
+      "attribution_report": "本期結果 [1, 4, 32, 35, 39] 呈現極端的分布特徵：同時包含歷史高頻號碼 (1, 4) 與極低頻號碼 (32, 39)。預測失效之科學歸因如下：\n\n1. **隨機漫步 (Random Walk)**：樂透開獎為獨立隨機事件，各期之間缺乏**自相關性 (Autocorrelation)**，歷史頻率無法預測單次結果。\n2. **樣本偏差 (Sample Bias)**：預測組合過度依賴近 300 期的局部趨勢與遺漏指數，導致對全歷史分佈的**偏態 (Skewness)** 估計不足。\n3. **變異數 (Variance)**：單次抽樣結果與理論平均值的偏差屬於正常的隨機波動。\n\n此結果在機率論中屬於典型的**離群值 (Outlier)**，證明短期統計趨勢在單次試驗中無法對抗**大數法則 (LLN)** 的隨機性。",
+      "attribution_trigger": "表現不佳（最高命中 2/5，低於閾值 3）"
     }
   }
 ]
