@@ -1,13 +1,112 @@
 import json
 import os
 import logging
+import re
 from datetime import datetime
-from typing import List
+from typing import List, Optional
+
+import requests
 
 from .scraper_core import ScraperException, LottoDraw
 from .official_scraper import OfficialScraper
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+class AuzonetDaily539Scraper:
+    """
+    奧索樂透網今彩539備援來源。
+
+    用途：台彩官方 API 偶爾會晚於公開開獎頁更新。當官方 API 最新期數落後時，
+    從第二來源讀取最新一期，後續仍會經 validate_draw 做基本合理性檢查。
+    """
+    source_name = "Auzonet_Daily539"
+    url = "https://lotto.auzonet.com/daily539"
+
+    def fetch_latest(self) -> LottoDraw:
+        try:
+            resp = requests.get(
+                self.url,
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=20,
+            )
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            raise ScraperException(
+                message="第二來源今彩539請求失敗",
+                root_cause=str(e),
+                suggested_fix="檢查 lotto.auzonet.com 是否可連線，或改用其他備援來源。"
+            )
+
+        text = resp.text
+        match = re.search(
+            r'<span[^>]*>\s*(?P<draw_id>\d+)\s*</span>\s*<br\s*/?>\s*'
+            r'<br\s*/?>\s*(?P<date>\d{4}-\d{2}-\d{2}).*?'
+            r'<p>\s*大小順序：\s*</p>(?P<numbers>.*?)</li>',
+            text,
+            flags=re.DOTALL,
+        )
+        if not match:
+            raise ScraperException(
+                message="第二來源今彩539解析失敗",
+                root_cause="找不到最新期數、日期或大小順序號碼區塊。",
+                suggested_fix="檢查奧索樂透網 HTML 結構是否改版，並更新解析規則。"
+            )
+
+        nums = [int(n) for n in re.findall(r">\s*(\d{1,2})\s*</a>", match.group("numbers"))]
+        if len(nums) < 5:
+            raise ScraperException(
+                message="第二來源今彩539號碼解析不足",
+                root_cause=f"numbers={nums}",
+                suggested_fix="檢查大小順序區塊是否已改版或號碼連結格式是否改變。"
+            )
+
+        return LottoDraw(
+            draw_id=match.group("draw_id"),
+            date=match.group("date"),
+            numbers=sorted(nums[:5]),
+            special_number=None,
+        )
+
+
+def choose_freshest_draw(
+    game_label: str,
+    official_draw: LottoDraw,
+    secondary_draw: Optional[LottoDraw],
+) -> LottoDraw:
+    """
+    選擇較新的開獎資料。
+
+    - 第二來源比官方來源新：採用第二來源。
+    - 兩來源同一期但號碼不同：fail fast，避免污染資料。
+    - 第二來源較舊或不存在：維持官方來源。
+    """
+    if secondary_draw is None:
+        return official_draw
+
+    official_key = (str(official_draw.draw_id), official_draw.date)
+    secondary_key = (str(secondary_draw.draw_id), secondary_draw.date)
+    if official_key == secondary_key and official_draw != secondary_draw:
+        raise ScraperException(
+            message=f"{game_label} 來源資料衝突：官方 API 與第二來源同一期號碼不同。",
+            root_cause=f"official={official_draw}, secondary={secondary_draw}",
+            suggested_fix="請人工比對台灣彩券官方網站或公正紀錄表後再更新資料。"
+        )
+
+    official_date = datetime.strptime(official_draw.date, "%Y-%m-%d").date()
+    secondary_date = datetime.strptime(secondary_draw.date, "%Y-%m-%d").date()
+    if secondary_date > official_date or str(secondary_draw.draw_id) > str(official_draw.draw_id):
+        logging.warning(
+            "%s 官方 API 最新期數落後，改用第二來源：official=%s/%s secondary=%s/%s",
+            game_label,
+            official_draw.draw_id,
+            official_draw.date,
+            secondary_draw.draw_id,
+            secondary_draw.date,
+        )
+        return secondary_draw
+
+    return official_draw
 
 
 # ── 基本合理性驗證（取代尚未實作的 DualVerifier 第三方來源）────────────────
@@ -113,6 +212,7 @@ def main():
 
     lotto_scraper = OfficialScraper(game_type="649")
     daily_scraper = OfficialScraper(game_type="539")
+    daily_secondary_scraper = AuzonetDaily539Scraper()
 
     is_updated = False
     lotto_count = 0
@@ -138,6 +238,11 @@ def main():
     try:
         daily_data = load_json("data/daily539.json")
         latest_daily = daily_scraper.fetch_latest()
+        try:
+            secondary_daily = daily_secondary_scraper.fetch_latest()
+            latest_daily = choose_freshest_draw("今彩539", latest_daily, secondary_daily)
+        except ScraperException as e:
+            logging.warning(f"今彩539第二來源檢查失敗，維持官方 API 資料：{e}")
         validate_draw(latest_daily, max_number=39, num_picks=5, existing_data=daily_data)
         if append_if_new(daily_data, latest_daily):
             save_json("data/daily539.json", daily_data)
