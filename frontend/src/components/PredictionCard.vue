@@ -14,11 +14,6 @@ const latestPrediction = computed(() => {
   return filtered.length ? filtered[filtered.length - 1] : null
 })
 
-const latestDraw = computed(() => {
-  if (!props.historyData || props.historyData.length === 0) return null
-  return props.historyData[props.historyData.length - 1]
-})
-
 const strategyStyle = (strategy) => {
   if (strategy.includes('激進') || strategy.includes('AI')) return { color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)' }
   if (strategy.includes('穩健') || strategy.includes('平衡')) return { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.25)' }
@@ -152,36 +147,6 @@ const sortedInsights = computed(() => {
         <p v-if="latestPrediction.prediction.risk_warning" style="font-size:14px;color:#475569;margin-top:12px;font-style:italic;">
           ⚠️ {{ latestPrediction.prediction.risk_warning }}
         </p>
-      </div>
-    </div>
-
-    <!-- Latest Draw Result -->
-    <div v-if="latestDraw" style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:20px;">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
-        <h3 style="font-size:0.95rem;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
-          <span>🏆</span> 最新開獎
-        </h3>
-        <span style="font-size:14px;color:#64748b;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:100px;padding:3px 10px;">
-          {{ latestDraw.date }} &nbsp;|&nbsp; 第 {{ latestDraw.draw_id }} 期
-        </span>
-      </div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-        <span v-for="n in latestDraw.numbers" :key="n"
-          :style="{
-            width:'40px', height:'40px', borderRadius:'50%',
-            background: `linear-gradient(135deg, ${accent}22, ${accent}44)`,
-            border: `2px solid ${accent}60`,
-            display:'flex', alignItems:'center', justifyContent:'center',
-            fontSize:'16px', fontWeight:'800', fontFamily:'monospace', color: accent
-          }">
-          {{ n.toString().padStart(2,'0') }}
-        </span>
-        <div v-if="latestDraw.special_number" style="display:flex;align-items:center;gap:6px;">
-          <span style="color:#475569;font-size:15px;">特別號</span>
-          <span style="width:40px;height:40px;border-radius:50%;background:rgba(251,191,36,0.12);border:2px solid rgba(251,191,36,0.5);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:800;font-family:monospace;color:#fbbf24;">
-            {{ latestDraw.special_number.toString().padStart(2,'0') }}
-          </span>
-        </div>
       </div>
     </div>
   </div>

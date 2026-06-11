@@ -102,18 +102,18 @@ const avgSum = computed(() => {
     </div>
 
     <!-- Recent draws -->
-    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:20px;">
-      <h3 style="font-size:16px;font-weight:700;color:#f1f5f9;margin-bottom:14px;">📅 近10期開獎紀錄</h3>
-      <div style="display:flex;flex-direction:column;gap:10px;">
+    <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:24px;">
+      <h3 style="font-size:24px;font-weight:800;color:#f1f5f9;margin-bottom:18px;">📅 近10期開獎紀錄</h3>
+      <div style="display:flex;flex-direction:column;gap:14px;">
         <div v-for="draw in recentDraws" :key="draw.draw_id"
-          style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,0.04);">
-          <span style="font-size:14px;color:#475569;min-width:82px;">{{ draw.date }}</span>
-          <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.04);">
+          <span style="font-size:20px;font-weight:700;color:#94a3b8;min-width:124px;">{{ draw.date }}</span>
+          <div style="display:flex;gap:9px;flex-wrap:wrap;">
             <span v-for="n in draw.numbers" :key="n"
-              style="width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;font-family:monospace;color:#cbd5e1;">
+              style="width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.14);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;font-family:monospace;color:#f1f5f9;">
               {{ n.toString().padStart(2,'0') }}
             </span>
-            <span v-if="draw.special_number" style="width:26px;height:26px;border-radius:50%;background:rgba(251,191,36,0.1);border:1px solid rgba(251,191,36,0.3);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;font-family:monospace;color:#fbbf24;">
+            <span v-if="draw.special_number" style="width:44px;height:44px;border-radius:50%;background:rgba(251,191,36,0.12);border:1px solid rgba(251,191,36,0.38);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:900;font-family:monospace;color:#fbbf24;">
               {{ draw.special_number.toString().padStart(2, '0') }}
             </span>
           </div>
