@@ -21,6 +21,23 @@ async function request(path) {
   return response.json()
 }
 
+async function requestAll(path, pageSize = 1000) {
+  const rows = []
+  let offset = 0
+
+  while (true) {
+    const separator = path.includes('?') ? '&' : '?'
+    const page = await request(`${path}${separator}limit=${pageSize}&offset=${offset}`)
+    rows.push(...page)
+
+    if (page.length < pageSize) {
+      return rows
+    }
+
+    offset += pageSize
+  }
+}
+
 function mapDraw(row) {
   return {
     draw_id: row.draw_id,
@@ -49,9 +66,9 @@ export async function fetchSupabaseLottoData() {
     performanceRows
   ] = await Promise.all([
     request('app_meta?meta_key=eq.current&select=payload&limit=1'),
-    request('prediction_records?select=predicted_at,game_name,prediction,is_evaluated,evaluation&order=predicted_at.asc'),
-    request('lotto_draws?game_name=eq.%E5%A4%A7%E6%A8%82%E9%80%8F&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
-    request('lotto_draws?game_name=eq.%E4%BB%8A%E5%BD%A9539&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
+    requestAll('prediction_records?select=predicted_at,game_name,prediction,is_evaluated,evaluation&order=predicted_at.asc'),
+    requestAll('lotto_draws?game_name=eq.%E5%A4%A7%E6%A8%82%E9%80%8F&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
+    requestAll('lotto_draws?game_name=eq.%E4%BB%8A%E5%BD%A9539&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     request('performance_snapshots?snapshot_key=eq.current&select=payload&limit=1')
   ])
 
