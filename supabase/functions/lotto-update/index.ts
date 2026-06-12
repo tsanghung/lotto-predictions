@@ -1,0 +1,382 @@
+import {
+  chooseFreshestDraw,
+  latestByDrawId,
+  needsSecondaryDaily539Check,
+  parseAuzonetDaily539Html,
+  parseOfficialPayload,
+  taiwanDateParts,
+  toLottoDrawRow,
+} from "./lib/lottoCore.js";
+
+type GameType = "539" | "649";
+
+type LottoDraw = {
+  draw_id: string;
+  date: string;
+  numbers: number[];
+  special_number: number | null;
+  source?: string;
+  raw?: unknown;
+};
+
+type UpdateResult = {
+  game: GameType;
+  status: "updated" | "unchanged" | "dry_run";
+  selected_draw: LottoDraw;
+  official_draw: LottoDraw;
+  secondary_draw: LottoDraw | null;
+};
+
+const OFFICIAL_URLS: Record<GameType, string> = {
+  "539": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Daily539Result",
+  "649": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Lotto649Result",
+};
+
+const GAME_NAMES: Record<GameType, string> = {
+  "539": "今彩539",
+  "649": "大樂透",
+};
+
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+function jsonResponse(status: number, body: unknown): Response {
+  return new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      "Content-Type": "application/json; charset=utf-8",
+    },
+  });
+}
+
+function failFast(status: number, message: string, rootCause: unknown, suggestedFix: string): Response {
+  return jsonResponse(status, {
+    Status: "failed",
+    "Root Cause": String(rootCause),
+    "Suggested Fix": suggestedFix,
+    message,
+  });
+}
+
+function requireEnv(name: string): string {
+  const value = Deno.env.get(name);
+  if (!value) {
+    throw new Error(`${name} is not configured`);
+  }
+  return value.replace(/\/+$/, "");
+}
+
+function secretKeys(): string[] {
+  const keys: string[] = [];
+  const secretKeyJson = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (secretKeyJson) {
+    try {
+      const parsed = JSON.parse(secretKeyJson) as Record<string, string>;
+      keys.push(...Object.values(parsed).filter(Boolean));
+    } catch {
+      throw new Error("SUPABASE_SECRET_KEYS is not valid JSON");
+    }
+  }
+
+  const legacyServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (legacyServiceRoleKey) {
+    keys.push(legacyServiceRoleKey);
+  }
+
+  return [...new Set(keys)];
+}
+
+function requireServiceKey(): string {
+  const keys = secretKeys();
+  if (!keys.length) {
+    throw new Error("No Supabase secret key is configured");
+  }
+
+  return keys[0];
+}
+
+function bearerToken(request: Request): string {
+  const authorization = request.headers.get("authorization") ?? "";
+  return authorization.toLowerCase().startsWith("bearer ")
+    ? authorization.slice("bearer ".length).trim()
+    : "";
+}
+
+function assertAuthorized(request: Request, serviceRoleKey: string): void {
+  const allowedKeys = new Set([serviceRoleKey, ...secretKeys()]);
+  const providedApiKey = request.headers.get("apikey") ?? "";
+  const providedBearer = bearerToken(request);
+
+  if (!allowedKeys.has(providedApiKey) && !allowedKeys.has(providedBearer)) {
+    throw new Error("Unauthorized request. Provide a valid Supabase secret key in the apikey header.");
+  }
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const response = await fetch(url, {
+    headers: { "User-Agent": "lotto-predictions-supabase-edge-function/1.0" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+async function fetchText(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: { "User-Agent": "lotto-predictions-supabase-edge-function/1.0" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`${url} returned ${response.status} ${response.statusText}`);
+  }
+
+  return response.text();
+}
+
+async function fetchOfficialLatest(game: GameType, targetDate: string): Promise<LottoDraw> {
+  const month = targetDate.slice(0, 7);
+  const params = new URLSearchParams({ period: "", month });
+  const payload = await fetchJson(`${OFFICIAL_URLS[game]}?${params}`);
+  const draws = parseOfficialPayload(game, payload);
+  const latest = latestByDrawId(draws);
+
+  if (!latest) {
+    throw new Error(`Official API returned no ${game} draws for ${month}`);
+  }
+
+  return latest as LottoDraw;
+}
+
+async function fetchAuzonetDaily539(): Promise<LottoDraw> {
+  const html = await fetchText("https://lotto.auzo.tw/");
+  return parseAuzonetDaily539Html(html) as LottoDraw;
+}
+
+function supabaseHeaders(serviceRoleKey: string): HeadersInit {
+  return {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function fetchExistingLatest(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  game: GameType,
+): Promise<{ draw_id: string; draw_date: string } | null> {
+  const params = new URLSearchParams({
+    select: "draw_id,draw_date",
+    game_name: `eq.${GAME_NAMES[game]}`,
+    order: "draw_date.desc,draw_id.desc",
+    limit: "1",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_draws?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase latest query failed: ${response.status} ${await response.text()}`);
+  }
+
+  const rows = await response.json();
+  return rows[0] ?? null;
+}
+
+async function fetchDrawCount(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  game: GameType,
+): Promise<number> {
+  const params = new URLSearchParams({
+    select: "draw_id",
+    game_name: `eq.${GAME_NAMES[game]}`,
+    limit: "1",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_draws?${params}`, {
+    headers: {
+      ...supabaseHeaders(serviceRoleKey),
+      Prefer: "count=exact",
+      Range: "0-0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase count query failed: ${response.status} ${await response.text()}`);
+  }
+
+  const contentRange = response.headers.get("content-range") ?? "";
+  const total = Number(contentRange.split("/").at(-1));
+  if (!Number.isFinite(total)) {
+    throw new Error(`Supabase count query returned invalid content-range: ${contentRange}`);
+  }
+
+  return total;
+}
+
+async function upsertRows(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  table: string,
+  rows: unknown[],
+): Promise<void> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/${table}?on_conflict=game_name,draw_id`, {
+    method: "POST",
+    headers: {
+      ...supabaseHeaders(serviceRoleKey),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify(rows),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase ${table} upsert failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+async function upsertMeta(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/app_meta?on_conflict=meta_key`, {
+    method: "POST",
+    headers: {
+      ...supabaseHeaders(serviceRoleKey),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify([{
+      meta_key: "current",
+      last_updated: new Date().toISOString(),
+      payload,
+    }]),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase app_meta upsert failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+async function updateGame(
+  game: GameType,
+  options: {
+    supabaseUrl: string;
+    serviceRoleKey: string;
+    targetDate: string;
+    taiwanHour: number;
+    dryRun: boolean;
+  },
+): Promise<UpdateResult> {
+  const existing = await fetchExistingLatest(options.supabaseUrl, options.serviceRoleKey, game);
+  const officialDraw = await fetchOfficialLatest(game, options.targetDate);
+  let secondaryDraw: LottoDraw | null = null;
+  let selectedDraw = officialDraw;
+
+  if (
+    game === "539" &&
+    needsSecondaryDaily539Check({
+      latestOfficialDate: officialDraw.date,
+      targetDate: options.targetDate,
+      taiwanHour: options.taiwanHour,
+    })
+  ) {
+    secondaryDraw = await fetchAuzonetDaily539();
+    selectedDraw = chooseFreshestDraw(officialDraw, secondaryDraw);
+  }
+
+  const row = toLottoDrawRow(game, selectedDraw);
+  const isNew = !existing ||
+    row.draw_date > existing.draw_date ||
+    String(row.draw_id).localeCompare(String(existing.draw_id), undefined, { numeric: true }) > 0;
+
+  if (!options.dryRun && isNew) {
+    await upsertRows(options.supabaseUrl, options.serviceRoleKey, "lotto_draws", [row]);
+  }
+
+  return {
+    game,
+    status: options.dryRun ? "dry_run" : isNew ? "updated" : "unchanged",
+    selected_draw: selectedDraw,
+    official_draw: officialDraw,
+    secondary_draw: secondaryDraw,
+  };
+}
+
+async function handleRequest(request: Request): Promise<Response> {
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  try {
+    const supabaseUrl = requireEnv("SUPABASE_URL");
+    const serviceRoleKey = requireServiceKey();
+    assertAuthorized(request, serviceRoleKey);
+
+    const url = new URL(request.url);
+    const requestedGame = url.searchParams.get("game") ?? "all";
+    const dryRun = url.searchParams.get("dry_run") === "1";
+    const taiwan = taiwanDateParts();
+    const targetDate = url.searchParams.get("target_date") ?? taiwan.date;
+    const games: GameType[] = requestedGame === "539"
+      ? ["539"]
+      : requestedGame === "649"
+        ? ["649"]
+        : ["649", "539"];
+
+    if (!["all", "539", "649"].includes(requestedGame)) {
+      return failFast(400, "Unsupported game parameter", requestedGame, "Use game=all, game=539, or game=649.");
+    }
+
+    const results = [];
+    for (const game of games) {
+      results.push(await updateGame(game, {
+        supabaseUrl,
+        serviceRoleKey,
+        targetDate,
+        taiwanHour: taiwan.hour,
+        dryRun,
+      }));
+    }
+
+    const [lotto649Total, daily539Total] = await Promise.all([
+      fetchDrawCount(supabaseUrl, serviceRoleKey, "649"),
+      fetchDrawCount(supabaseUrl, serviceRoleKey, "539"),
+    ]);
+
+    const metaPayload = {
+      last_updated: new Date().toISOString(),
+      lotto649_total: lotto649Total,
+      daily539_total: daily539Total,
+      source: "supabase_edge_function",
+      target_date: targetDate,
+      results,
+    };
+
+    if (!dryRun) {
+      await upsertMeta(supabaseUrl, serviceRoleKey, metaPayload);
+    }
+
+    return jsonResponse(200, {
+      Status: "ok",
+      dry_run: dryRun,
+      target_date: targetDate,
+      results,
+    });
+  } catch (error) {
+    return failFast(
+      500,
+      "Lotto update failed.",
+      error instanceof Error ? error.message : error,
+      "Check Supabase function secrets, Taiwan Lottery source availability, and the secondary source parser.",
+    );
+  }
+}
+
+Deno.serve(handleRequest);
