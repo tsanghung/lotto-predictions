@@ -52,10 +52,11 @@ def request(method: str, table: str, payload: Any | None = None) -> None:
 
 
 def source_key(record: dict[str, Any]) -> str:
+    evaluation = record.get("evaluation") or {}
     raw_key = "|".join([
-        record.get("game_name", ""),
-        record.get("timestamp", ""),
-        record.get("evaluation", {}).get("draw_id", ""),
+        str(record.get("game_name") or ""),
+        str(record.get("timestamp") or ""),
+        str(evaluation.get("draw_id") or ""),
     ])
     return hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
 

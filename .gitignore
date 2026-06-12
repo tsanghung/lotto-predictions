@@ -16,6 +16,7 @@ __pycache__/
 # Frontend (if not already ignored by frontend/.gitignore)
 frontend/node_modules/
 frontend/dist/
+.wrangler/
 
 # OS
 .DS_Store
