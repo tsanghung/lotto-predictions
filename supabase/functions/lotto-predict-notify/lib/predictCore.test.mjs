@@ -25,7 +25,7 @@ test("generates three deterministic Daily539 prediction combinations", () => {
   });
 
   assert.equal(prediction.game_name, "今彩539");
-  assert.equal(Object.keys(prediction.prediction.combinations).length, 3);
+  assert.deepEqual(Object.keys(prediction.prediction.combinations), ["激進包牌", "穩健平衡", "統計趨勢"]);
   for (const nums of Object.values(prediction.prediction.combinations)) {
     assert.equal(nums.length, 5);
     assert.equal(new Set(nums).size, 5);
@@ -63,9 +63,29 @@ test("builds LINE message with game name and combinations", () => {
 
   assert.match(message, /今彩539/);
   assert.match(message, /2026-06-12/);
+  assert.match(message, /統計洞察/);
+  assert.match(message, /近 5 期最熱/);
+  assert.match(message, /最冷/);
+  assert.match(message, /即將開出指數/);
+  assert.match(message, /同開號碼對/);
+  assert.match(message, /激進包牌/);
   assert.match(message, /穩健平衡/);
   assert.match(message, /統計趨勢/);
-  assert.match(message, /冷門補位/);
+});
+
+test("stores statistical insight payload used by the LINE message", () => {
+  const prediction = generatePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-12T14:35:16+08:00",
+  });
+
+  const insights = prediction.prediction.number_insights;
+  assert.equal(insights.recent_periods, 5);
+  assert.ok(insights.recent_hot.length > 0);
+  assert.ok(insights.recent_cold.length > 0);
+  assert.ok(insights.top_overdue.length > 0);
+  assert.ok(insights.top_pairs.length > 0);
 });
 
 test("calculates next Daily539 draw date by skipping Sunday", () => {

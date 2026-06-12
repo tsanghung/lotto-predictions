@@ -153,7 +153,7 @@ async function fetchDraws(
     select: "draw_id,draw_date,numbers,special_number",
     game_name: `eq.${gameName}`,
     order: "draw_date.desc,draw_id.desc",
-    limit: "80",
+    limit: "500",
   });
   const response = await supabaseRequest(supabaseUrl, serviceRoleKey, `lotto_draws?${params}`);
   if (!response.ok) {
@@ -293,6 +293,91 @@ async function sendLineMessage(message: string): Promise<unknown> {
   return { status: response.status, body: text };
 }
 
+async function enhanceReasoningWithGemini(record: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const apiKey = Deno.env.get("GEMINI_API_KEY");
+  if (!apiKey) {
+    return record;
+  }
+
+  const model = Deno.env.get("GEMINI_MODEL_PREDICTION") || "gemini-2.5-flash";
+  const prediction = record.prediction as Record<string, unknown> | undefined;
+  if (!prediction) {
+    return record;
+  }
+
+  const prompt = [
+    "請根據以下樂透統計資料，輸出繁體中文 JSON。",
+    "reasoning 必須模仿專業統計洞察口吻，包含近 N 期最熱、最冷、即將開出指數、同開號碼對，並逐一說明【激進包牌】、【穩健平衡】、【統計趨勢】策略。",
+    "不要保證命中，不要加入 Markdown。",
+    JSON.stringify({
+      game_name: record.game_name,
+      number_insights: prediction.number_insights,
+      combinations: prediction.combinations,
+    }),
+  ].join("\n\n");
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: {
+            parts: [{
+              text: "你是台灣彩券統計分析助手。你只根據提供的統計資料撰寫分析，不編造不存在的數據。",
+            }],
+          },
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.35,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: "OBJECT",
+              properties: {
+                reasoning: { type: "STRING" },
+                risk_warning: { type: "STRING" },
+              },
+              required: ["reasoning"],
+            },
+          },
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      console.warn(`Gemini reasoning enhancement failed: ${response.status} ${await response.text()}`);
+      return record;
+    }
+
+    const body = await response.json();
+    const text = body?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) {
+      return record;
+    }
+    const geminiResult = JSON.parse(text);
+    if (typeof geminiResult.reasoning !== "string" || !geminiResult.reasoning.trim()) {
+      return record;
+    }
+
+    return {
+      ...record,
+      prediction: {
+        ...prediction,
+        model,
+        reasoning: geminiResult.reasoning.trim(),
+        risk_warning: typeof geminiResult.risk_warning === "string"
+          ? geminiResult.risk_warning.trim()
+          : prediction.risk_warning,
+        reasoning_source: "gemini",
+      },
+    };
+  } catch (error) {
+    console.warn(`Gemini reasoning enhancement error: ${error instanceof Error ? error.message : String(error)}`);
+    return record;
+  }
+}
+
 async function processGame(
   gameType: GameType,
   options: {
@@ -304,11 +389,12 @@ async function processGame(
   },
 ) {
   const draws = await fetchDraws(options.supabaseUrl, options.serviceRoleKey, gameType);
-  const record = generatePrediction({
+  let record: Record<string, unknown> = generatePrediction({
     gameType,
     draws,
     generatedAt: options.generatedAt,
   });
+  record = await enhanceReasoningWithGemini(record);
   const gameName = GAME_CONFIG[gameType].name;
   const drawTargetDate = nextDrawDate(gameType, options.targetDate);
   const key = notificationKey(gameName, drawTargetDate, "prediction");
