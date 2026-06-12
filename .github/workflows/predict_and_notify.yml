@@ -1,9 +1,8 @@
 name: AI Prediction and Notify
 
 on:
-  workflow_run:
-    workflows: ["Daily Lotto Data Update"]
-    types: [completed]
+  # Production prediction and LINE notification scheduling has moved to Supabase Cron.
+  # Keep this workflow as a manual fallback only.
   workflow_dispatch:
     inputs:
       game_type:
@@ -18,7 +17,6 @@ on:
 jobs:
   predict-and-notify:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: write
     env:
@@ -40,7 +38,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run Daily 539 Prediction
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event.inputs.game_type == '539'
+        if: github.event.inputs.game_type == '539'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -55,9 +53,7 @@ jobs:
           python -m src.main_predict --game 539
 
       - name: Run Lotto 649 Prediction
-        # schedule / workflow_run / workflow_dispatch 皆允許進入此 step
-        # 實際的週二/週五判斷由 shell 內部 DAYOFWEEK 變數控制
-        if: github.event_name == 'schedule' || github.event_name == 'workflow_run' || github.event.inputs.game_type == '649'
+        if: github.event.inputs.game_type == '649'
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
@@ -67,7 +63,6 @@ jobs:
           DAYOFWEEK=$(TZ=Asia/Taipei date +%u)
           echo "Taiwan time day of week: $DAYOFWEEK ($(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M %Z'))"
           if [ "$DAYOFWEEK" -eq 2 ] || [ "$DAYOFWEEK" -eq 5 ] || [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "Today is Tuesday or Friday (or manual trigger), running Lotto 649 prediction..."
             python -m src.main_predict --game 649
           else
             echo "Today is not Tuesday or Friday, skipping Lotto 649."
@@ -93,6 +88,7 @@ jobs:
             echo "Predictions updated, committing..."
             git add data/predictions.json data/predictions_archive.json
             git commit -m "Auto-predict: AI generated new predictions"
+            git pull --rebase origin main
             git push
           else
             echo "No new predictions to commit."
