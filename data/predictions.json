@@ -7513,12 +7513,81 @@
         }
       }
     },
-    "is_evaluated": false,
+    "is_evaluated": true,
     "evaluation": {
-      "draw_id": null,
-      "actual_numbers": [],
-      "strategies": {},
-      "attribution_report": null
+      "draw_id": "115000142",
+      "actual_numbers": [
+        8,
+        15,
+        20,
+        29,
+        31
+      ],
+      "strategies": {
+        "激進包牌": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            3,
+            13,
+            16,
+            17,
+            36
+          ],
+          "bias": {
+            "pred_sum": 85,
+            "actual_sum": 103,
+            "sum_error": -18,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "穩健平衡": {
+          "hits": 0,
+          "matches": [],
+          "miss_count": 5,
+          "missed_numbers": [
+            5,
+            22,
+            23,
+            26,
+            27
+          ],
+          "bias": {
+            "pred_sum": 103,
+            "actual_sum": 103,
+            "sum_error": 0,
+            "pred_odd_count": 3,
+            "actual_odd_count": 3,
+            "odd_error": 0
+          }
+        },
+        "統計趨勢": {
+          "hits": 1,
+          "matches": [
+            8
+          ],
+          "miss_count": 4,
+          "missed_numbers": [
+            10,
+            22,
+            26,
+            27
+          ],
+          "bias": {
+            "pred_sum": 93,
+            "actual_sum": 103,
+            "sum_error": -10,
+            "pred_odd_count": 1,
+            "actual_odd_count": 3,
+            "odd_error": -2
+          }
+        }
+      },
+      "attribution_report": "本期未命中主因在於樂透開獎本質為「隨機漫步 (Random Walk)」，每期結果為獨立隨機變數。預測系統嘗試透過歷史頻率捕捉「自相關性 (Autocorrelation)」，但根據「大數法則 (Law of Large Numbers)」，頻率趨同僅發生於極大樣本量，短期樣本仍存在顯著的「樣本偏差 (Sample Bias)」。\n\n「激進包牌」過度依賴遺漏指數，在機率論上屬於對獨立事件的誤判；「統計趨勢」雖命中號碼 8，但其餘號碼分佈呈現隨機離群值 (Outlier) 特徵。本次開獎結果在機率分佈上並無偏態 (Skewness) 異常，僅是 $\\binom{39}{5}$ 種等機率組合中的一次隨機實現。",
+      "attribution_trigger": "表現不佳（最高命中 1/5，低於閾值 3）"
     }
   }
 ]
