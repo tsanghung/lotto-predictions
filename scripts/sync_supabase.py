@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -12,6 +13,7 @@ DATA_DIR = ROOT / "data"
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 CHUNK_SIZE = 500
+TAIPEI_TZ = timezone(timedelta(hours=8))
 
 
 class SupabaseSyncError(RuntimeError):
@@ -59,6 +61,13 @@ def source_key(record: dict[str, Any]) -> str:
     return hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
 
 
+def normalize_taipei_timestamp(timestamp: str) -> str:
+    parsed = datetime.fromisoformat(timestamp)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=TAIPEI_TZ)
+    return parsed.isoformat()
+
+
 def sync_draws(game_name: str, file_name: str) -> int:
     rows = []
     for record in load_json(DATA_DIR / file_name):
@@ -84,7 +93,7 @@ def sync_predictions() -> int:
         rows.append({
             "source_key": source_key(record),
             "game_name": record["game_name"],
-            "predicted_at": record["timestamp"],
+            "predicted_at": normalize_taipei_timestamp(record["timestamp"]),
             "prediction": record.get("prediction") or {},
             "is_evaluated": bool(record.get("is_evaluated")),
             "evaluation": record.get("evaluation"),

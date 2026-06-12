@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.sync_supabase import source_key
+from scripts.sync_supabase import normalize_taipei_timestamp, source_key
 
 
 class SourceKeyTests(unittest.TestCase):
@@ -37,6 +37,20 @@ class SourceKeyTests(unittest.TestCase):
         }
 
         self.assertEqual(source_key(pending_record), source_key(evaluated_record))
+
+
+class TimestampTests(unittest.TestCase):
+    def test_naive_prediction_timestamp_is_treated_as_taipei_time(self):
+        self.assertEqual(
+            normalize_taipei_timestamp("2026-06-11T14:47:57.998224"),
+            "2026-06-11T14:47:57.998224+08:00",
+        )
+
+    def test_existing_timezone_is_preserved(self):
+        self.assertEqual(
+            normalize_taipei_timestamp("2026-06-11T06:47:57.998224+00:00"),
+            "2026-06-11T06:47:57.998224+00:00",
+        )
 
 
 if __name__ == "__main__":
