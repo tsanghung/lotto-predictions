@@ -11,5 +11,10 @@ A fully automated, AI-driven lottery prediction system with statistical analysis
 ## Tech Stack
 - **Backend**: Python 3.10+, Pandas, Google GenAI SDK.
 - **Frontend**: Vue 3, Vite, Tailwind CSS, Chart.js.
+- **Data**: JSON fallback files, Supabase Postgres optional live backend.
 - **Automation**: GitHub Actions.
-- **Deployment**: GitHub Pages.
+- **Deployment**: GitHub Pages, Cloudflare Pages.
+
+## Cloudflare Pages + Supabase
+
+See [docs/deployment-cloudflare-supabase.md](docs/deployment-cloudflare-supabase.md).

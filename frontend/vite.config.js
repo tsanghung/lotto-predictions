@@ -4,7 +4,7 @@ import { resolve } from 'path'
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/lotto-predictions/',
+  base: process.env.VITE_BASE_PATH || '/lotto-predictions/',
   plugins: [vue()],
   // [Bug #7 修復] 將專案根目錄設為靜態資源目錄
   // Vite 會同時服務 frontend/public/ 與此 publicDir 下的靜態檔案

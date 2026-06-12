@@ -47,6 +47,17 @@ jobs:
         run: |
           python -m src.analyzer.evaluator
 
+      - name: Sync Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+            echo "Supabase secrets are not configured. Skipping Supabase sync."
+            exit 0
+          fi
+          python scripts/sync_supabase.py
+
       - name: Check for Changes and Commit
         run: |
           git config --global user.name "github-actions[bot]"
