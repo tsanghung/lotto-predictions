@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  applyGeminiQuantDecision,
+  backtestCombinations,
+  buildGeminiDecisionPayload,
   buildLineMessage,
   generatePrediction,
   nextDrawDate,
@@ -86,6 +89,80 @@ test("stores statistical insight payload used by the LINE message", () => {
   assert.ok(insights.recent_cold.length > 0);
   assert.ok(insights.top_overdue.length > 0);
   assert.ok(insights.top_pairs.length > 0);
+});
+
+test("builds Gemini payload with full raw draw history and quantitative features", () => {
+  const payload = buildGeminiDecisionPayload({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-12T14:35:16+08:00",
+  });
+
+  assert.equal(payload.game_name, "今彩539");
+  assert.equal(payload.full_history.length, dailyDraws.length);
+  assert.deepEqual(payload.full_history.map((draw) => draw.draw_id), dailyDraws.map((draw) => draw.draw_id));
+  assert.equal(payload.quantitative_features.full_history_sample_size, dailyDraws.length);
+  assert.ok(payload.quantitative_features.trend_windows["5"].hot.length > 0);
+  assert.ok(payload.quantitative_features.methodology.includes("statistical"));
+});
+
+test("Gemini quantitative decision drives combinations while verifier rejects invalid numbers", () => {
+  const base = generatePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-12T14:35:16+08:00",
+  });
+  const payload = buildGeminiDecisionPayload({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-12T14:35:16+08:00",
+  });
+  const decision = {
+    reasoning: "AI 以全歷史資料、近期期數與尾數節奏做出量化排序。",
+    risk_warning: "僅供娛樂與統計參考。",
+    metaphysics_note: "玄學因子僅作 5% 娛樂輔助權重。",
+    strategy_weights: {
+      "激進包牌": { weight: 0.35, prefer: [39, 38, 500, 37, 36, 35], avoid: [1], rationale: "遺漏與尾數節奏。" },
+      "穩健平衡": { weight: 0.35, prefer: [8, 14, 17, 28, 31], avoid: [], rationale: "冷熱平衡。" },
+      "統計趨勢": { weight: 0.3, prefer: [20, 25, 29, 31, 32], avoid: [2], rationale: "高頻與同開。" },
+    },
+    candidate_pool: [
+      { number: 39, score: 0.98, statistics_reason: "高遺漏", metaphysics_signal: "尾數 9" },
+      { number: 38, score: 0.88, statistics_reason: "近期冷", metaphysics_signal: "尾數 8" },
+      { number: 37, score: 0.78, statistics_reason: "同開", metaphysics_signal: "連動" },
+      { number: 36, score: 0.68, statistics_reason: "補位", metaphysics_signal: "節奏" },
+      { number: 35, score: 0.58, statistics_reason: "補位", metaphysics_signal: "節奏" },
+    ],
+  };
+
+  const record = applyGeminiQuantDecision({
+    baseRecord: base,
+    decision,
+    payload,
+    draws: dailyDraws,
+  });
+
+  assert.equal(record.prediction.model, "gemini-quant-v2");
+  assert.equal(record.prediction.reasoning_source, "gemini_quantitative");
+  assert.deepEqual(record.prediction.combinations["激進包牌"], [35, 36, 37, 38, 39]);
+  assert.ok(record.prediction.verification.valid);
+  assert.ok(record.prediction.backtest.window_size > 0);
+});
+
+test("backtests combinations against historical draws with hit distribution", () => {
+  const result = backtestCombinations({
+    combinations: {
+      "激進包牌": [8, 14, 17, 18, 28],
+      "穩健平衡": [1, 4, 32, 35, 39],
+    },
+    draws: dailyDraws,
+    maxWindow: 4,
+  });
+
+  assert.equal(result.window_size, 4);
+  assert.equal(result.strategies["激進包牌"].best_hits, 5);
+  assert.ok(result.strategies["激進包牌"].average_hits > 0);
+  assert.ok(result.strategies["穩健平衡"].hit_distribution["5"] >= 1);
 });
 
 test("calculates next Daily539 draw date by skipping Sunday", () => {

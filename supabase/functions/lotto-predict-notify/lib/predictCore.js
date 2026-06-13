@@ -13,6 +13,8 @@ export const GAME_CONFIG = {
   },
 };
 
+const STRATEGY_NAMES = ["激進包牌", "穩健平衡", "統計趨勢"];
+
 export function normalizeNumbers(numbers) {
   return [...numbers].map(Number).sort((a, b) => a - b);
 }
@@ -189,6 +191,148 @@ function pairFrequencies(draws, topK = 10) {
     .slice(0, topK);
 }
 
+function sumStats(draws) {
+  if (!draws.length) {
+    return {
+      period_count: 0,
+      average: 0,
+      min: 0,
+      max: 0,
+      band_minus_10pct: 0,
+      band_plus_10pct: 0,
+      band_minus_20pct: 0,
+      band_plus_20pct: 0,
+    };
+  }
+  const sums = draws.map((draw) => (draw.numbers || []).reduce((sum, number) => sum + number, 0));
+  const average = sums.reduce((sum, value) => sum + value, 0) / sums.length;
+  return {
+    period_count: draws.length,
+    average: Number(average.toFixed(1)),
+    min: Math.min(...sums),
+    max: Math.max(...sums),
+    band_minus_10pct: Number((average * 0.9).toFixed(1)),
+    band_plus_10pct: Number((average * 1.1).toFixed(1)),
+    band_minus_20pct: Number((average * 0.8).toFixed(1)),
+    band_plus_20pct: Number((average * 1.2).toFixed(1)),
+  };
+}
+
+function oddEvenStats(draws) {
+  if (!draws.length) {
+    return { period_count: 0, avg_odd_per_draw: 0, avg_even_per_draw: 0, aggregate_odd_even_ratio: "0:0" };
+  }
+  let odd = 0;
+  let even = 0;
+  for (const draw of draws) {
+    for (const number of draw.numbers || []) {
+      if (number % 2 === 0) {
+        even += 1;
+      } else {
+        odd += 1;
+      }
+    }
+  }
+  return {
+    period_count: draws.length,
+    avg_odd_per_draw: Number((odd / draws.length).toFixed(2)),
+    avg_even_per_draw: Number((even / draws.length).toFixed(2)),
+    aggregate_odd_even_ratio: `${odd}:${even}`,
+  };
+}
+
+function largeSmallStats(draws, maxNumber) {
+  if (!draws.length) {
+    return { period_count: 0, avg_large_per_draw: 0, avg_small_per_draw: 0, aggregate_large_small_ratio: "0:0" };
+  }
+  const midpoint = Math.ceil(maxNumber / 2);
+  let small = 0;
+  let large = 0;
+  for (const draw of draws) {
+    for (const number of draw.numbers || []) {
+      if (number > midpoint) {
+        large += 1;
+      } else {
+        small += 1;
+      }
+    }
+  }
+  return {
+    period_count: draws.length,
+    avg_large_per_draw: Number((large / draws.length).toFixed(2)),
+    avg_small_per_draw: Number((small / draws.length).toFixed(2)),
+    aggregate_large_small_ratio: `${large}:${small}`,
+  };
+}
+
+function trendWindow(draws, config, period) {
+  const sample = draws.slice(-period);
+  const counts = frequencyCounts(sample, config.maxNumber);
+  return {
+    period_count: sample.length,
+    hot: rankCounts(counts, "desc").slice(0, 10),
+    cold_by_frequency: rankCounts(counts, "asc").slice(0, 10),
+    overdue: overdueRanks(sample, config.maxNumber).slice(0, 10),
+    sum: sumStats(sample),
+    odd_even: oddEvenStats(sample),
+    large_small: largeSmallStats(sample, config.maxNumber),
+    top_pairs: pairFrequencies(sample, 10),
+  };
+}
+
+function fullHistoryRows(draws) {
+  return draws.map((draw) => ({
+    draw_id: String(draw.draw_id),
+    draw_date: String(draw.draw_date),
+    numbers: normalizeNumbers(draw.numbers || []),
+    special_number: draw.special_number ?? null,
+  }));
+}
+
+export function buildGeminiDecisionPayload({ gameType, draws, generatedAt }) {
+  const config = GAME_CONFIG[gameType];
+  if (!config) {
+    throw new Error(`Unsupported game type: ${gameType}`);
+  }
+  if (!Array.isArray(draws) || draws.length < 3) {
+    throw new Error(`${config.name} requires at least 3 historical draws`);
+  }
+
+  const allCounts = frequencyCounts(draws, config.maxNumber);
+  const recentPeriods = recentPeriodFor(gameType, draws.length);
+  const windows = [...new Set([Math.min(draws.length, 30), Math.min(draws.length, 50), Math.min(draws.length, 100), Math.min(draws.length, 300), recentPeriods])]
+    .filter((period) => period > 0)
+    .sort((left, right) => left - right);
+
+  return {
+    game_type: gameType,
+    game_name: config.name,
+    generated_at: generatedAt,
+    number_range: { min: 1, max: config.maxNumber, picks: config.picks },
+    full_history: fullHistoryRows(draws),
+    quantitative_features: {
+      methodology: "statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; metaphysical signals are entertainment-only and capped at 10 percent.",
+      full_history_sample_size: draws.length,
+      first_draw_date: draws[0]?.draw_date,
+      latest_draw_id: draws.at(-1)?.draw_id,
+      latest_draw_date: draws.at(-1)?.draw_date,
+      all_time_hot: rankCounts(allCounts, "desc").slice(0, 15),
+      all_time_cold: rankCounts(allCounts, "asc").slice(0, 15),
+      all_time_overdue: overdueRanks(draws, config.maxNumber).slice(0, 15),
+      all_time_sum: sumStats(draws),
+      all_time_odd_even: oddEvenStats(draws),
+      all_time_large_small: largeSmallStats(draws, config.maxNumber),
+      trend_windows: Object.fromEntries(windows.map((period) => [String(period), trendWindow(draws, config, period)])),
+      metaphysics_framework: {
+        label: "entertainment_only",
+        max_weight: 0.1,
+        allowed_signals: ["draw_date_digit_sum", "weekday_rhythm", "tail_number_rhythm", "recent_counterintuitive_pattern"],
+        rule: "玄學因子只能作為 5% 到 10% 的輔助排序，不可覆蓋統計與機率訊號。",
+      },
+    },
+  };
+}
+
 function uniqueTake(candidates, count, maxNumber) {
   const values = [];
   for (const candidate of candidates) {
@@ -228,6 +372,149 @@ function balancedCandidates(stats, averageTarget) {
     }
     return left.number - right.number;
   }).map((item) => item.number);
+}
+
+function asNumberArray(value) {
+  return Array.isArray(value)
+    ? value.map(Number).filter((number) => Number.isInteger(number))
+    : [];
+}
+
+function sanitizeCandidatePool(decision, maxNumber) {
+  const pool = Array.isArray(decision?.candidate_pool) ? decision.candidate_pool : [];
+  return pool
+    .map((item) => ({
+      number: Number(item?.number),
+      score: Number.isFinite(Number(item?.score)) ? Number(item.score) : 0,
+      statistics_reason: typeof item?.statistics_reason === "string" ? item.statistics_reason : "",
+      metaphysics_signal: typeof item?.metaphysics_signal === "string" ? item.metaphysics_signal : "",
+    }))
+    .filter((item) => Number.isInteger(item.number) && item.number >= 1 && item.number <= maxNumber)
+    .sort((left, right) => right.score - left.score || left.number - right.number);
+}
+
+function verifyCombinations(combinations, config) {
+  const errors = [];
+  for (const [strategy, numbers] of Object.entries(combinations)) {
+    if (!Array.isArray(numbers)) {
+      errors.push(`${strategy} is not an array`);
+      continue;
+    }
+    if (numbers.length !== config.picks) {
+      errors.push(`${strategy} has ${numbers.length} numbers, expected ${config.picks}`);
+    }
+    if (new Set(numbers).size !== numbers.length) {
+      errors.push(`${strategy} contains duplicate numbers`);
+    }
+    if (numbers.some((number) => !Number.isInteger(number) || number < 1 || number > config.maxNumber)) {
+      errors.push(`${strategy} contains out-of-range numbers`);
+    }
+    const sorted = normalizeNumbers(numbers);
+    if (JSON.stringify(sorted) !== JSON.stringify(numbers)) {
+      errors.push(`${strategy} is not sorted`);
+    }
+  }
+  return {
+    valid: errors.length === 0,
+    errors,
+    checked_at: new Date().toISOString(),
+  };
+}
+
+export function backtestCombinations({ combinations, draws, maxWindow = 50 }) {
+  const sample = draws.slice(-Math.min(maxWindow, draws.length));
+  const strategies = {};
+  for (const [strategy, numbers] of Object.entries(combinations)) {
+    const picks = new Set(numbers);
+    const hitCounts = sample.map((draw) => (draw.numbers || []).filter((number) => picks.has(number)).length);
+    const hitDistribution = {};
+    for (const hits of hitCounts) {
+      hitDistribution[String(hits)] = (hitDistribution[String(hits)] || 0) + 1;
+    }
+    const totalHits = hitCounts.reduce((sum, hits) => sum + hits, 0);
+    strategies[strategy] = {
+      best_hits: hitCounts.length ? Math.max(...hitCounts) : 0,
+      average_hits: hitCounts.length ? Number((totalHits / hitCounts.length).toFixed(2)) : 0,
+      hit_distribution: hitDistribution,
+    };
+  }
+  return {
+    window_size: sample.length,
+    strategies,
+  };
+}
+
+export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws }) {
+  const gameType = payload?.game_type;
+  const config = GAME_CONFIG[gameType];
+  if (!config) {
+    throw new Error(`Unsupported game type: ${gameType}`);
+  }
+
+  const prediction = baseRecord.prediction || {};
+  const insights = prediction.number_insights || {};
+  const aiPool = sanitizeCandidatePool(decision, config.maxNumber).map((item) => item.number);
+  const allTimeHot = (payload.quantitative_features?.all_time_hot || []).map((item) => item.number);
+  const allTimeOverdue = (payload.quantitative_features?.all_time_overdue || []).map((item) => item.number);
+  const recentHot = (insights.recent_hot || []).map((item) => item.number);
+  const recentCold = (insights.recent_cold || []).map((item) => item.number);
+  const baseline = prediction.combinations || {};
+  const strategyWeights = decision?.strategy_weights || {};
+
+  const combinations = {};
+  for (const strategy of STRATEGY_NAMES) {
+    const strategyDecision = strategyWeights[strategy] || {};
+    const prefer = asNumberArray(strategyDecision.prefer);
+    const avoid = new Set(asNumberArray(strategyDecision.avoid));
+    const candidates = [
+      ...prefer,
+      ...aiPool,
+      ...(baseline[strategy] || []),
+      ...allTimeOverdue,
+      ...recentCold,
+      ...recentHot,
+      ...allTimeHot,
+    ].filter((number) => !avoid.has(number));
+    combinations[strategy] = uniqueTake(candidates, config.picks, config.maxNumber);
+  }
+
+  const verification = verifyCombinations(combinations, config);
+  const backtest = backtestCombinations({
+    combinations,
+    draws,
+    maxWindow: Math.min(100, Math.max(10, Math.floor(draws.length / 4))),
+  });
+
+  return {
+    ...baseRecord,
+    prediction: {
+      ...prediction,
+      model: "gemini-quant-v2",
+      engine: "gemini-quant-v2",
+      reasoning: typeof decision?.reasoning === "string" && decision.reasoning.trim()
+        ? decision.reasoning.trim()
+        : prediction.reasoning,
+      risk_warning: typeof decision?.risk_warning === "string" && decision.risk_warning.trim()
+        ? decision.risk_warning.trim()
+        : prediction.risk_warning,
+      reasoning_source: "gemini_quantitative",
+      combinations,
+      number_insights: {
+        ...insights,
+        full_history_sample_size: payload.quantitative_features?.full_history_sample_size,
+        ai_strategy_weights: strategyWeights,
+      },
+      ai_decision: {
+        strategy_weights: strategyWeights,
+        candidate_pool: sanitizeCandidatePool(decision, config.maxNumber).slice(0, 20),
+      },
+      metaphysics_note: typeof decision?.metaphysics_note === "string"
+        ? decision.metaphysics_note.trim()
+        : "玄學因子僅作娛樂輔助，不視為科學證據。",
+      verification,
+      backtest,
+    },
+  };
 }
 
 function formatNumberCount(items, suffix, limit = 3) {
@@ -364,6 +651,17 @@ export function buildLineMessage(record, targetDate) {
   message += `同開號碼對：${pairText || "樣本未形成明顯同開號碼對"}\n`;
   message += `------------------\n`;
   message += `分析預測：\n${record.prediction?.reasoning || "統計模型產生推薦組合。"}\n`;
+  if (record.prediction?.verification || record.prediction?.backtest) {
+    const verificationText = record.prediction.verification?.valid ? "通過" : "未通過";
+    const backtest = record.prediction.backtest;
+    const bestHits = backtest?.strategies
+      ? Math.max(...Object.values(backtest.strategies).map((item) => item.best_hits || 0))
+      : 0;
+    message += `系統驗證：${verificationText}；回測視窗：近 ${backtest?.window_size || 0} 期，最高命中 ${bestHits} 顆。\n`;
+  }
+  if (record.prediction?.metaphysics_note) {
+    message += `玄學輔助：${record.prediction.metaphysics_note}\n`;
+  }
   message += `------------------\n`;
   message += `推薦組合：\n`;
 

@@ -1,4 +1,6 @@
 import {
+  applyGeminiQuantDecision,
+  buildGeminiDecisionPayload,
   buildLineMessage,
   generatePrediction,
   GAME_CONFIG,
@@ -149,17 +151,28 @@ async function fetchDraws(
   gameType: GameType,
 ): Promise<DrawRow[]> {
   const gameName = GAME_CONFIG[gameType].name;
-  const params = new URLSearchParams({
-    select: "draw_id,draw_date,numbers,special_number",
-    game_name: `eq.${gameName}`,
-    order: "draw_date.desc,draw_id.desc",
-    limit: "500",
-  });
-  const response = await supabaseRequest(supabaseUrl, serviceRoleKey, `lotto_draws?${params}`);
-  if (!response.ok) {
-    throw new Error(`Supabase draw query failed: ${response.status} ${await response.text()}`);
+  const pageSize = 1000;
+  const rows: DrawRow[] = [];
+
+  for (let offset = 0;; offset += pageSize) {
+    const params = new URLSearchParams({
+      select: "draw_id,draw_date,numbers,special_number",
+      game_name: `eq.${gameName}`,
+      order: "draw_date.asc,draw_id.asc",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    const response = await supabaseRequest(supabaseUrl, serviceRoleKey, `lotto_draws?${params}`);
+    if (!response.ok) {
+      throw new Error(`Supabase draw query failed: ${response.status} ${await response.text()}`);
+    }
+    const page = await response.json() as DrawRow[];
+    rows.push(...page);
+    if (page.length < pageSize) {
+      break;
+    }
   }
-  const rows = await response.json() as DrawRow[];
+
   return rows.sort((left, right) =>
     left.draw_date.localeCompare(right.draw_date) ||
     left.draw_id.localeCompare(right.draw_id)
@@ -293,10 +306,21 @@ async function sendLineMessage(message: string): Promise<unknown> {
   return { status: response.status, body: text };
 }
 
-async function enhanceReasoningWithGemini(record: Record<string, unknown>): Promise<Record<string, unknown>> {
+async function enhancePredictionWithGemini(
+  record: Record<string, unknown>,
+  payload: Record<string, unknown>,
+  draws: DrawRow[],
+): Promise<Record<string, unknown>> {
   const apiKey = Deno.env.get("GEMINI_API_KEY");
   if (!apiKey) {
-    return record;
+    const prediction = record.prediction as Record<string, unknown> | undefined;
+    return {
+      ...record,
+      prediction: {
+        ...prediction,
+        reasoning_source: "statistical_fallback_no_gemini_key",
+      },
+    };
   }
 
   const model = Deno.env.get("GEMINI_MODEL_PREDICTION") || "gemini-2.5-flash";
@@ -306,14 +330,13 @@ async function enhanceReasoningWithGemini(record: Record<string, unknown>): Prom
   }
 
   const prompt = [
-    "請根據以下樂透統計資料，輸出繁體中文 JSON。",
-    "reasoning 必須模仿專業統計洞察口吻，包含近 N 期最熱、最冷、即將開出指數、同開號碼對，並逐一說明【激進包牌】、【穩健平衡】、【統計趨勢】策略。",
-    "不要保證命中，不要加入 Markdown。",
-    JSON.stringify({
-      game_name: record.game_name,
-      number_insights: prediction.number_insights,
-      combinations: prediction.combinations,
-    }),
+    "你會收到 full_history，這是此彩種目前資料庫內的全部歷史開獎資料，已依日期由舊到新排序。",
+    "請依照統計、機率、資料方法論進行量化推理，Gemini 必須主導候選號碼池與三種策略權重。",
+    "科學的盡頭是玄學，但玄學只能作為 5% 到 10% 的娛樂輔助權重，必須清楚標示 metaphysics_note，不能宣稱保證命中。",
+    "請輸出繁體中文 JSON，不要 Markdown。",
+    "strategy_weights 必須包含【激進包牌】、【穩健平衡】、【統計趨勢】，每個策略提供 weight、prefer、avoid、rationale。",
+    "candidate_pool 請給 12 到 20 個候選號碼，每個號碼包含 score、statistics_reason、metaphysics_signal。",
+    JSON.stringify(payload),
   ].join("\n\n");
 
   try {
@@ -325,20 +348,65 @@ async function enhanceReasoningWithGemini(record: Record<string, unknown>): Prom
         body: JSON.stringify({
           systemInstruction: {
             parts: [{
-              text: "你是台灣彩券統計分析助手。你只根據提供的統計資料撰寫分析，不編造不存在的數據。",
+              text: "你是台灣彩券量化預測引擎。你必須只根據提供的完整歷史資料與量化特徵做分析，不編造資料，不承諾中獎。你的任務是產生可被程式驗證的候選號碼池、策略權重與科學 reasoning。",
             }],
           },
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.35,
+            temperature: 0.45,
             responseMimeType: "application/json",
             responseSchema: {
               type: "OBJECT",
               properties: {
                 reasoning: { type: "STRING" },
                 risk_warning: { type: "STRING" },
+                metaphysics_note: { type: "STRING" },
+                strategy_weights: {
+                  type: "OBJECT",
+                  properties: {
+                    "激進包牌": {
+                      type: "OBJECT",
+                      properties: {
+                        weight: { type: "NUMBER" },
+                        prefer: { type: "ARRAY", items: { type: "INTEGER" } },
+                        avoid: { type: "ARRAY", items: { type: "INTEGER" } },
+                        rationale: { type: "STRING" },
+                      },
+                    },
+                    "穩健平衡": {
+                      type: "OBJECT",
+                      properties: {
+                        weight: { type: "NUMBER" },
+                        prefer: { type: "ARRAY", items: { type: "INTEGER" } },
+                        avoid: { type: "ARRAY", items: { type: "INTEGER" } },
+                        rationale: { type: "STRING" },
+                      },
+                    },
+                    "統計趨勢": {
+                      type: "OBJECT",
+                      properties: {
+                        weight: { type: "NUMBER" },
+                        prefer: { type: "ARRAY", items: { type: "INTEGER" } },
+                        avoid: { type: "ARRAY", items: { type: "INTEGER" } },
+                        rationale: { type: "STRING" },
+                      },
+                    },
+                  },
+                },
+                candidate_pool: {
+                  type: "ARRAY",
+                  items: {
+                    type: "OBJECT",
+                    properties: {
+                      number: { type: "INTEGER" },
+                      score: { type: "NUMBER" },
+                      statistics_reason: { type: "STRING" },
+                      metaphysics_signal: { type: "STRING" },
+                    },
+                  },
+                },
               },
-              required: ["reasoning"],
+              required: ["reasoning", "strategy_weights", "candidate_pool"],
             },
           },
         }),
@@ -346,7 +414,7 @@ async function enhanceReasoningWithGemini(record: Record<string, unknown>): Prom
     );
 
     if (!response.ok) {
-      console.warn(`Gemini reasoning enhancement failed: ${response.status} ${await response.text()}`);
+      console.warn(`Gemini quantitative prediction failed: ${response.status} ${await response.text()}`);
       return record;
     }
 
@@ -356,24 +424,21 @@ async function enhanceReasoningWithGemini(record: Record<string, unknown>): Prom
       return record;
     }
     const geminiResult = JSON.parse(text);
-    if (typeof geminiResult.reasoning !== "string" || !geminiResult.reasoning.trim()) {
-      return record;
-    }
-
+    const enhanced = applyGeminiQuantDecision({
+      baseRecord: record,
+      decision: geminiResult,
+      payload,
+      draws,
+    });
     return {
-      ...record,
+      ...enhanced,
       prediction: {
-        ...prediction,
+        ...(enhanced.prediction as Record<string, unknown>),
         model,
-        reasoning: geminiResult.reasoning.trim(),
-        risk_warning: typeof geminiResult.risk_warning === "string"
-          ? geminiResult.risk_warning.trim()
-          : prediction.risk_warning,
-        reasoning_source: "gemini",
       },
     };
   } catch (error) {
-    console.warn(`Gemini reasoning enhancement error: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`Gemini quantitative prediction error: ${error instanceof Error ? error.message : String(error)}`);
     return record;
   }
 }
@@ -389,12 +454,17 @@ async function processGame(
   },
 ) {
   const draws = await fetchDraws(options.supabaseUrl, options.serviceRoleKey, gameType);
+  const payload = buildGeminiDecisionPayload({
+    gameType,
+    draws,
+    generatedAt: options.generatedAt,
+  });
   let record: Record<string, unknown> = generatePrediction({
     gameType,
     draws,
     generatedAt: options.generatedAt,
   });
-  record = await enhanceReasoningWithGemini(record);
+  record = await enhancePredictionWithGemini(record, payload, draws);
   const gameName = GAME_CONFIG[gameType].name;
   const drawTargetDate = nextDrawDate(gameType, options.targetDate);
   const key = notificationKey(gameName, drawTargetDate, "prediction");
