@@ -1,5 +1,6 @@
 import {
   chooseFreshestDraw,
+  evaluatePredictionRecord,
   latestByDrawId,
   needsSecondaryDaily539Check,
   parseAuzonetDaily539Html,
@@ -25,6 +26,21 @@ type UpdateResult = {
   selected_draw: LottoDraw;
   official_draw: LottoDraw;
   secondary_draw: LottoDraw | null;
+};
+
+type PredictionRow = {
+  source_key: string;
+  game_name: string;
+  target_draw_date: string;
+  prediction: Record<string, unknown>;
+};
+
+type DrawRow = {
+  game_name: string;
+  draw_id: string;
+  draw_date: string;
+  numbers: number[];
+  special_number: number | null;
 };
 
 const OFFICIAL_URLS: Record<GameType, string> = {
@@ -264,6 +280,104 @@ async function upsertMeta(
   }
 }
 
+async function fetchReadyPredictions(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  targetDate: string,
+): Promise<PredictionRow[]> {
+  const params = new URLSearchParams({
+    select: "source_key,game_name,target_draw_date,prediction",
+    is_evaluated: "eq.false",
+    target_draw_date: `lte.${targetDate}`,
+    order: "target_draw_date.asc,predicted_at.asc",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/prediction_records?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase prediction query failed: ${response.status} ${await response.text()}`);
+  }
+
+  return response.json();
+}
+
+async function fetchDrawForPrediction(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  prediction: PredictionRow,
+): Promise<DrawRow | null> {
+  const params = new URLSearchParams({
+    select: "game_name,draw_id,draw_date,numbers,special_number",
+    game_name: `eq.${prediction.game_name}`,
+    draw_date: `eq.${prediction.target_draw_date}`,
+    limit: "1",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_draws?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase draw lookup failed: ${response.status} ${await response.text()}`);
+  }
+
+  const rows = await response.json();
+  return rows[0] ?? null;
+}
+
+async function markPredictionEvaluated(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  sourceKey: string,
+  evaluation: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/prediction_records?source_key=eq.${encodeURIComponent(sourceKey)}`,
+    {
+      method: "PATCH",
+      headers: {
+        ...supabaseHeaders(serviceRoleKey),
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        is_evaluated: true,
+        evaluation,
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Supabase prediction evaluation update failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+async function evaluateReadyPredictions(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  targetDate: string,
+): Promise<Array<{ source_key: string; game_name: string; target_draw_date: string; draw_id: string }>> {
+  const predictions = await fetchReadyPredictions(supabaseUrl, serviceRoleKey, targetDate);
+  const evaluated = [];
+
+  for (const prediction of predictions) {
+    const draw = await fetchDrawForPrediction(supabaseUrl, serviceRoleKey, prediction);
+    if (!draw) {
+      continue;
+    }
+
+    const evaluation = evaluatePredictionRecord(prediction, draw);
+    await markPredictionEvaluated(supabaseUrl, serviceRoleKey, prediction.source_key, evaluation);
+    evaluated.push({
+      source_key: prediction.source_key,
+      game_name: prediction.game_name,
+      target_draw_date: prediction.target_draw_date,
+      draw_id: draw.draw_id,
+    });
+  }
+
+  return evaluated;
+}
+
 async function updateGame(
   game: GameType,
   options: {
@@ -345,6 +459,10 @@ async function handleRequest(request: Request): Promise<Response> {
       }));
     }
 
+    const evaluated_predictions = dryRun
+      ? []
+      : await evaluateReadyPredictions(supabaseUrl, serviceRoleKey, targetDate);
+
     const [lotto649Total, daily539Total] = await Promise.all([
       fetchDrawCount(supabaseUrl, serviceRoleKey, "649"),
       fetchDrawCount(supabaseUrl, serviceRoleKey, "539"),
@@ -357,6 +475,7 @@ async function handleRequest(request: Request): Promise<Response> {
       source: "supabase_edge_function",
       target_date: targetDate,
       results,
+      evaluated_predictions,
     };
 
     if (!dryRun) {
@@ -368,6 +487,7 @@ async function handleRequest(request: Request): Promise<Response> {
       dry_run: dryRun,
       target_date: targetDate,
       results,
+      evaluated_predictions,
     });
   } catch (error) {
     return failFast(

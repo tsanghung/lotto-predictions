@@ -49,7 +49,9 @@ function mapDraw(row) {
 
 function mapPrediction(row) {
   return {
+    source_key: row.source_key,
     timestamp: row.predicted_at,
+    target_draw_date: row.target_draw_date,
     game_name: row.game_name,
     prediction: row.prediction,
     is_evaluated: row.is_evaluated,
@@ -66,7 +68,7 @@ export async function fetchSupabaseLottoData() {
     performanceRows
   ] = await Promise.all([
     request('app_meta?meta_key=eq.current&select=payload&limit=1'),
-    requestAll('prediction_records?select=predicted_at,game_name,prediction,is_evaluated,evaluation&order=predicted_at.asc'),
+    requestAll('prediction_records?select=source_key,predicted_at,target_draw_date,game_name,prediction,is_evaluated,evaluation&order=target_draw_date.asc,predicted_at.asc'),
     requestAll('lotto_draws?game_name=eq.%E5%A4%A7%E6%A8%82%E9%80%8F&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     requestAll('lotto_draws?game_name=eq.%E4%BB%8A%E5%BD%A9539&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     request('performance_snapshots?snapshot_key=eq.current&select=payload&limit=1')

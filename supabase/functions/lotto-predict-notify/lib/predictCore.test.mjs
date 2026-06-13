@@ -34,14 +34,14 @@ test("generates three deterministic Daily539 prediction combinations", () => {
   }
 });
 
-test("source key is stable for game and generated timestamp", () => {
+test("source key is stable for game and target draw date", () => {
   assert.equal(
-    sourceKey("今彩539", "2026-06-12T14:35:16+08:00"),
-    sourceKey("今彩539", "2026-06-12T14:35:16+08:00"),
+    sourceKey("今彩539", "2026-06-13"),
+    sourceKey("今彩539", "2026-06-13"),
   );
   assert.notEqual(
-    sourceKey("今彩539", "2026-06-12T14:35:16+08:00"),
-    sourceKey("大樂透", "2026-06-12T14:35:16+08:00"),
+    sourceKey("今彩539", "2026-06-13"),
+    sourceKey("大樂透", "2026-06-13"),
   );
 });
 

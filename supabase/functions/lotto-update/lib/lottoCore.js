@@ -151,6 +151,36 @@ export function toLottoDrawRow(gameType, draw) {
   };
 }
 
+export function evaluatePredictionRecord(record, draw) {
+  const actualNumbers = normalizeNumbers(draw.numbers || []);
+  const actualSet = new Set(actualNumbers);
+  const combinations = record?.prediction?.combinations || {};
+  const strategies = {};
+
+  for (const [strategyName, predictedNumbers] of Object.entries(combinations)) {
+    const predicted = normalizeNumbers(predictedNumbers || []);
+    const matches = predicted.filter((number) => actualSet.has(number));
+    const missed = predicted.filter((number) => !actualSet.has(number));
+
+    strategies[strategyName] = {
+      hits: matches.length,
+      matches,
+      miss_count: missed.length,
+      missed_numbers: missed,
+    };
+  }
+
+  return {
+    draw_id: String(draw.draw_id),
+    draw_date: draw.draw_date ?? draw.date,
+    actual_numbers: actualNumbers,
+    special_number: draw.special_number ?? null,
+    strategies,
+    attribution_report: null,
+    attribution_trigger: "supabase_edge_basic_evaluation",
+  };
+}
+
 export function taiwanDateParts(now = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",

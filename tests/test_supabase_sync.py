@@ -1,6 +1,6 @@
 import unittest
 
-from scripts.sync_supabase import normalize_taipei_timestamp, source_key
+from scripts.sync_supabase import normalize_taipei_timestamp, source_key, target_draw_date
 
 
 class SourceKeyTests(unittest.TestCase):
@@ -37,6 +37,27 @@ class SourceKeyTests(unittest.TestCase):
         }
 
         self.assertEqual(source_key(pending_record), source_key(evaluated_record))
+
+    def test_source_key_uses_target_draw_date_not_timestamp_second(self):
+        first = {
+            "game_name": "大樂透",
+            "timestamp": "2026-06-12T14:36:21.390434",
+        }
+        second = {
+            "game_name": "大樂透",
+            "timestamp": "2026-06-12T16:20:22+08:00",
+        }
+
+        self.assertEqual(target_draw_date(first), "2026-06-12")
+        self.assertEqual(source_key(first), source_key(second))
+
+    def test_target_draw_date_moves_lotto649_to_next_draw_day(self):
+        record = {
+            "game_name": "大樂透",
+            "timestamp": "2026-06-13T22:25:00+08:00",
+        }
+
+        self.assertEqual(target_draw_date(record), "2026-06-16")
 
 
 class TimestampTests(unittest.TestCase):

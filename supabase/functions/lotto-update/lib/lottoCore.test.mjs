@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   chooseFreshestDraw,
+  evaluatePredictionRecord,
   isDaily539ExpectedDrawDate,
   needsSecondaryDaily539Check,
   parseAuzonetDaily539Html,
@@ -171,5 +172,47 @@ test("maps draw to Supabase row", () => {
       source: "taiwan_lottery_official",
       payload: { period: "115000142" },
     },
+  });
+});
+
+test("evaluates a prediction record against its target draw", () => {
+  const evaluation = evaluatePredictionRecord(
+    {
+      prediction: {
+        combinations: {
+          "激進包牌": [1, 6, 18, 29, 33],
+          "穩健平衡": [6, 8, 18, 29, 31],
+        },
+      },
+    },
+    {
+      draw_id: "115000143",
+      draw_date: "2026-06-12",
+      numbers: [6, 8, 18, 29, 31],
+      special_number: null,
+    },
+  );
+
+  assert.deepEqual(evaluation, {
+    draw_id: "115000143",
+    draw_date: "2026-06-12",
+    actual_numbers: [6, 8, 18, 29, 31],
+    special_number: null,
+    strategies: {
+      "激進包牌": {
+        hits: 3,
+        matches: [6, 18, 29],
+        miss_count: 2,
+        missed_numbers: [1, 33],
+      },
+      "穩健平衡": {
+        hits: 5,
+        matches: [6, 8, 18, 29, 31],
+        miss_count: 0,
+        missed_numbers: [],
+      },
+    },
+    attribution_report: null,
+    attribution_trigger: "supabase_edge_basic_evaluation",
   });
 });

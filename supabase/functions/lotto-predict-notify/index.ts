@@ -399,16 +399,20 @@ async function processGame(
   const drawTargetDate = nextDrawDate(gameType, options.targetDate);
   const key = notificationKey(gameName, drawTargetDate, "prediction");
   const message = buildLineMessage(record, drawTargetDate);
-  const predictionSourceKey = sourceKey(gameName, options.generatedAt);
+  const predictionSourceKey = sourceKey(gameName, drawTargetDate);
 
   const predictionRow = {
     source_key: predictionSourceKey,
     game_name: gameName,
     predicted_at: options.generatedAt,
+    target_draw_date: drawTargetDate,
     prediction: record.prediction,
     is_evaluated: false,
     evaluation: record.evaluation,
-    raw: record,
+    raw: {
+      ...record,
+      target_draw_date: drawTargetDate,
+    },
   };
 
   if (options.dryRun) {

@@ -9,10 +9,29 @@ const props = defineProps({
 
 const visibleCount = ref(10)
 
+const recordTargetDate = (record) => record?.target_draw_date || record?.timestamp?.slice(0, 10) || ''
+
+const chooseDisplayRecord = (current, candidate) => {
+  if (!current) return candidate
+  if (candidate.is_evaluated && !current.is_evaluated) return candidate
+  if (!candidate.is_evaluated && current.is_evaluated) return current
+  return new Date(candidate.timestamp) > new Date(current.timestamp) ? candidate : current
+}
+
 const gameRecords = computed(() => {
-  return [...(props.predictionData || [])]
-    .filter(record => record.game_name === props.gameName)
-    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+  const byTargetDate = new Map()
+  for (const record of props.predictionData || []) {
+    if (record.game_name !== props.gameName) continue
+    const target = recordTargetDate(record)
+    const key = `${record.game_name}|${target}`
+    byTargetDate.set(key, chooseDisplayRecord(byTargetDate.get(key), record))
+  }
+
+  return [...byTargetDate.values()]
+    .sort((a, b) =>
+      recordTargetDate(b).localeCompare(recordTargetDate(a)) ||
+      new Date(b.timestamp) - new Date(a.timestamp)
+    )
 })
 
 const visibleRecords = computed(() => gameRecords.value.slice(0, visibleCount.value))
@@ -26,6 +45,15 @@ const formatDateTime = (iso) => {
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit'
+  })
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return '--'
+  return new Date(`${dateString}T00:00:00+08:00`).toLocaleDateString('zh-TW', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
   })
 }
 
@@ -80,13 +108,13 @@ const showMore = () => {
     </div>
 
     <div v-else style="display:flex;flex-direction:column;gap:16px;">
-      <article v-for="record in visibleRecords" :key="record.timestamp"
+      <article v-for="record in visibleRecords" :key="record.source_key || `${record.game_name}-${recordTargetDate(record)}`"
         style="background:rgba(15,23,42,0.58);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:18px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
           <div>
             <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
               <span :style="{ width:'10px', height:'10px', borderRadius:'50%', background: accent, boxShadow:`0 0 10px ${accent}` }"></span>
-              <span style="font-size:18px;font-weight:800;color:#e2e8f0;">{{ formatDateTime(record.timestamp) }}</span>
+              <span style="font-size:18px;font-weight:800;color:#e2e8f0;">{{ formatDate(recordTargetDate(record)) }}</span>
               <span style="font-size:14px;color:#64748b;">{{ record.game_name }}</span>
             </div>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
@@ -98,6 +126,9 @@ const showMore = () => {
               </span>
               <span style="font-size:15px;color:#94a3b8;">
                 {{ drawId(record) ? `第 ${drawId(record)} 期` : '尚未對應開獎期數' }}
+              </span>
+              <span style="font-size:14px;color:#64748b;">
+                產生：{{ formatDateTime(record.timestamp) }}
               </span>
             </div>
           </div>

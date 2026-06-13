@@ -53,19 +53,37 @@ def request(method: str, table: str, payload: Any | None = None) -> None:
         )
 
 
-def source_key(record: dict[str, Any]) -> str:
-    raw_key = "|".join([
-        str(record.get("game_name") or ""),
-        str(record.get("timestamp") or ""),
-    ])
-    return hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
-
-
 def normalize_taipei_timestamp(timestamp: str) -> str:
     parsed = datetime.fromisoformat(timestamp)
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=TAIPEI_TZ)
     return parsed.isoformat()
+
+
+def target_draw_date(record: dict[str, Any]) -> str:
+    explicit_target = record.get("target_draw_date") or record.get("raw", {}).get("target_draw_date")
+    if explicit_target:
+        return str(explicit_target)[:10]
+
+    parsed = datetime.fromisoformat(normalize_taipei_timestamp(record["timestamp"]))
+    current = parsed.astimezone(TAIPEI_TZ).date()
+    game_name = record.get("game_name")
+
+    while True:
+        weekday = current.weekday()
+        if game_name == "今彩539" and weekday <= 5:
+            return current.isoformat()
+        if game_name == "大樂透" and weekday in (1, 4):
+            return current.isoformat()
+        current += timedelta(days=1)
+
+
+def source_key(record: dict[str, Any]) -> str:
+    raw_key = "|".join([
+        str(record.get("game_name") or ""),
+        target_draw_date(record),
+    ])
+    return hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
 
 
 def sync_draws(game_name: str, file_name: str) -> int:
@@ -94,6 +112,7 @@ def sync_predictions() -> int:
             "source_key": source_key(record),
             "game_name": record["game_name"],
             "predicted_at": normalize_taipei_timestamp(record["timestamp"]),
+            "target_draw_date": target_draw_date(record),
             "prediction": record.get("prediction") or {},
             "is_evaluated": bool(record.get("is_evaluated")),
             "evaluation": record.get("evaluation"),
