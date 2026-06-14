@@ -5,6 +5,7 @@ import {
   dueGamesForDate,
   generatePrediction,
   GAME_CONFIG,
+  notificationSentBeforeRelease,
   predictionTargetDate,
   notificationKey,
   sourceKey,
@@ -215,21 +216,24 @@ async function reserveNotification(
   const existingResponse = await supabaseRequest(
     supabaseUrl,
     serviceRoleKey,
-    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&select=notification_key,status`,
+    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&select=notification_key,status,target_date,sent_at`,
   );
   if (!existingResponse.ok) {
     throw new Error(`Supabase notification lookup failed: ${existingResponse.status} ${await existingResponse.text()}`);
   }
-  const existingRows = await existingResponse.json() as Array<{ status?: string }>;
+  const existingRows = await existingResponse.json() as Array<{ status?: string; target_date?: string; sent_at?: string | null }>;
   const existing = existingRows[0];
-  if (existing?.status !== "failed") {
+  const canRetryFailed = existing?.status === "failed";
+  const canRetryEarlySent = existing?.status === "sent" &&
+    notificationSentBeforeRelease(existing.sent_at, String(row.target_date ?? existing.target_date ?? ""));
+  if (!canRetryFailed && !canRetryEarlySent) {
     return false;
   }
 
   const retryResponse = await supabaseRequest(
     supabaseUrl,
     serviceRoleKey,
-    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&status=eq.failed`,
+    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&status=eq.${canRetryFailed ? "failed" : "sent"}`,
     {
       method: "PATCH",
       headers: { Prefer: "return=representation" },

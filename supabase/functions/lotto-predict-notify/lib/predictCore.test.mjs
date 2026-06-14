@@ -8,6 +8,7 @@ import {
   buildLineMessage,
   dueGamesForDate,
   generatePrediction,
+  notificationSentBeforeRelease,
   predictionTargetDate,
   nextDrawDate,
   notificationKey,
@@ -188,4 +189,11 @@ test("due games are only games drawing on that calendar date", () => {
   assert.deepEqual(dueGamesForDate("2026-06-15"), ["539"]);
   assert.deepEqual(dueGamesForDate("2026-06-16"), ["539", "649"]);
   assert.deepEqual(dueGamesForDate("2026-06-14"), []);
+});
+
+test("detects notifications sent before draw-day 10 AM release time", () => {
+  assert.equal(notificationSentBeforeRelease("2026-06-13T14:25:33Z", "2026-06-15"), true);
+  assert.equal(notificationSentBeforeRelease("2026-06-15T01:59:59Z", "2026-06-15"), true);
+  assert.equal(notificationSentBeforeRelease("2026-06-15T02:00:00Z", "2026-06-15"), false);
+  assert.equal(notificationSentBeforeRelease(null, "2026-06-15"), false);
 });

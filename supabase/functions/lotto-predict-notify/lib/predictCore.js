@@ -60,6 +60,17 @@ export function predictionTargetDate(gameType, runDate) {
   return isDrawDate(gameType, runDate) ? runDate : null;
 }
 
+export function predictionReleaseTime(targetDrawDate) {
+  return new Date(`${targetDrawDate}T10:00:00+08:00`);
+}
+
+export function notificationSentBeforeRelease(sentAt, targetDrawDate) {
+  if (!sentAt || !targetDrawDate) {
+    return false;
+  }
+  return new Date(sentAt).getTime() < predictionReleaseTime(targetDrawDate).getTime();
+}
+
 export function nextDrawDate(gameType, fromDate) {
   let date = dateAdd(fromDate, 1);
   while (true) {
