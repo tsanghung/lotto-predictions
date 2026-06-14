@@ -2,9 +2,10 @@ import {
   applyGeminiQuantDecision,
   buildGeminiDecisionPayload,
   buildLineMessage,
+  dueGamesForDate,
   generatePrediction,
   GAME_CONFIG,
-  nextDrawDate,
+  predictionTargetDate,
   notificationKey,
   sourceKey,
 } from "./lib/predictCore.js";
@@ -116,18 +117,6 @@ function taipeiNow(): { date: string; timestamp: string } {
     date: `${parts.year}-${parts.month}-${parts.day}`,
     timestamp: `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}+08:00`,
   };
-}
-
-function dueGamesForDate(dateString: string): GameType[] {
-  const day = new Date(`${dateString}T00:00:00Z`).getUTCDay();
-  const games: GameType[] = [];
-  if (day >= 1 && day <= 6) {
-    games.push("539");
-  }
-  if (day === 2 || day === 5) {
-    games.push("649");
-  }
-  return games;
 }
 
 async function supabaseRequest(
@@ -466,7 +455,14 @@ async function processGame(
   });
   record = await enhancePredictionWithGemini(record, payload, draws);
   const gameName = GAME_CONFIG[gameType].name;
-  const drawTargetDate = nextDrawDate(gameType, options.targetDate);
+  const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
+  if (!drawTargetDate) {
+    return {
+      game: gameType,
+      status: "skipped_not_draw_date",
+      target_date: options.targetDate,
+    };
+  }
   const key = notificationKey(gameName, drawTargetDate, "prediction");
   const message = buildLineMessage(record, drawTargetDate);
   const predictionSourceKey = sourceKey(gameName, drawTargetDate);
@@ -559,7 +555,7 @@ async function handleRequest(request: Request): Promise<Response> {
     }
 
     const games: GameType[] = requestedGame === "due"
-      ? dueGamesForDate(targetDate)
+      ? dueGamesForDate(targetDate) as GameType[]
       : requestedGame === "539"
       ? ["539"]
       : requestedGame === "649"

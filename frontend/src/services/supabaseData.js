@@ -1,3 +1,5 @@
+import { filterVisiblePredictions } from './predictionVisibility'
+
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.replace(/\/+$/, '')
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
@@ -80,7 +82,7 @@ export async function fetchSupabaseLottoData() {
 
   return {
     meta: metaRows[0].payload,
-    predictions: predictionRows.map(mapPrediction),
+    predictions: filterVisiblePredictions(predictionRows.map(mapPrediction)),
     history: {
       '大樂透': lottoRows.map(mapDraw),
       '今彩539': dailyRows.map(mapDraw)

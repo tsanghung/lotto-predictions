@@ -41,6 +41,25 @@ function dayOfWeek(dateString) {
   return new Date(`${dateString}T00:00:00Z`).getUTCDay();
 }
 
+export function isDrawDate(gameType, dateString) {
+  const day = dayOfWeek(dateString);
+  if (gameType === "539") {
+    return day >= 1 && day <= 6;
+  }
+  if (gameType === "649") {
+    return day === 2 || day === 5;
+  }
+  return false;
+}
+
+export function dueGamesForDate(dateString) {
+  return Object.keys(GAME_CONFIG).filter((gameType) => isDrawDate(gameType, dateString));
+}
+
+export function predictionTargetDate(gameType, runDate) {
+  return isDrawDate(gameType, runDate) ? runDate : null;
+}
+
 export function nextDrawDate(gameType, fromDate) {
   let date = dateAdd(fromDate, 1);
   while (true) {

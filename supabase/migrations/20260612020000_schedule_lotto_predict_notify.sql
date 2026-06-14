@@ -88,9 +88,9 @@ $$;
 
 select cron.schedule(
   'lotto-predict-notify-after-update',
-  '25 14 * * *',
+  '0 2 * * *',
   $$select public.invoke_lotto_predict_notify();$$
 );
 
 comment on function public.invoke_lotto_predict_notify() is
-  'Invokes lotto-predict-notify Edge Function. Cron runs at 14:25 UTC / 22:25 Asia/Taipei.';
+  'Invokes lotto-predict-notify Edge Function. Cron runs at 02:00 UTC / 10:00 Asia/Taipei on due draw dates only.';

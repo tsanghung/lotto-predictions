@@ -6,7 +6,9 @@ import {
   backtestCombinations,
   buildGeminiDecisionPayload,
   buildLineMessage,
+  dueGamesForDate,
   generatePrediction,
+  predictionTargetDate,
   nextDrawDate,
   notificationKey,
   sourceKey,
@@ -173,4 +175,17 @@ test("calculates next Daily539 draw date by skipping Sunday", () => {
 test("calculates next Lotto649 draw date as Tuesday or Friday", () => {
   assert.equal(nextDrawDate("649", "2026-06-12"), "2026-06-16");
   assert.equal(nextDrawDate("649", "2026-06-15"), "2026-06-16");
+});
+
+test("targets the same draw date for 10 AM draw-day predictions", () => {
+  assert.equal(predictionTargetDate("539", "2026-06-15"), "2026-06-15");
+  assert.equal(predictionTargetDate("649", "2026-06-16"), "2026-06-16");
+  assert.equal(predictionTargetDate("539", "2026-06-14"), null);
+  assert.equal(predictionTargetDate("649", "2026-06-15"), null);
+});
+
+test("due games are only games drawing on that calendar date", () => {
+  assert.deepEqual(dueGamesForDate("2026-06-15"), ["539"]);
+  assert.deepEqual(dueGamesForDate("2026-06-16"), ["539", "649"]);
+  assert.deepEqual(dueGamesForDate("2026-06-14"), []);
 });
