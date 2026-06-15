@@ -180,6 +180,18 @@ function averageIntervals(draws, maxNumber) {
   return averages;
 }
 
+function daysBetween(leftDate, rightDate) {
+  if (!leftDate || !rightDate) {
+    return null;
+  }
+  const left = new Date(`${leftDate}T00:00:00Z`);
+  const right = new Date(`${rightDate}T00:00:00Z`);
+  if (Number.isNaN(left.getTime()) || Number.isNaN(right.getTime())) {
+    return null;
+  }
+  return Math.max(0, Math.round((right.getTime() - left.getTime()) / 86400000));
+}
+
 function overdueRanks(draws, maxNumber) {
   const missing = missingValues(draws, maxNumber);
   const intervals = averageIntervals(draws, maxNumber);
@@ -293,6 +305,92 @@ function largeSmallStats(draws, maxNumber) {
     avg_small_per_draw: Number((small / draws.length).toFixed(2)),
     aggregate_large_small_ratio: `${large}:${small}`,
   };
+}
+
+function buildSelectedNumberInsights({ combinations, draws, recentDraws, config, recentPeriods, aiCandidates = [] }) {
+  const picked = normalizeNumbers(
+    [...new Set(Object.values(combinations || {}).flatMap((numbers) => numbers || []).map(Number))]
+  );
+  if (!picked.length || !draws.length) {
+    return {};
+  }
+
+  const recentCounts = frequencyCounts(recentDraws, config.maxNumber);
+  const allCounts = frequencyCounts(draws, config.maxNumber);
+  const missing = missingValues(draws, config.maxNumber);
+  const intervals = averageIntervals(draws, config.maxNumber);
+  const latestDate = draws.at(-1)?.draw_date;
+  const firstDate = draws[0]?.draw_date;
+  const historyDays = daysBetween(firstDate, latestDate);
+  const averageDaysPerDraw = historyDays && draws.length > 1 ? historyDays / (draws.length - 1) : null;
+  const avgRecent = recentPeriods * config.picks / config.maxNumber;
+  const aiByNumber = new Map(aiCandidates.map((item) => [item.number, item]));
+
+  const lastSeenDateByNumber = new Map();
+  for (let index = draws.length - 1; index >= 0; index -= 1) {
+    for (const number of draws[index].numbers || []) {
+      if (!lastSeenDateByNumber.has(number)) {
+        lastSeenDateByNumber.set(number, draws[index].draw_date);
+      }
+    }
+  }
+
+  return Object.fromEntries(picked.map((number) => {
+    const gapDraws = missing.get(number) || 0;
+    const avgIntervalDraws = intervals.get(number) || 1;
+    const overdueIndex = Number((gapDraws / avgIntervalDraws).toFixed(2));
+    const recentFreq = recentCounts.get(number) || 0;
+    const appearances = allCounts.get(number) || 0;
+    const lastSeenDate = lastSeenDateByNumber.get(number) || null;
+    const gapDays = daysBetween(lastSeenDate, latestDate);
+    const avgIntervalDays = averageDaysPerDraw
+      ? Number((avgIntervalDraws * averageDaysPerDraw).toFixed(1))
+      : null;
+    const aiSignal = aiByNumber.get(number);
+
+    let tag = "balanced";
+    let reason = "";
+    if (overdueIndex >= 1.5 && gapDraws > 0) {
+      tag = "overdue";
+      const daysText = gapDays === null ? `${gapDraws} 期` : `${gapDays} 天（${gapDraws} 期未開）`;
+      const avgText = avgIntervalDays ? `${avgIntervalDays.toFixed(0)} 天` : `${avgIntervalDraws.toFixed(1)} 期`;
+      reason = `久未開出：已隔 ${daysText}，約為自身平均週期 ${avgText} 的 ${overdueIndex.toFixed(1)} 倍，具冷門反彈觀察價值`;
+    } else if (recentFreq >= avgRecent * 1.3) {
+      tag = "hot";
+      reason = `近期熱門：近 ${recentPeriods} 期開出 ${recentFreq} 次，高於理論平均約 ${avgRecent.toFixed(1)} 次；史上累計 ${appearances} 次`;
+    } else if (gapDraws <= 1) {
+      tag = "fresh";
+      reason = gapDays === null || gapDays === 0
+        ? "剛開出：上一期才出現，短期節奏仍在觀察範圍"
+        : `剛開出：${gapDays} 天前才出現，短期節奏仍在觀察範圍`;
+    } else {
+      const gapText = gapDays === null ? `已隔 ${gapDraws} 期` : `已隔 ${gapDays} 天`;
+      const avgText = avgIntervalDays ? `，貼近平均 ${avgIntervalDays.toFixed(0)} 天` : "";
+      reason = `週期穩定：${gapText}${avgText}，近 ${recentPeriods} 期開出 ${recentFreq} 次，作為結構平衡補位`;
+    }
+
+    if (aiSignal?.statistics_reason) {
+      reason += `；Gemini 量化訊號：${aiSignal.statistics_reason}`;
+    }
+    if (aiSignal?.metaphysics_signal) {
+      reason += `；玄學輔助：${aiSignal.metaphysics_signal}`;
+    }
+
+    return [String(number), {
+      reason,
+      tag,
+      gap_days: gapDays,
+      gap_draws: gapDraws,
+      avg_interval_draws: Number(avgIntervalDraws.toFixed(1)),
+      avg_interval_days: avgIntervalDays,
+      overdue_index: overdueIndex,
+      recent_freq: recentFreq,
+      appearances,
+      ai_score: aiSignal?.score ?? null,
+      ai_statistics_reason: aiSignal?.statistics_reason || "",
+      metaphysics_signal: aiSignal?.metaphysics_signal || "",
+    }];
+  }));
 }
 
 function trendWindow(draws, config, period) {
@@ -483,7 +581,8 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
 
   const prediction = baseRecord.prediction || {};
   const insights = prediction.number_insights || {};
-  const aiPool = sanitizeCandidatePool(decision, config.maxNumber).map((item) => item.number);
+  const sanitizedAiCandidates = sanitizeCandidatePool(decision, config.maxNumber);
+  const aiPool = sanitizedAiCandidates.map((item) => item.number);
   const allTimeHot = (payload.quantitative_features?.all_time_hot || []).map((item) => item.number);
   const allTimeOverdue = (payload.quantitative_features?.all_time_overdue || []).map((item) => item.number);
   const recentHot = (insights.recent_hot || []).map((item) => item.number);
@@ -514,6 +613,15 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
     draws,
     maxWindow: Math.min(100, Math.max(10, Math.floor(draws.length / 4))),
   });
+  const recentPeriods = recentPeriodFor(gameType, draws.length);
+  const selectedNumberInsights = buildSelectedNumberInsights({
+    combinations,
+    draws,
+    recentDraws: draws.slice(-recentPeriods),
+    config,
+    recentPeriods,
+    aiCandidates: sanitizedAiCandidates,
+  });
 
   return {
     ...baseRecord,
@@ -531,12 +639,14 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
       combinations,
       number_insights: {
         ...insights,
+        ...selectedNumberInsights,
+        selected_numbers: selectedNumberInsights,
         full_history_sample_size: payload.quantitative_features?.full_history_sample_size,
         ai_strategy_weights: strategyWeights,
       },
       ai_decision: {
         strategy_weights: strategyWeights,
-        candidate_pool: sanitizeCandidatePool(decision, config.maxNumber).slice(0, 20),
+        candidate_pool: sanitizedAiCandidates.slice(0, 20),
       },
       metaphysics_note: typeof decision?.metaphysics_note === "string"
         ? decision.metaphysics_note.trim()
@@ -637,6 +747,13 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
     "統計趨勢": uniqueTake([...hot, ...pairNumbers, ...allTimeHot], config.picks, config.maxNumber),
   };
   const reasoning = buildReasoning(insights, combinations);
+  const selectedNumberInsights = buildSelectedNumberInsights({
+    combinations,
+    draws,
+    recentDraws,
+    config,
+    recentPeriods,
+  });
 
   return {
     timestamp: generatedAt,
@@ -647,7 +764,11 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
       reasoning,
       risk_warning: "樂透屬隨機事件，統計洞察僅供輔助參考，請理性投注。",
       combinations,
-      number_insights: insights,
+      number_insights: {
+        ...insights,
+        ...selectedNumberInsights,
+        selected_numbers: selectedNumberInsights,
+      },
     },
     is_evaluated: false,
     evaluation: {

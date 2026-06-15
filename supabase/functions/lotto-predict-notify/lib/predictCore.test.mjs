@@ -92,6 +92,11 @@ test("stores statistical insight payload used by the LINE message", () => {
   assert.ok(insights.recent_cold.length > 0);
   assert.ok(insights.top_overdue.length > 0);
   assert.ok(insights.top_pairs.length > 0);
+  assert.ok(insights.selected_numbers);
+  const picked = Object.values(prediction.prediction.combinations).flat();
+  const firstPicked = String(picked[0]);
+  assert.equal(insights[firstPicked].reason, insights.selected_numbers[firstPicked].reason);
+  assert.ok(insights.selected_numbers[firstPicked].reason.includes("近 5 期") || insights.selected_numbers[firstPicked].reason.includes("已隔"));
 });
 
 test("builds Gemini payload with full raw draw history and quantitative features", () => {
@@ -148,6 +153,8 @@ test("Gemini quantitative decision drives combinations while verifier rejects in
   assert.equal(record.prediction.model, "gemini-quant-v2");
   assert.equal(record.prediction.reasoning_source, "gemini_quantitative");
   assert.deepEqual(record.prediction.combinations["激進包牌"], [35, 36, 37, 38, 39]);
+  assert.ok(record.prediction.number_insights.selected_numbers["39"].reason.includes("Gemini 量化訊號"));
+  assert.equal(record.prediction.number_insights["39"].metaphysics_signal, "尾數 9");
   assert.ok(record.prediction.verification.valid);
   assert.ok(record.prediction.backtest.window_size > 0);
 });

@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { predictionHasDetailedInsight } from '../services/predictionVisibility'
 
 const props = defineProps({
   gameName: { type: String, required: true },
@@ -11,7 +12,8 @@ const props = defineProps({
 const latestPrediction = computed(() => {
   if (!props.predictionData || props.predictionData.length === 0) return null
   const filtered = props.predictionData.filter(p => p.game_name === props.gameName)
-  return filtered.length ? filtered[filtered.length - 1] : null
+  const detailed = filtered.filter(predictionHasDetailedInsight)
+  return detailed.length ? detailed[detailed.length - 1] : (filtered[filtered.length - 1] || null)
 })
 
 const strategyStyle = (strategy) => {
@@ -20,8 +22,12 @@ const strategyStyle = (strategy) => {
   return { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' }
 }
 
-// 各號碼的選號理由（後端 number_insights）
-const numberInsights = computed(() => latestPrediction.value?.prediction?.number_insights || null)
+// 各號碼的選號理由（相容舊版數字 key 與新版 selected_numbers）
+const numberInsights = computed(() => {
+  const insights = latestPrediction.value?.prediction?.number_insights || null
+  if (!insights) return null
+  return insights.selected_numbers || insights
+})
 
 // 理由標籤的色彩
 const tagStyle = (tag) => {
@@ -34,13 +40,14 @@ const tagStyle = (tag) => {
 }
 
 // 取某號碼的理由文字（供徽章 tooltip 使用）
-const reasonOf = (n) => (numberInsights.value && numberInsights.value[n] ? numberInsights.value[n].reason : '')
+const reasonOf = (n) => (numberInsights.value && numberInsights.value[n]?.reason ? numberInsights.value[n].reason : '')
 
 // 依即將開出指數由高至低排序，最具話題性的（久未開出）優先列出
 const sortedInsights = computed(() => {
   if (!numberInsights.value) return []
   return Object.entries(numberInsights.value)
-    .map(([num, info]) => ({ num: parseInt(num), ...info }))
+    .filter(([num, info]) => Number.isInteger(Number(num)) && info && typeof info.reason === 'string')
+    .map(([num, info]) => ({ num: parseInt(num, 10), ...info }))
     .sort((a, b) => (b.overdue_index ?? 0) - (a.overdue_index ?? 0))
 })
 </script>
