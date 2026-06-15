@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
   isDaily539ExpectedDrawDate,
@@ -214,5 +215,77 @@ test("evaluates a prediction record against its target draw", () => {
     },
     attribution_report: null,
     attribution_trigger: "supabase_edge_basic_evaluation",
+  });
+});
+
+test("builds performance snapshot from latest evaluated prediction per target draw date", () => {
+  const records = [
+    {
+      game_name: "Daily539",
+      predicted_at: "2026-06-12T02:00:00+00:00",
+      target_draw_date: "2026-06-12",
+      is_evaluated: true,
+      prediction: { combinations: { aggressive: [1, 2, 3, 4, 5] } },
+      evaluation: {
+        draw_id: "115000143",
+        draw_date: "2026-06-12",
+        strategies: {
+          aggressive: { hits: 1, miss_count: 4 },
+        },
+      },
+    },
+    {
+      game_name: "Daily539",
+      predicted_at: "2026-06-13T02:00:00+00:00",
+      target_draw_date: "2026-06-13",
+      is_evaluated: true,
+      prediction: { combinations: { aggressive: [1, 2, 3, 4, 5] } },
+      evaluation: {
+        draw_id: "115000144",
+        draw_date: "2026-06-13",
+        strategies: {
+          aggressive: { hits: 2, miss_count: 3 },
+        },
+      },
+    },
+    {
+      game_name: "Daily539",
+      predicted_at: "2026-06-13T03:00:00+00:00",
+      target_draw_date: "2026-06-13",
+      is_evaluated: true,
+      prediction: { combinations: { aggressive: [6, 7, 8, 9, 10] } },
+      evaluation: {
+        draw_id: "115000144",
+        draw_date: "2026-06-13",
+        strategies: {
+          aggressive: { hits: 3, miss_count: 2 },
+        },
+      },
+    },
+    {
+      game_name: "Daily539",
+      predicted_at: "2026-06-15T02:00:00+00:00",
+      target_draw_date: "2026-06-15",
+      is_evaluated: false,
+      prediction: { combinations: { aggressive: [1, 2, 3, 4, 5] } },
+      evaluation: null,
+    },
+  ];
+
+  const snapshot = buildPerformanceSnapshot(records, "2026-06-15T00:00:00.000Z");
+
+  assert.equal(snapshot.last_updated, "2026-06-15T00:00:00.000Z");
+  assert.equal(snapshot.games.Daily539.total_draws_evaluated, 2);
+  assert.deepEqual(
+    snapshot.games.Daily539.trend.map((item) => [item.date, item.draw_id, item.strategies.aggressive]),
+    [
+      ["2026-06-12", "115000143", 1],
+      ["2026-06-13", "115000144", 3],
+    ],
+  );
+  assert.deepEqual(snapshot.games.Daily539.strategies.aggressive, {
+    total_hits: 4,
+    total_misses: 6,
+    win_rate: 0.4,
   });
 });

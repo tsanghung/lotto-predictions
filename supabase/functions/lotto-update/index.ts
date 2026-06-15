@@ -1,4 +1,5 @@
 import {
+  buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
   latestByDrawId,
@@ -31,8 +32,11 @@ type UpdateResult = {
 type PredictionRow = {
   source_key: string;
   game_name: string;
+  predicted_at?: string;
   target_draw_date: string;
   prediction: Record<string, unknown>;
+  is_evaluated?: boolean;
+  evaluation?: Record<string, unknown> | null;
 };
 
 type DrawRow = {
@@ -280,6 +284,29 @@ async function upsertMeta(
   }
 }
 
+async function upsertPerformanceSnapshot(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  payload: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/performance_snapshots?on_conflict=snapshot_key`, {
+    method: "POST",
+    headers: {
+      ...supabaseHeaders(serviceRoleKey),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify([{
+      snapshot_key: "current",
+      last_updated: payload.last_updated,
+      payload,
+    }]),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase performance snapshot upsert failed: ${response.status} ${await response.text()}`);
+  }
+}
+
 async function fetchReadyPredictions(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -300,6 +327,51 @@ async function fetchReadyPredictions(
   }
 
   return response.json();
+}
+
+async function fetchEvaluatedPredictions(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<PredictionRow[]> {
+  const rows: PredictionRow[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      select: "source_key,game_name,predicted_at,target_draw_date,prediction,is_evaluated,evaluation",
+      is_evaluated: "eq.true",
+      order: "target_draw_date.asc,predicted_at.asc",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    const response = await fetch(`${supabaseUrl}/rest/v1/prediction_records?${params}`, {
+      headers: supabaseHeaders(serviceRoleKey),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase evaluated prediction query failed: ${response.status} ${await response.text()}`);
+    }
+
+    const page = await response.json() as PredictionRow[];
+    rows.push(...page);
+
+    if (page.length < pageSize) {
+      return rows;
+    }
+
+    offset += pageSize;
+  }
+}
+
+async function rebuildPerformanceSnapshot(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<Record<string, unknown>> {
+  const evaluatedPredictions = await fetchEvaluatedPredictions(supabaseUrl, serviceRoleKey);
+  const snapshot = buildPerformanceSnapshot(evaluatedPredictions);
+  await upsertPerformanceSnapshot(supabaseUrl, serviceRoleKey, snapshot);
+  return snapshot;
 }
 
 async function fetchDrawForPrediction(
@@ -463,6 +535,22 @@ async function handleRequest(request: Request): Promise<Response> {
       ? []
       : await evaluateReadyPredictions(supabaseUrl, serviceRoleKey, targetDate);
 
+    const performanceSnapshot = dryRun
+      ? null
+      : await rebuildPerformanceSnapshot(supabaseUrl, serviceRoleKey);
+    const performanceSummary = performanceSnapshot
+      ? {
+        last_updated: performanceSnapshot.last_updated,
+        games: Object.fromEntries(
+          Object.entries((performanceSnapshot.games ?? {}) as Record<string, { total_draws_evaluated?: number; trend?: unknown[] }>)
+            .map(([gameName, game]) => [gameName, {
+              total_draws_evaluated: game.total_draws_evaluated,
+              trend_points: game.trend?.length ?? 0,
+            }]),
+        ),
+      }
+      : null;
+
     const [lotto649Total, daily539Total] = await Promise.all([
       fetchDrawCount(supabaseUrl, serviceRoleKey, "649"),
       fetchDrawCount(supabaseUrl, serviceRoleKey, "539"),
@@ -476,6 +564,7 @@ async function handleRequest(request: Request): Promise<Response> {
       target_date: targetDate,
       results,
       evaluated_predictions,
+      performance_snapshot: performanceSummary,
     };
 
     if (!dryRun) {
@@ -488,6 +577,7 @@ async function handleRequest(request: Request): Promise<Response> {
       target_date: targetDate,
       results,
       evaluated_predictions,
+      performance_snapshot: performanceSummary,
     });
   } catch (error) {
     return failFast(

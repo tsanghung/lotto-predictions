@@ -181,6 +181,106 @@ export function evaluatePredictionRecord(record, draw) {
   };
 }
 
+function recordTargetDate(record) {
+  return record?.target_draw_date ||
+    record?.evaluation?.draw_date ||
+    record?.predicted_at?.slice(0, 10) ||
+    record?.timestamp?.slice(0, 10) ||
+    "";
+}
+
+function choosePerformanceRecord(current, candidate) {
+  if (!current) {
+    return candidate;
+  }
+
+  const currentTime = new Date(current.predicted_at || current.timestamp || 0).getTime();
+  const candidateTime = new Date(candidate.predicted_at || candidate.timestamp || 0).getTime();
+  return candidateTime > currentTime ? candidate : current;
+}
+
+function latestEvaluatedByTargetDate(records) {
+  const byTargetDate = new Map();
+
+  for (const record of records || []) {
+    if (!record?.is_evaluated || !record?.evaluation?.strategies || !record?.game_name) {
+      continue;
+    }
+
+    const targetDate = recordTargetDate(record);
+    if (!targetDate) {
+      continue;
+    }
+
+    const key = `${record.game_name}|${targetDate}`;
+    byTargetDate.set(key, choosePerformanceRecord(byTargetDate.get(key), record));
+  }
+
+  return [...byTargetDate.values()].sort((left, right) =>
+    recordTargetDate(left).localeCompare(recordTargetDate(right)) ||
+    String(left.game_name).localeCompare(String(right.game_name)) ||
+    new Date(left.predicted_at || left.timestamp || 0).getTime() -
+      new Date(right.predicted_at || right.timestamp || 0).getTime()
+  );
+}
+
+export function buildPerformanceSnapshot(records, generatedAt = new Date().toISOString()) {
+  const performance = {
+    last_updated: generatedAt,
+    games: {},
+  };
+
+  for (const record of latestEvaluatedByTargetDate(records)) {
+    const gameName = record.game_name;
+    if (!performance.games[gameName]) {
+      performance.games[gameName] = {
+        total_draws_evaluated: 0,
+        strategies: {},
+        trend: [],
+      };
+    }
+
+    const gamePerf = performance.games[gameName];
+    gamePerf.total_draws_evaluated += 1;
+
+    const trendData = {
+      date: record.evaluation.draw_date || recordTargetDate(record),
+      draw_id: String(record.evaluation.draw_id || ""),
+      strategies: {},
+    };
+
+    for (const [strategy, stats] of Object.entries(record.evaluation.strategies || {})) {
+      if (!gamePerf.strategies[strategy]) {
+        gamePerf.strategies[strategy] = {
+          total_hits: 0,
+          total_misses: 0,
+        };
+      }
+
+      const hits = Number(stats?.hits || 0);
+      const predictedCount = record.prediction?.combinations?.[strategy]?.length;
+      const missCount = Number.isFinite(Number(stats?.miss_count))
+        ? Number(stats.miss_count)
+        : Math.max(Number(predictedCount || 0) - hits, 0);
+
+      gamePerf.strategies[strategy].total_hits += hits;
+      gamePerf.strategies[strategy].total_misses += missCount;
+      trendData.strategies[strategy] = hits;
+    }
+
+    gamePerf.trend.push(trendData);
+  }
+
+  for (const gamePerf of Object.values(performance.games)) {
+    for (const stats of Object.values(gamePerf.strategies)) {
+      const total = stats.total_hits + stats.total_misses;
+      stats.win_rate = total > 0 ? Number((stats.total_hits / total).toFixed(4)) : 0;
+    }
+  }
+
+  return performance;
+}
+
 export function taiwanDateParts(now = new Date()) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei",
