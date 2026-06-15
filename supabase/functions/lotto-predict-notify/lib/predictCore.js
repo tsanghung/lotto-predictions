@@ -481,6 +481,48 @@ function uniqueTake(candidates, count, maxNumber) {
   return normalizeNumbers(values);
 }
 
+function overlapCount(left, right) {
+  const rightSet = new Set(right);
+  return left.filter((number) => rightSet.has(number)).length;
+}
+
+function diversifyAgainstPrior(combination, candidates, priorCombinations, config) {
+  let diversified = normalizeNumbers(combination);
+  const maxOverlap = Math.max(0, config.picks - 2);
+  let candidateIndex = 0;
+
+  for (const prior of priorCombinations) {
+    let guard = 0;
+    while (overlapCount(diversified, prior) > maxOverlap && guard < config.maxNumber) {
+      guard += 1;
+      const replacement = candidates.slice(candidateIndex).find((number) =>
+        Number.isInteger(number) &&
+        number >= 1 &&
+        number <= config.maxNumber &&
+        !diversified.includes(number) &&
+        !prior.includes(number)
+      );
+      if (!replacement) {
+        break;
+      }
+      candidateIndex = candidates.indexOf(replacement) + 1;
+
+      const removable = [...diversified]
+        .reverse()
+        .find((number) => prior.includes(number));
+      if (removable === undefined) {
+        break;
+      }
+
+      diversified = normalizeNumbers(
+        diversified.map((number) => number === removable ? replacement : number)
+      );
+    }
+  }
+
+  return diversified;
+}
+
 function averageSum(draws) {
   if (!draws.length) {
     return 0;
@@ -540,6 +582,18 @@ function verifyCombinations(combinations, config) {
     const sorted = normalizeNumbers(numbers);
     if (JSON.stringify(sorted) !== JSON.stringify(numbers)) {
       errors.push(`${strategy} is not sorted`);
+    }
+  }
+  const entries = Object.entries(combinations).filter(([, numbers]) => Array.isArray(numbers));
+  const maxOverlap = Math.max(0, config.picks - 2);
+  for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+      const [leftStrategy, leftNumbers] = entries[leftIndex];
+      const [rightStrategy, rightNumbers] = entries[rightIndex];
+      const overlap = overlapCount(leftNumbers, rightNumbers);
+      if (overlap > maxOverlap) {
+        errors.push(`${leftStrategy} and ${rightStrategy} overlap ${overlap} numbers, max ${maxOverlap}`);
+      }
     }
   }
   return {
@@ -604,7 +658,12 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
       ...recentHot,
       ...allTimeHot,
     ].filter((number) => !avoid.has(number));
-    combinations[strategy] = uniqueTake(candidates, config.picks, config.maxNumber);
+    combinations[strategy] = diversifyAgainstPrior(
+      uniqueTake(candidates, config.picks, config.maxNumber),
+      candidates,
+      Object.values(combinations),
+      config,
+    );
   }
 
   const verification = verifyCombinations(combinations, config);

@@ -159,6 +159,51 @@ test("Gemini quantitative decision drives combinations while verifier rejects in
   assert.ok(record.prediction.backtest.window_size > 0);
 });
 
+test("diversifies Gemini strategies when preference pools overlap", () => {
+  const base = generatePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-15T10:05:00+08:00",
+  });
+  const payload = buildGeminiDecisionPayload({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-15T10:05:00+08:00",
+  });
+  const decision = {
+    reasoning: "Gemini deliberately gives two strategies the same first-choice pool.",
+    strategy_weights: {
+      "激進包牌": { prefer: [39, 38, 37, 36, 35], avoid: [] },
+      "穩健平衡": { prefer: [2, 8, 20, 28, 31, 35, 12], avoid: [] },
+      "統計趨勢": { prefer: [2, 8, 20, 28, 31, 35, 12, 15], avoid: [] },
+    },
+    candidate_pool: [
+      { number: 2, score: 0.99 },
+      { number: 8, score: 0.98 },
+      { number: 20, score: 0.97 },
+      { number: 28, score: 0.96 },
+      { number: 31, score: 0.95 },
+      { number: 35, score: 0.94 },
+      { number: 12, score: 0.93 },
+      { number: 15, score: 0.92 },
+    ],
+  };
+
+  const record = applyGeminiQuantDecision({
+    baseRecord: base,
+    decision,
+    payload,
+    draws: dailyDraws,
+  });
+  const balanced = record.prediction.combinations["穩健平衡"];
+  const trend = record.prediction.combinations["統計趨勢"];
+  const overlap = trend.filter((number) => balanced.includes(number)).length;
+
+  assert.notDeepEqual(trend, balanced);
+  assert.ok(overlap <= 3);
+  assert.ok(record.prediction.verification.valid);
+});
+
 test("backtests combinations against historical draws with hit distribution", () => {
   const result = backtestCombinations({
     combinations: {
