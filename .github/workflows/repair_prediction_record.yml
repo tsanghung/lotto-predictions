@@ -1,0 +1,169 @@
+name: Repair Prediction Record
+
+on:
+  workflow_dispatch:
+    inputs:
+      game_type:
+        description: 'Game type to repair'
+        required: true
+        default: '539'
+        type: choice
+        options:
+          - '539'
+          - '649'
+      target_date:
+        description: 'Target draw date, YYYY-MM-DD'
+        required: true
+        default: '2026-06-15'
+        type: string
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Repair prediction row
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          GAME_TYPE: ${{ github.event.inputs.game_type }}
+          TARGET_DATE: ${{ github.event.inputs.target_date }}
+        run: |
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          node --input-type=module <<'NODE'
+          import {
+            applyGeminiQuantDecision,
+            buildGeminiDecisionPayload,
+            GAME_CONFIG,
+          } from "./supabase/functions/lotto-predict-notify/lib/predictCore.js";
+
+          const supabaseUrl = process.env.SUPABASE_URL.replace(/\/+$/, "");
+          const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+          const gameType = process.env.GAME_TYPE;
+          const targetDate = process.env.TARGET_DATE;
+          const gameName = GAME_CONFIG[gameType]?.name;
+
+          if (!gameName) {
+            throw new Error(`Unsupported game type: ${gameType}`);
+          }
+
+          const headers = {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            "Content-Type": "application/json",
+          };
+
+          async function request(path, options = {}) {
+            const response = await fetch(`${supabaseUrl}/rest/v1/${path}`, {
+              ...options,
+              headers: {
+                ...headers,
+                ...(options.headers || {}),
+              },
+            });
+            if (!response.ok) {
+              throw new Error(`${response.status} ${await response.text()}`);
+            }
+            return response.json();
+          }
+
+          async function requestAll(path) {
+            const rows = [];
+            const pageSize = 1000;
+            for (let offset = 0;; offset += pageSize) {
+              const separator = path.includes("?") ? "&" : "?";
+              const page = await request(`${path}${separator}limit=${pageSize}&offset=${offset}`);
+              rows.push(...page);
+              if (page.length < pageSize) {
+                return rows;
+              }
+            }
+          }
+
+          const predictionParams = new URLSearchParams({
+            select: "source_key,game_name,predicted_at,target_draw_date,prediction,is_evaluated,evaluation,raw",
+            game_name: `eq.${gameName}`,
+            target_draw_date: `eq.${targetDate}`,
+            order: "predicted_at.desc",
+            limit: "1",
+          });
+          const [row] = await request(`prediction_records?${predictionParams}`);
+          if (!row) {
+            throw new Error(`No prediction row found for ${gameName} ${targetDate}`);
+          }
+
+          const drawParams = new URLSearchParams({
+            select: "draw_id,draw_date,numbers,special_number",
+            game_name: `eq.${gameName}`,
+            order: "draw_date.asc,draw_id.asc",
+          });
+          const draws = await requestAll(`lotto_draws?${drawParams}`);
+          if (draws.length < 3) {
+            throw new Error(`Not enough draws for ${gameName}`);
+          }
+
+          const existingPrediction = row.prediction || {};
+          const aiDecision = existingPrediction.ai_decision || {};
+          const decision = {
+            reasoning: existingPrediction.reasoning,
+            risk_warning: existingPrediction.risk_warning,
+            metaphysics_note: existingPrediction.metaphysics_note,
+            strategy_weights: aiDecision.strategy_weights || existingPrediction.number_insights?.ai_strategy_weights || {},
+            candidate_pool: aiDecision.candidate_pool || [],
+          };
+          if (!Object.keys(decision.strategy_weights).length) {
+            throw new Error("Prediction row does not contain Gemini strategy weights to repair");
+          }
+
+          const payload = buildGeminiDecisionPayload({
+            gameType,
+            draws,
+            generatedAt: row.predicted_at,
+          });
+          const repaired = applyGeminiQuantDecision({
+            baseRecord: {
+              prediction: existingPrediction,
+              evaluation: row.evaluation,
+            },
+            decision,
+            payload,
+            draws,
+          });
+          const repairedPrediction = {
+            ...repaired.prediction,
+            model: existingPrediction.model || repaired.prediction.model,
+          };
+          const repairedRaw = {
+            ...(row.raw || {}),
+            prediction: repairedPrediction,
+            target_draw_date: row.target_draw_date,
+          };
+
+          const patchPath = `prediction_records?source_key=eq.${encodeURIComponent(row.source_key)}`;
+          const [updated] = await request(patchPath, {
+            method: "PATCH",
+            headers: { Prefer: "return=representation" },
+            body: JSON.stringify({
+              prediction: repairedPrediction,
+              raw: repairedRaw,
+            }),
+          });
+
+          console.log(JSON.stringify({
+            repaired: true,
+            source_key: updated.source_key,
+            game_name: updated.game_name,
+            target_draw_date: updated.target_draw_date,
+            combinations: updated.prediction.combinations,
+            verification: updated.prediction.verification,
+          }, null, 2));
+          NODE
