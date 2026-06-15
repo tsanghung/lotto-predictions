@@ -151,6 +151,215 @@ export function toLottoDrawRow(gameType, draw) {
   };
 }
 
+function uniqueSortedNumbers(numbers) {
+  return normalizeNumbers(
+    [...new Set((numbers || []).map((value) => Number(value)).filter(Number.isFinite))]
+  );
+}
+
+function buildStrategyIndex(combinations) {
+  const byNumber = new Map();
+
+  for (const [strategyName, predictedNumbers] of Object.entries(combinations || {})) {
+    for (const number of uniqueSortedNumbers(predictedNumbers)) {
+      if (!byNumber.has(number)) {
+        byNumber.set(number, []);
+      }
+      byNumber.get(number).push(strategyName);
+    }
+  }
+
+  return byNumber;
+}
+
+function selectedNumberInsights(prediction) {
+  const insights = prediction?.number_insights || {};
+  const selected = insights.selected_numbers && typeof insights.selected_numbers === "object"
+    ? insights.selected_numbers
+    : insights;
+  return selected && typeof selected === "object" ? selected : {};
+}
+
+function aiCandidateMap(prediction) {
+  return new Map((prediction?.ai_decision?.candidate_pool || [])
+    .map((item) => [Number(item?.number), item])
+    .filter(([number]) => Number.isFinite(number)));
+}
+
+function selectionReasonForNumber(number, prediction) {
+  const insights = selectedNumberInsights(prediction);
+  const candidateByNumber = aiCandidateMap(prediction);
+  const insight = insights[String(number)] || {};
+  const candidate = candidateByNumber.get(number) || {};
+  const directReason = typeof insight.reason === "string" ? insight.reason.trim() : "";
+
+  if (directReason) {
+    return directReason;
+  }
+
+  const signals = [];
+  const statisticsReason = insight.ai_statistics_reason || candidate.statistics_reason;
+  const metaphysicsSignal = insight.metaphysics_signal || candidate.metaphysics_signal;
+  if (statisticsReason) {
+    signals.push(`AI 統計訊號：${statisticsReason}`);
+  }
+  if (metaphysicsSignal) {
+    signals.push(`玄學因子：${metaphysicsSignal}`);
+  }
+  if (Number.isFinite(Number(insight.overdue_index))) {
+    signals.push(`即將開出指數 ${Number(insight.overdue_index).toFixed(2)}`);
+  }
+
+  return signals.length
+    ? signals.join("；")
+    : "原始紀錄未保留細部選號理由，僅能確認此號碼由當期策略組合納入。";
+}
+
+function chooseBestStrategy(strategies) {
+  let best = null;
+
+  for (const [strategyName, stats] of Object.entries(strategies || {})) {
+    const hits = Number(stats?.hits || 0);
+    const missCount = Number(stats?.miss_count || 0);
+    if (
+      !best ||
+      hits > best.hits ||
+      (hits === best.hits && missCount < best.missCount)
+    ) {
+      best = { name: strategyName, hits, missCount };
+    }
+  }
+
+  return best;
+}
+
+function predictedNumberAnalysis(outcome) {
+  if (outcome === "hit") {
+    return {
+      post_draw_analysis: "命中：此號碼實際開出，代表當期選號訊號與結果同向。後續可保留這類因子，但仍需用多期回測避免單期過度擬合。",
+      learning_note: "保留此號碼背後的選號因子，觀察同類訊號是否能在多期持續產生命中。",
+    };
+  }
+
+  return {
+    post_draw_analysis: "未中：此號碼沒有開出，表示當期模型可能高估此訊號，或被短期隨機性抵銷。後續應檢查相同理由在歷史回測中的命中率。",
+    learning_note: "降低單一冷熱、遺漏或玄學訊號的孤立權重，要求與共開、和值、區間分布等訊號交叉確認。",
+  };
+}
+
+function actualNumberAnalysis(number, wasPredicted) {
+  if (wasPredicted) {
+    return {
+      opening_analysis: "實際開出且已被模型納入，表示當期量化訊號至少捕捉到此號碼。後續應追蹤相同訊號是否有穩定性。",
+      learning_note: "將此命中號碼的選號理由列為正向樣本，用於檢查同類因子的長期命中率。",
+    };
+  }
+
+  return {
+    opening_analysis: "實際開出但未被任何組合納入，代表模型漏抓此號碼。樂透結果具隨機性，無法做確定因果歸因，只能回頭檢查近期頻率、遺漏期數、共開關聯與區間分布是否被低估。",
+    learning_note: `underweighted actual signal: 下次預測要回測 ${number} 是否有弱訊號轉強、共開關聯或分布補位價值。`,
+  };
+}
+
+function strategyReview(strategyName, stats) {
+  const hits = Number(stats?.hits || 0);
+  const predictedCount = hits + Number(stats?.miss_count || 0);
+  const hitText = `${hits} / ${predictedCount}`;
+
+  if (predictedCount > 0 && hits >= Math.ceil(predictedCount / 2)) {
+    return {
+      analysis: `${strategyName} 本期命中 ${hitText}，是相對有效的策略樣本，可保留核心因子並避免過度調整。`,
+      next_adjustment: "維持此策略的主要權重，但要求下期檢查命中號碼的共通訊號，避免只複製單期結果。",
+    };
+  }
+  if (hits > 0) {
+    return {
+      analysis: `${strategyName} 本期命中 ${hitText}，捕捉到部分訊號，但仍有明顯誤差需要拆解。`,
+      next_adjustment: "降低未中號碼的單一訊號權重，優先找出命中號碼與漏抓號碼之間的統計差異。",
+    };
+  }
+
+  return {
+    analysis: `${strategyName} 本期命中 ${hitText}，當期策略訊號未能對應實際開獎。`,
+    next_adjustment: "下期應降低此策略的既有權重，並要求 Gemini 重新檢查候選池排序與風險分散。",
+  };
+}
+
+function buildPostDrawLearningReport(record, actualNumbers, strategies) {
+  const prediction = record?.prediction || {};
+  const combinations = prediction.combinations || {};
+  const strategyByNumber = buildStrategyIndex(combinations);
+  const predictedNumbers = uniqueSortedNumbers([...strategyByNumber.keys()]);
+  const actualSet = new Set(actualNumbers);
+  const hitPredictedNumbers = predictedNumbers.filter((number) => actualSet.has(number));
+  const missedPredictedNumbers = predictedNumbers.filter((number) => !actualSet.has(number));
+  const uncoveredActualNumbers = actualNumbers.filter((number) => !strategyByNumber.has(number));
+  const bestStrategy = chooseBestStrategy(strategies);
+
+  const predictedNumberRows = predictedNumbers.map((number) => {
+    const outcome = actualSet.has(number) ? "hit" : "miss";
+    return {
+      number,
+      outcome,
+      strategies: strategyByNumber.get(number) || [],
+      selection_reason: selectionReasonForNumber(number, prediction),
+      ...predictedNumberAnalysis(outcome),
+    };
+  });
+
+  const actualNumberRows = actualNumbers.map((number) => {
+    const wasPredicted = strategyByNumber.has(number);
+    return {
+      number,
+      was_predicted: wasPredicted,
+      matched_strategies: strategyByNumber.get(number) || [],
+      ...actualNumberAnalysis(number, wasPredicted),
+    };
+  });
+
+  const strategyReviews = Object.fromEntries(
+    Object.entries(strategies || {}).map(([strategyName, stats]) => [
+      strategyName,
+      {
+        hits: Number(stats?.hits || 0),
+        matches: stats?.matches || [],
+        missed_numbers: stats?.missed_numbers || [],
+        ...strategyReview(strategyName, stats),
+      },
+    ]),
+  );
+
+  const nextPredictionGuidance = [
+    uncoveredActualNumbers.length
+      ? `回測漏抓號碼 ${uncoveredActualNumbers.join("、")} 的近期頻率、遺漏期數、共開關聯與區間分布，確認是否被模型 underweighted。`
+      : "本期實際開出號碼都曾被模型納入，下一期可把命中理由列為正向樣本。",
+    missedPredictedNumbers.length
+      ? `檢查未中號碼 ${missedPredictedNumbers.join("、")} 的選號理由在歷史回測中的命中率，避免單一訊號權重過高。`
+      : "本期沒有未中預測號碼，下一期仍需維持風險分散，避免過度擬合。",
+    bestStrategy
+      ? `保留 ${bestStrategy.name} 的有效因子，並要求 Gemini 對其他策略補強與最佳策略不同的候選來源。`
+      : "下期需重新檢查三組策略的候選池，確保每組策略都有可追溯的量化理由。",
+    "下次預測時將本期 learning_report 納入檢討脈絡，對高誤差訊號降權，對漏抓訊號建立補強觀察清單。",
+  ];
+
+  return {
+    version: "post_draw_learning_v1",
+    summary: {
+      best_strategy: bestStrategy?.name || null,
+      best_strategy_hits: bestStrategy?.hits ?? 0,
+      unique_predicted_count: predictedNumbers.length,
+      hit_predicted_numbers: hitPredictedNumbers,
+      missed_predicted_numbers: missedPredictedNumbers,
+      uncovered_actual_numbers: uncoveredActualNumbers,
+    },
+    predicted_numbers: predictedNumberRows,
+    actual_numbers: actualNumberRows,
+    strategy_reviews: strategyReviews,
+    next_prediction_guidance: nextPredictionGuidance,
+    limitation: "樂透開獎是隨機事件，此報告只能做統計歸因、誤差拆解與下期模型調整依據，不代表可確定預測開獎結果。",
+  };
+}
+
 export function evaluatePredictionRecord(record, draw) {
   const actualNumbers = normalizeNumbers(draw.numbers || []);
   const actualSet = new Set(actualNumbers);
@@ -176,6 +385,7 @@ export function evaluatePredictionRecord(record, draw) {
     actual_numbers: actualNumbers,
     special_number: draw.special_number ?? null,
     strategies,
+    learning_report: buildPostDrawLearningReport(record, actualNumbers, strategies),
     attribution_report: null,
     attribution_trigger: "supabase_edge_basic_evaluation",
   };

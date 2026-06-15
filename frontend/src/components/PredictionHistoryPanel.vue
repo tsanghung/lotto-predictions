@@ -82,6 +82,25 @@ const isMatched = (record, strategy, number) => {
   return Boolean(evaluation?.matches?.includes(number))
 }
 
+const learningReport = (record) => record?.evaluation?.learning_report || null
+const learningSummary = (record) => learningReport(record)?.summary || {}
+const predictedLearningRows = (record) => learningReport(record)?.predicted_numbers || []
+const actualLearningRows = (record) => learningReport(record)?.actual_numbers || []
+const strategyLearningRows = (record) =>
+  Object.entries(learningReport(record)?.strategy_reviews || {}).map(([strategy, review]) => ({
+    strategy,
+    ...review
+  }))
+const guidanceItems = (record) => learningReport(record)?.next_prediction_guidance || []
+
+const numberListText = (numbers) => {
+  if (!Array.isArray(numbers) || !numbers.length) return '無'
+  return numbers.map((n) => n.toString().padStart(2, '0')).join('、')
+}
+
+const predictedOutcomeLabel = (outcome) => outcome === 'hit' ? '命中' : '未中'
+const actualOutcomeLabel = (item) => item?.was_predicted ? '已預測' : '漏抓'
+
 const showMore = () => {
   visibleCount.value += 10
 }
@@ -169,6 +188,83 @@ const showMore = () => {
             </span>
           </div>
         </div>
+
+        <section v-if="learningReport(record)" class="learning-report">
+          <div class="learning-report-header">
+            <div>
+              <p class="learning-kicker">Agent Learning</p>
+              <h4>智能體學習回饋</h4>
+            </div>
+            <span class="learning-best">
+              最佳策略：{{ learningSummary(record).best_strategy || '待累積' }}
+            </span>
+          </div>
+
+          <div class="learning-summary">
+            <div>
+              <span>命中號碼</span>
+              <strong>{{ numberListText(learningSummary(record).hit_predicted_numbers) }}</strong>
+            </div>
+            <div>
+              <span>未中號碼</span>
+              <strong>{{ numberListText(learningSummary(record).missed_predicted_numbers) }}</strong>
+            </div>
+            <div>
+              <span>漏抓號碼</span>
+              <strong>{{ numberListText(learningSummary(record).uncovered_actual_numbers) }}</strong>
+            </div>
+          </div>
+
+          <div class="learning-block">
+            <p class="learning-title">預測號碼檢討</p>
+            <div class="learning-number-grid">
+              <div v-for="item in predictedLearningRows(record)" :key="`predicted-${item.number}`" class="learning-number-row">
+                <span class="learning-ball">{{ item.number.toString().padStart(2, '0') }}</span>
+                <span :class="['learning-status', item.outcome === 'hit' ? 'is-hit' : 'is-miss']">
+                  {{ predictedOutcomeLabel(item.outcome) }}
+                </span>
+                <div>
+                  <p>{{ item.selection_reason }}</p>
+                  <small>{{ item.learning_note }}</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="learning-block">
+            <p class="learning-title">實際開出分析</p>
+            <div class="learning-number-grid">
+              <div v-for="item in actualLearningRows(record)" :key="`actual-${item.number}`" class="learning-number-row">
+                <span class="learning-ball is-actual">{{ item.number.toString().padStart(2, '0') }}</span>
+                <span :class="['learning-status', item.was_predicted ? 'is-hit' : 'is-miss']">
+                  {{ actualOutcomeLabel(item) }}
+                </span>
+                <div>
+                  <p>{{ item.opening_analysis }}</p>
+                  <small>{{ item.learning_note }}</small>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="learning-block">
+            <p class="learning-title">策略檢討</p>
+            <div class="learning-strategy-list">
+              <div v-for="item in strategyLearningRows(record)" :key="item.strategy">
+                <strong>{{ item.strategy }}：命中 {{ item.hits }} / {{ (item.matches?.length || 0) + (item.missed_numbers?.length || 0) }}</strong>
+                <p>{{ item.analysis }}</p>
+                <small>{{ item.next_adjustment }}</small>
+              </div>
+            </div>
+          </div>
+
+          <div class="learning-block">
+            <p class="learning-title">下期修正方向</p>
+            <ol class="learning-guidance">
+              <li v-for="item in guidanceItems(record)" :key="item">{{ item }}</li>
+            </ol>
+          </div>
+        </section>
       </article>
     </div>
 
@@ -182,10 +278,209 @@ const showMore = () => {
 </template>
 
 <style scoped>
+.learning-report {
+  margin-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.learning-report-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.learning-kicker {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+}
+
+.learning-report h4 {
+  color: #f8fafc;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.learning-best {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  color: #cbd5e1;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 6px 12px;
+}
+
+.learning-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.learning-summary > div {
+  background: rgba(15, 23, 42, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.learning-summary span,
+.learning-title {
+  color: #94a3b8;
+  display: block;
+  font-size: 13px;
+  font-weight: 800;
+  margin: 0 0 6px;
+}
+
+.learning-summary strong {
+  color: #f8fafc;
+  display: block;
+  font-family: monospace;
+  font-size: 18px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.learning-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.learning-number-grid,
+.learning-strategy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.learning-number-row {
+  align-items: flex-start;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 42px 58px minmax(0, 1fr);
+  padding: 10px;
+}
+
+.learning-ball {
+  align-items: center;
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 50%;
+  color: #e2e8f0;
+  display: flex;
+  font-family: monospace;
+  font-size: 17px;
+  font-weight: 900;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.learning-ball.is-actual {
+  border-color: rgba(167, 139, 250, 0.45);
+  color: #c4b5fd;
+}
+
+.learning-status {
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 900;
+  justify-self: start;
+  padding: 4px 9px;
+  white-space: nowrap;
+}
+
+.learning-status.is-hit {
+  background: rgba(52, 211, 153, 0.12);
+  border: 1px solid rgba(52, 211, 153, 0.32);
+  color: #86efac;
+}
+
+.learning-status.is-miss {
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fde68a;
+}
+
+.learning-number-row p,
+.learning-strategy-list p {
+  color: #dbeafe;
+  font-size: 14px;
+  line-height: 1.55;
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+
+.learning-number-row small,
+.learning-strategy-list small {
+  color: #94a3b8;
+  display: block;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.learning-strategy-list > div {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.learning-strategy-list strong {
+  color: #f8fafc;
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.learning-guidance {
+  color: #cbd5e1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.learning-guidance li {
+  font-size: 14px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 760px) {
   .prediction-history-row {
     grid-template-columns: 1fr !important;
     align-items: flex-start !important;
+  }
+
+  .learning-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .learning-number-row {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+
+  .learning-number-row > div {
+    grid-column: 1 / -1;
   }
 }
 </style>
