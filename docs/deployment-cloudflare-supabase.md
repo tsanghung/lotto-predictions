@@ -1,80 +1,70 @@
-# Cloudflare Pages 與 Supabase 部署指南
+# Cloudflare Pages 與 Supabase 部署說明
 
-## 1. Supabase
+## 1. 架構定位
 
-### 建立資料表
+| 平台 | 責任 |
+| --- | --- |
+| Cloudflare Pages | 前端網站 hosting 與自動部署 |
+| Cloudflare DNS | `lotto.simonsynapse.net` 網域、DNS、HTTPS |
+| Supabase Postgres | 正式資料庫 |
+| Supabase Edge Functions | 後端資料更新、AI 預測、LINE 推送 |
+| Supabase Cron | 每日 06:00 與 10:00 台灣時間的正式排程 |
+| GitHub | 原始碼版本管理與 CI syntax check |
 
-在 Supabase SQL Editor 執行：
+## 2. Supabase
 
-```sql
--- supabase/migrations/20260612000000_create_lotto_tables.sql
-```
-
-或使用 Supabase CLI：
+### 套用資料庫 migration
 
 ```bash
-supabase link --project-ref <your-project-ref>
+supabase link --project-ref <project-ref>
 supabase db push
 ```
 
-### 匯入現有資料
-
-本機或 GitHub Actions 皆可執行：
-
-```bash
-python scripts/sync_supabase.py
-```
-
-必要環境變數：
-
-```bash
-SUPABASE_URL=https://<your-project-ref>.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-```
-
-`service_role` 只用於後端同步資料，不可放到前端。
-
-## 2. Cloudflare Pages
-
-建議用本 repo 的 GitHub Actions workflow 部署：
+正式排程由 Supabase migration 建立：
 
 ```text
-.github/workflows/deploy_cloudflare_pages.yml
+supabase/migrations/20260616000000_rehome_runtime_triggers_to_supabase.sql
 ```
 
-Cloudflare Pages project name 預設為：
+### 每日正式排程
+
+| 作業 | 台灣時間 | UTC cron | 呼叫 |
+| --- | --- | --- | --- |
+| 補前一天開獎資料 | 06:00 | `0 22 * * *` | `public.invoke_lotto_update()` |
+| AI 預測與 LINE 推送 | 10:00 | `0 2 * * *` | `public.invoke_lotto_predict_notify()` |
+
+### 必要 Secret
+
+Supabase Vault 必須存在：
 
 ```text
-lotto-predictions
+lotto_update_service_role_key
 ```
 
-若 Cloudflare Pages 專案名稱不同，請設定 GitHub Repository Variable：
+Supabase Edge Functions 必須設定：
 
 ```text
-CLOUDFLARE_PROJECT_NAME=<your-pages-project-name>
-```
-
-## 3. GitHub Secrets / Variables
-
-### Secrets
-
-```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
 SUPABASE_URL
 SUPABASE_SERVICE_ROLE_KEY
 SUPABASE_ANON_KEY
+GEMINI_API_KEY
+LINE_CHANNEL_ACCESS_TOKEN
+LINE_USER_ID
 ```
 
-### Variables，可選
+## 3. Cloudflare Pages
+
+Cloudflare Pages 應使用 Git integration 連接 GitHub repo，監聽 `main` branch。
+
+建置設定：
 
 ```text
-CLOUDFLARE_PROJECT_NAME
-SUPABASE_URL
-SUPABASE_ANON_KEY
+Root directory: frontend
+Build command: npm run build:cloudflare
+Build output directory: dist
 ```
 
-前端建置會讀：
+Cloudflare Pages 環境變數：
 
 ```text
 VITE_BASE_PATH=/
@@ -82,39 +72,62 @@ VITE_SUPABASE_URL=<SUPABASE_URL>
 VITE_SUPABASE_ANON_KEY=<SUPABASE_ANON_KEY>
 ```
 
-如果 Supabase 尚未匯入資料，前端會自動 fallback 到靜態 JSON：
+正式網域：
 
 ```text
-/data/meta.json
-/data/predictions.json
-/data/lotto649.json
-/data/daily539.json
-/data/performance.json
+lotto.simonsynapse.net
 ```
 
-## 4. 自訂網域
+## 4. GitHub Actions
 
-在 Cloudflare Dashboard：
+GitHub Actions 不再負責正式部署或正式排程。
 
-1. 進入 Workers & Pages。
-2. 選取 `lotto-predictions` Pages project。
-3. 進入 Custom domains。
-4. 加入你的付費網域或子網域。
-5. 確認 DNS 由 Cloudflare 管理，並等待憑證與 DNS 生效。
+保留項目：
 
-## 5. 驗證
+```text
+.github/workflows/ci.yml
+```
 
-部署完成後檢查：
+移除項目：
+
+```text
+deploy_cloudflare_pages.yml
+keep_alive.yml
+manual_lotto_update.yml
+predict_and_notify.yml
+repair_prediction_record.yml
+update_data.yml
+```
+
+## 5. 驗證指令
+
+### 驗證 Cloudflare Pages
 
 ```bash
-curl -I https://<your-domain>/
-curl https://<your-domain>/data/meta.json
+curl -I https://lotto.simonsynapse.net/
 ```
 
-如果 Supabase 已設定，瀏覽器 DevTools Network 應可看到：
+### 驗證 Supabase Cron
+
+```sql
+select jobid, jobname, schedule, command, active
+from cron.job
+order by jobid;
+```
+
+預期：
 
 ```text
-https://<your-project-ref>.supabase.co/rest/v1/app_meta
-https://<your-project-ref>.supabase.co/rest/v1/lotto_draws
-https://<your-project-ref>.supabase.co/rest/v1/prediction_records
+lotto-update-after-draw              0 22 * * *
+lotto-predict-notify-after-update    0 2 * * *
+```
+
+### 驗證正式資料來源
+
+前端應從 Supabase REST API 讀取：
+
+```text
+/rest/v1/app_meta
+/rest/v1/lotto_draws
+/rest/v1/prediction_records
 ```

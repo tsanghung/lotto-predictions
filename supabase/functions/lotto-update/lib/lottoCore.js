@@ -133,7 +133,6 @@ export function isDaily539ExpectedDrawDate(dateString) {
 
 export function needsSecondaryDaily539Check({ latestOfficialDate, targetDate, taiwanHour }) {
   return isDaily539ExpectedDrawDate(targetDate) &&
-    taiwanHour >= 21 &&
     (!latestOfficialDate || latestOfficialDate < targetDate);
 }
 

@@ -1,59 +1,60 @@
 # Supabase Lotto Update Cron
 
-This project now runs the production draw update job from Supabase instead of GitHub Actions.
+> Current runtime boundary: see [runtime-triggers.md](../runtime-triggers.md). GitHub Actions no longer owns production runtime jobs.
 
-## Required Secrets
+## Required Secret
 
-Supabase hosted Edge Functions include `SUPABASE_URL`, `SUPABASE_SECRET_KEYS`, and legacy `SUPABASE_SERVICE_ROLE_KEY` automatically.
-
-Set this Vault secret in Supabase SQL Editor:
+Supabase Vault must contain the service role key used by database cron jobs to invoke Edge Functions:
 
 ```sql
 select vault.create_secret(
   'your_service_role_key',
   'lotto_update_service_role_key',
-  'Used by Supabase Cron to invoke the lotto-update Edge Function'
+  'Used by Supabase Cron to invoke lotto Edge Functions'
 );
 ```
 
 ## Deploy Function
 
-```bash
+```powershell
 $env:SUPABASE_ACCESS_TOKEN='your_supabase_access_token'
 npx supabase functions deploy lotto-update --project-ref qscqemykkkarzsufudji --no-verify-jwt
 ```
 
 ## Apply Migration
 
-Apply `supabase/migrations/20260612010000_schedule_lotto_update_function.sql` with the Supabase SQL Editor or Supabase CLI.
-
-The cron schedule is:
+Apply the latest runtime trigger migration:
 
 ```text
-17 14 * * *
+supabase/migrations/20260616000000_rehome_runtime_triggers_to_supabase.sql
 ```
 
-That is Taiwan time 22:17.
+The production cron schedules are:
 
-## Manual Test
+```text
+lotto-update-after-draw              0 22 * * *  # 06:00 Asia/Taipei
+lotto-predict-notify-after-update    0 2 * * *   # 10:00 Asia/Taipei
+```
 
-After deployment, call the function in dry-run mode:
+## Manual Verification
 
-```bash
-curl -X POST "https://qscqemykkkarzsufudji.supabase.co/functions/v1/lotto-update?game=all&dry_run=1" ^
-  -H "Authorization: Bearer your_service_role_key" ^
+Dry-run yesterday's update:
+
+```powershell
+curl.exe -X POST "https://qscqemykkkarzsufudji.supabase.co/functions/v1/lotto-update?game=all&target_date=YYYY-MM-DD&dry_run=1" `
+  -H "Authorization: Bearer your_service_role_key" `
   -H "apikey: your_service_role_key"
 ```
 
-Run a real update:
+Inspect Supabase Cron:
 
-```bash
-curl -X POST "https://qscqemykkkarzsufudji.supabase.co/functions/v1/lotto-update?game=all" ^
-  -H "Authorization: Bearer your_service_role_key" ^
-  -H "apikey: your_service_role_key"
+```sql
+select jobid, jobname, schedule, command, active
+from cron.job
+order by jobid;
 ```
 
-Trigger the scheduled database function manually:
+Trigger the scheduled database function manually only when repairing production data:
 
 ```sql
 select public.invoke_lotto_update();
