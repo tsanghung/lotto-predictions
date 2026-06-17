@@ -130,7 +130,7 @@ test("rejects same Daily539 draw with conflicting numbers", () => {
   );
 });
 
-test("checks Daily539 secondary source only after expected draw time", () => {
+test("checks Daily539 secondary source whenever expected draw data is stale", () => {
   assert.equal(isDaily539ExpectedDrawDate("2026-06-11"), true);
   assert.equal(isDaily539ExpectedDrawDate("2026-06-07"), false);
 
@@ -147,9 +147,9 @@ test("checks Daily539 secondary source only after expected draw time", () => {
     needsSecondaryDaily539Check({
       latestOfficialDate: "2026-06-10",
       targetDate: "2026-06-11",
-      taiwanHour: 19,
+      taiwanHour: 6,
     }),
-    false,
+    true,
   );
 });
 
