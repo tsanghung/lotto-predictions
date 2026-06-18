@@ -1,15 +1,48 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync } from 'fs'
+
+function copyDataFiles() {
+  return {
+    name: 'copy-data-files',
+    closeBundle() {
+      const dataDir = resolve(__dirname, '../data')
+      const outDir = resolve(__dirname, 'dist')
+      const outDataDir = resolve(outDir, 'data')
+
+      if (!existsSync(dataDir)) {
+        throw new Error(`Missing data directory: ${dataDir}`)
+      }
+
+      rmSync(outDataDir, { recursive: true, force: true })
+      mkdirSync(outDataDir, { recursive: true })
+
+      for (const entry of readdirSync(dataDir, { withFileTypes: true })) {
+        if (!entry.isFile()) {
+          continue
+        }
+
+        const source = resolve(dataDir, entry.name)
+        if (entry.name.endsWith('.json')) {
+          copyFileSync(source, resolve(outDataDir, entry.name))
+        }
+
+        if (entry.name === 'ads.txt') {
+          copyFileSync(source, resolve(outDir, entry.name))
+        }
+      }
+    }
+  }
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
   base: process.env.VITE_BASE_PATH || '/lotto-predictions/',
-  plugins: [vue()],
-  // [Bug #7 修復] 將專案根目錄設為靜態資源目錄
-  // Vite 會同時服務 frontend/public/ 與此 publicDir 下的靜態檔案
-  // 這樣 /data/meta.json、/data/predictions.json 等請求在開發環境即可正常存取
-  publicDir: resolve(__dirname, '../data'),
+  plugins: [vue(), copyDataFiles()],
+  // Keep frontend/public for normal static assets.
+  // The copyDataFiles plugin writes repo-level data files to dist/data at build time.
+  publicDir: resolve(__dirname, 'public'),
   server: {
     port: 5173,
     proxy: {
