@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useLottoData } from './composables/useLottoData'
 import PredictionCard from './components/PredictionCard.vue'
 import StatsPanel from './components/StatsPanel.vue'
@@ -16,6 +16,29 @@ import SectionHeader from './components/SectionHeader.vue'
 const { meta, predictions, history, performance, loading, error, fetchData } = useLottoData()
 const activeTab = ref('649')
 
+const pageThemes = {
+  '649': {
+    background: 'linear-gradient(145deg,#031015 0%,#071827 46%,#09111f 100%)',
+    orbA: 'radial-gradient(circle,rgba(45,212,191,0.16) 0%,rgba(45,212,191,0.04) 36%,transparent 72%)',
+    orbB: 'radial-gradient(circle,rgba(14,116,144,0.18) 0%,rgba(59,130,246,0.05) 42%,transparent 72%)',
+    orbC: 'radial-gradient(circle,rgba(34,197,94,0.08) 0%,transparent 68%)',
+    liveColor: '#2dd4bf',
+    liveGlow: 'rgba(45,212,191,0.85)',
+    headline: 'linear-gradient(135deg,#5eead4 0%,#38bdf8 48%,#60a5fa 100%)',
+  },
+  '539': {
+    background: 'linear-gradient(145deg,#12091a 0%,#1c1027 42%,#19111c 100%)',
+    orbA: 'radial-gradient(circle,rgba(167,139,250,0.18) 0%,rgba(167,139,250,0.05) 38%,transparent 72%)',
+    orbB: 'radial-gradient(circle,rgba(236,72,153,0.16) 0%,rgba(251,191,36,0.05) 44%,transparent 74%)',
+    orbC: 'radial-gradient(circle,rgba(251,191,36,0.11) 0%,transparent 68%)',
+    liveColor: '#fbbf24',
+    liveGlow: 'rgba(251,191,36,0.78)',
+    headline: 'linear-gradient(135deg,#fbbf24 0%,#ec4899 46%,#a78bfa 100%)',
+  },
+}
+
+const activeTheme = computed(() => pageThemes[activeTab.value])
+
 onMounted(() => {
   fetchData()
 })
@@ -30,13 +53,20 @@ const formatDate = (iso) => {
 </script>
 
 <template>
-  <div class="min-h-screen" style="background: #080c14; font-family: 'Inter', 'Noto Sans TC', system-ui, sans-serif;">
+  <div
+    class="min-h-screen"
+    :style="{
+      background: activeTheme.background,
+      fontFamily: `'Inter', 'Noto Sans TC', system-ui, sans-serif`,
+      transition: 'background 260ms ease-out'
+    }"
+  >
 
     <!-- Ambient background blobs -->
     <div class="fixed inset-0 overflow-hidden pointer-events-none">
-      <div style="position:absolute;top:-15%;left:-10%;width:55%;height:55%;background:radial-gradient(circle,rgba(45,212,191,0.08) 0%,transparent 70%);filter:blur(60px);"></div>
-      <div style="position:absolute;top:40%;right:-10%;width:55%;height:55%;background:radial-gradient(circle,rgba(139,92,246,0.08) 0%,transparent 70%);filter:blur(60px);"></div>
-      <div style="position:absolute;bottom:-10%;left:30%;width:40%;height:40%;background:radial-gradient(circle,rgba(59,130,246,0.06) 0%,transparent 70%);filter:blur(60px);"></div>
+      <div :style="{ position:'absolute', top:'-15%', left:'-10%', width:'55%', height:'55%', background:activeTheme.orbA, filter:'blur(60px)', transition:'background 260ms ease-out' }"></div>
+      <div :style="{ position:'absolute', top:'40%', right:'-10%', width:'55%', height:'55%', background:activeTheme.orbB, filter:'blur(60px)', transition:'background 260ms ease-out' }"></div>
+      <div :style="{ position:'absolute', bottom:'-10%', left:'30%', width:'40%', height:'40%', background:activeTheme.orbC, filter:'blur(60px)', transition:'background 260ms ease-out' }"></div>
     </div>
 
     <div class="relative" style="max-width:1200px;margin:0 auto;padding:40px 20px 80px;">
@@ -44,10 +74,10 @@ const formatDate = (iso) => {
       <!-- ══ HEADER ══ -->
       <header style="text-align:center;margin-bottom:48px;">
         <div style="display:inline-flex;align-items:center;gap:10px;margin-bottom:16px;">
-          <div style="width:10px;height:10px;border-radius:50%;background:#2dd4bf;box-shadow:0 0 12px rgba(45,212,191,0.8);animation:pulse 2s infinite;"></div>
+          <div :style="{ width:'10px', height:'10px', borderRadius:'50%', background:activeTheme.liveColor, boxShadow:`0 0 12px ${activeTheme.liveGlow}`, animation:'pulse 2s infinite' }"></div>
           <span style="font-size:16px;font-weight:600;color:#64748b;letter-spacing:0.15em;text-transform:uppercase;">Live Dashboard</span>
         </div>
-        <h1 style="font-size:clamp(2rem,5vw,3.5rem);font-weight:900;background:linear-gradient(135deg,#2dd4bf 0%,#3b82f6 50%,#a78bfa 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin:0 0 12px;line-height:1.1;">
+        <h1 :style="{ fontSize:'clamp(2rem,5vw,3.5rem)', fontWeight:'900', background:activeTheme.headline, WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text', margin:'0 0 12px', lineHeight:'1.1', transition:'background 260ms ease-out' }">
           小賽 AI 樂透預測
         </h1>
         <p style="color:#64748b;font-size:1.05rem;max-width:560px;margin:0 auto 24px;line-height:1.6;">
