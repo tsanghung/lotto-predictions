@@ -61,19 +61,37 @@ function mapPrediction(row) {
   }
 }
 
+function mapAsiLearning(row) {
+  return {
+    game_name: row.game_name,
+    target_draw_date: row.target_draw_date,
+    draw_id: row.draw_id,
+    matched_numbers: row.matched_numbers || [],
+    missed_numbers: row.missed_numbers || [],
+    actual_numbers: row.actual_numbers || [],
+    strategy_effectiveness: row.strategy_effectiveness || {},
+    next_adjustments: row.next_adjustments || [],
+    reasoning_source: row.reasoning_source,
+    model_name: row.model_name,
+    created_at: row.created_at
+  }
+}
+
 export async function fetchSupabaseLottoData() {
   const [
     metaRows,
     predictionRows,
     lottoRows,
     dailyRows,
-    performanceRows
+    performanceRows,
+    learningRows
   ] = await Promise.all([
     request('app_meta?meta_key=eq.current&select=payload&limit=1'),
     requestAll('prediction_records?select=source_key,predicted_at,target_draw_date,game_name,prediction,is_evaluated,evaluation&order=target_draw_date.asc,predicted_at.asc'),
     requestAll('lotto_draws?game_name=eq.%E5%A4%A7%E6%A8%82%E9%80%8F&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     requestAll('lotto_draws?game_name=eq.%E4%BB%8A%E5%BD%A9539&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
-    request('performance_snapshots?snapshot_key=eq.current&select=payload&limit=1')
+    request('performance_snapshots?snapshot_key=eq.current&select=payload&limit=1'),
+    requestAll('asi_learning_records?select=game_name,target_draw_date,draw_id,matched_numbers,missed_numbers,actual_numbers,strategy_effectiveness,next_adjustments,reasoning_source,model_name,created_at&order=target_draw_date.asc,created_at.asc')
   ])
 
   if (!metaRows[0]?.payload || !lottoRows.length || !dailyRows.length) {
@@ -87,6 +105,7 @@ export async function fetchSupabaseLottoData() {
       '大樂透': lottoRows.map(mapDraw),
       '今彩539': dailyRows.map(mapDraw)
     },
-    performance: performanceRows[0]?.payload || null
+    performance: performanceRows[0]?.payload || null,
+    asiLearning: learningRows.map(mapAsiLearning)
   }
 }

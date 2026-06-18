@@ -9,6 +9,7 @@ export function useLottoData() {
     '今彩539': []
   })
   const performance = ref(null)
+  const asiLearning = ref([])
   const loading = ref(true)
   const error = ref(null)
 
@@ -44,6 +45,8 @@ export function useLottoData() {
     if (perfRes.ok) {
       performance.value = await perfRes.json()
     }
+
+    asiLearning.value = []
   }
 
   const applySupabaseData = (payload) => {
@@ -51,6 +54,7 @@ export function useLottoData() {
     predictions.value = payload.predictions
     history.value = payload.history
     performance.value = payload.performance
+    asiLearning.value = payload.asiLearning || []
   }
 
   const fetchData = async () => {
@@ -81,6 +85,7 @@ export function useLottoData() {
     predictions,
     history,
     performance,
+    asiLearning,
     loading,
     error,
     fetchData

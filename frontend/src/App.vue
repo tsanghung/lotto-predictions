@@ -7,13 +7,14 @@ import HotColdChart from './components/HotColdChart.vue'
 import PerformanceChart from './components/PerformanceChart.vue'
 import AttributionReport from './components/AttributionReport.vue'
 import PredictionHistoryPanel from './components/PredictionHistoryPanel.vue'
+import AsiLearningPanel from './components/AsiLearningPanel.vue'
 import HeatmapChart from './components/HeatmapChart.vue'
 import IntervalAnalysis from './components/IntervalAnalysis.vue'
 import RandomnessAudit from './components/RandomnessAudit.vue'
 import DistributionChart from './components/DistributionChart.vue'
 import SectionHeader from './components/SectionHeader.vue'
 
-const { meta, predictions, history, performance, loading, error, fetchData } = useLottoData()
+const { meta, predictions, history, performance, asiLearning, loading, error, fetchData } = useLottoData()
 const activeTab = ref('649')
 
 const pageThemes = {
@@ -189,6 +190,7 @@ const formatDate = (iso) => {
               <AttributionReport
                 :prediction="[...predictions].reverse().find(p => p.game_name === '大樂透')" />
               <PredictionHistoryPanel game-name="大樂透" :prediction-data="predictions" accent="#2dd4bf" />
+              <AsiLearningPanel game-name="大樂透" :records="asiLearning" accent="#2dd4bf" />
               <PerformanceChart game-name="大樂透" :performance-data="performance" />
             </div>
           </section>
@@ -239,6 +241,7 @@ const formatDate = (iso) => {
               <AttributionReport
                 :prediction="[...predictions].reverse().find(p => p.game_name === '今彩539')" />
               <PredictionHistoryPanel game-name="今彩539" :prediction-data="predictions" accent="#a78bfa" />
+              <AsiLearningPanel game-name="今彩539" :records="asiLearning" accent="#a78bfa" />
               <PerformanceChart game-name="今彩539" :performance-data="performance" />
             </div>
           </section>
