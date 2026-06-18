@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applyGeminiQuantDecision,
   backtestCombinations,
+  buildAsiLearningContext,
   buildGeminiDecisionPayload,
   buildLineMessage,
   dueGamesForDate,
@@ -112,6 +113,55 @@ test("builds Gemini payload with full raw draw history and quantitative features
   assert.equal(payload.quantitative_features.full_history_sample_size, dailyDraws.length);
   assert.ok(payload.quantitative_features.trend_windows["5"].hot.length > 0);
   assert.ok(payload.quantitative_features.methodology.includes("statistical"));
+});
+
+test("normalizes recent ASI learning records for Gemini context", () => {
+  const context = buildAsiLearningContext([
+    {
+      game_name: "今彩539",
+      target_draw_date: "2026-06-17",
+      matched_numbers: [10, 8],
+      missed_numbers: [3, 1, 2],
+      strategy_effectiveness: {
+        balanced: { hits: 2, analysis: "balanced caught recurring mid-zone numbers" },
+      },
+      next_adjustments: [
+        "降低過冷號碼的單次權重。",
+        "補強近期同開號碼與遺漏區間的交叉驗證。",
+      ],
+      reasoning_source: "gemini_quantitative",
+      model_name: "gemini-2.5-flash",
+    },
+  ]);
+
+  assert.equal(context.length, 1);
+  assert.equal(context[0].game_name, "今彩539");
+  assert.deepEqual(context[0].matched_numbers, [8, 10]);
+  assert.deepEqual(context[0].missed_numbers, [1, 2, 3]);
+  assert.ok(context[0].lessons.includes("降低過冷號碼的單次權重。"));
+  assert.ok(context[0].strategy_notes[0].includes("balanced"));
+});
+
+test("adds ASI learning memory into Gemini decision payload", () => {
+  const payload = buildGeminiDecisionPayload({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-18T10:00:00+08:00",
+    learningRecords: [
+      {
+        game_name: "今彩539",
+        target_draw_date: "2026-06-17",
+        matched_numbers: [8],
+        missed_numbers: [2, 4, 6],
+        strategy_effectiveness: { aggressive: { hits: 1, analysis: "too cold-heavy" } },
+        next_adjustments: ["降低冷門反彈假設的權重。"],
+      },
+    ],
+  });
+
+  assert.equal(payload.asi_learning_memory.length, 1);
+  assert.equal(payload.asi_learning_memory[0].target_draw_date, "2026-06-17");
+  assert.ok(payload.quantitative_features.methodology.includes("ASI learning"));
 });
 
 test("Gemini quantitative decision drives combinations while verifier rejects invalid numbers", () => {
