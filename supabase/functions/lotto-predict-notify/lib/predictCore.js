@@ -440,6 +440,14 @@ export function buildAsiLearningContext(records = [], limit = 5) {
     });
 }
 
+/**
+ * @param {{
+ *   gameType: string,
+ *   draws: Array<Record<string, unknown>>,
+ *   generatedAt: string,
+ *   learningRecords?: Array<Record<string, unknown>>,
+ * }} options
+ */
 export function buildGeminiDecisionPayload({ gameType, draws, generatedAt, learningRecords = [] }) {
   const config = GAME_CONFIG[gameType];
   if (!config) {
