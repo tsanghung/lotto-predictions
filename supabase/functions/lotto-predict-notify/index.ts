@@ -169,6 +169,42 @@ async function fetchDraws(
   );
 }
 
+async function fetchRecentAsiLearningRecords(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+  limit = 5,
+): Promise<Record<string, unknown>[]> {
+  const params = new URLSearchParams({
+    game_name: `eq.${gameName}`,
+    select: [
+      "game_name",
+      "target_draw_date",
+      "matched_numbers",
+      "missed_numbers",
+      "strategy_effectiveness",
+      "next_adjustments",
+      "reasoning_source",
+      "model_name",
+    ].join(","),
+    order: "target_draw_date.desc",
+    limit: String(limit),
+  });
+
+  const response = await supabaseRequest(
+    supabaseUrl,
+    serviceRoleKey,
+    `asi_learning_records?${params}`,
+  );
+
+  if (!response.ok) {
+    console.warn(`ASI learning context unavailable: ${response.status} ${await response.text()}`);
+    return [];
+  }
+
+  return await response.json() as Record<string, unknown>[];
+}
+
 async function upsertPrediction(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -447,10 +483,17 @@ async function processGame(
   },
 ) {
   const draws = await fetchDraws(options.supabaseUrl, options.serviceRoleKey, gameType);
+  const gameName = GAME_CONFIG[gameType].name;
+  const learningRecords = await fetchRecentAsiLearningRecords(
+    options.supabaseUrl,
+    options.serviceRoleKey,
+    gameName,
+  );
   const payload = buildGeminiDecisionPayload({
     gameType,
     draws,
     generatedAt: options.generatedAt,
+    learningRecords,
   });
   let record: Record<string, unknown> = generatePrediction({
     gameType,
@@ -458,7 +501,6 @@ async function processGame(
     generatedAt: options.generatedAt,
   });
   record = await enhancePredictionWithGemini(record, payload, draws);
-  const gameName = GAME_CONFIG[gameType].name;
   const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
   if (!drawTargetDate) {
     return {
@@ -477,11 +519,23 @@ async function processGame(
     predicted_at: options.generatedAt,
     target_draw_date: drawTargetDate,
     prediction: record.prediction,
+    model_name: (record.prediction as Record<string, unknown> | undefined)?.model ?? null,
+    reasoning_source: (record.prediction as Record<string, unknown> | undefined)?.reasoning_source ?? null,
+    asi_learning_context: {
+      version: "asi_learning_context_v1",
+      records_used: learningRecords.length,
+      latest_target_draw_date: learningRecords[0]?.target_draw_date || null,
+    },
     is_evaluated: false,
     evaluation: record.evaluation,
     raw: {
       ...record,
       target_draw_date: drawTargetDate,
+      asi_learning_context: {
+        version: "asi_learning_context_v1",
+        records_used: learningRecords.length,
+        latest_target_draw_date: learningRecords[0]?.target_draw_date || null,
+      },
     },
   };
 
