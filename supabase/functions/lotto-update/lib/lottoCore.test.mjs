@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildAsiLearningRecord,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -276,6 +277,46 @@ test("builds post-draw learning report with hit, miss, and uncovered actual anal
 
   assert.ok(evaluation.learning_report.strategy_reviews.balanced.analysis.includes("2 / 5"));
   assert.ok(evaluation.learning_report.next_prediction_guidance.length >= 3);
+});
+
+test("builds ASI learning record from evaluated prediction", () => {
+  const predictionRecord = {
+    source_key: "prediction|今彩539|2026-06-17",
+    game_name: "今彩539",
+    target_draw_date: "2026-06-17",
+    prediction: {
+      model: "gemini-2.5-flash",
+      reasoning_source: "gemini_quantitative",
+      combinations: {
+        aggressive: [1, 2, 3, 4, 5],
+        balanced: [8, 10, 15, 16, 37],
+      },
+      number_insights: {
+        selected_numbers: {
+          "8": { reason: "recent co-occurrence support" },
+        },
+      },
+    },
+  };
+  const draw = {
+    draw_id: "115000147",
+    draw_date: "2026-06-17",
+    numbers: [8, 10, 15, 16, 37],
+    special_number: null,
+  };
+  const evaluation = evaluatePredictionRecord(predictionRecord, draw);
+  const asi = buildAsiLearningRecord(predictionRecord, draw, evaluation);
+
+  assert.equal(asi.game_name, "今彩539");
+  assert.equal(asi.target_draw_date, "2026-06-17");
+  assert.equal(asi.prediction_source_key, "prediction|今彩539|2026-06-17");
+  assert.equal(asi.model_name, "gemini-2.5-flash");
+  assert.equal(asi.reasoning_source, "gemini_quantitative");
+  assert.deepEqual(asi.actual_numbers, [8, 10, 15, 16, 37]);
+  assert.ok(asi.matched_numbers.includes(8));
+  assert.equal(asi.selected_number_reasons["8"], "recent co-occurrence support");
+  assert.ok(asi.next_adjustments.length >= 1);
+  assert.equal(asi.raw_learning_report.version, "post_draw_learning_v1");
 });
 
 test("builds performance snapshot from latest evaluated prediction per target draw date", () => {
