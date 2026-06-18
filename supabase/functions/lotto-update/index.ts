@@ -1,4 +1,5 @@
 import {
+  buildAsiLearningRecord,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -307,6 +308,28 @@ async function upsertPerformanceSnapshot(
   }
 }
 
+async function upsertAsiLearningRecord(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  row: Record<string, unknown>,
+): Promise<void> {
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/asi_learning_records?on_conflict=game_name,target_draw_date,prediction_source_key`,
+    {
+      method: "POST",
+      headers: {
+        ...supabaseHeaders(serviceRoleKey),
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify([row]),
+    },
+  );
+
+  if (!response.ok) {
+    console.warn(`Supabase ASI learning upsert failed: ${response.status} ${await response.text()}`);
+  }
+}
+
 async function fetchReadyPredictions(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -439,6 +462,8 @@ async function evaluateReadyPredictions(
 
     const evaluation = evaluatePredictionRecord(prediction, draw);
     await markPredictionEvaluated(supabaseUrl, serviceRoleKey, prediction.source_key, evaluation);
+    const asiLearningRecord = buildAsiLearningRecord(prediction, draw, evaluation);
+    await upsertAsiLearningRecord(supabaseUrl, serviceRoleKey, asiLearningRecord);
     evaluated.push({
       source_key: prediction.source_key,
       game_name: prediction.game_name,
