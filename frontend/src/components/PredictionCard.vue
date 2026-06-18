@@ -16,6 +16,11 @@ const latestPrediction = computed(() => {
   return detailed.length ? detailed[detailed.length - 1] : (filtered[filtered.length - 1] || null)
 })
 
+const latestPredictionDate = computed(() => {
+  const date = latestPrediction.value?.target_draw_date || latestPrediction.value?.timestamp
+  return date ? new Date(date).toLocaleDateString('zh-TW') : ''
+})
+
 const strategyStyle = (strategy) => {
   if (strategy.includes('激進') || strategy.includes('AI')) return { color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)' }
   if (strategy.includes('穩健') || strategy.includes('平衡')) return { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.25)' }
@@ -76,7 +81,7 @@ const sortedInsights = computed(() => {
           <span>🔮</span> AI 預測號碼
         </h2>
         <span v-if="latestPrediction" style="font-size:14px;color:#64748b;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:100px;padding:3px 10px;">
-          {{ new Date(latestPrediction.timestamp).toLocaleDateString('zh-TW') }}
+          {{ latestPredictionDate }}
         </span>
       </div>
 
