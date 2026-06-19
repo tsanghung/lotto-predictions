@@ -127,12 +127,31 @@ function bearerToken(request: Request): string {
     : "";
 }
 
+function jwtRole(token: string): string | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) {
+      return null;
+    }
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+    return JSON.parse(atob(padded))?.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function assertAuthorized(request: Request, serviceRoleKey: string): void {
   const allowedKeys = new Set([serviceRoleKey, ...secretKeys()]);
   const providedApiKey = request.headers.get("apikey") ?? "";
   const providedBearer = bearerToken(request);
 
-  if (!allowedKeys.has(providedApiKey) && !allowedKeys.has(providedBearer)) {
+  if (
+    !allowedKeys.has(providedApiKey) &&
+    !allowedKeys.has(providedBearer) &&
+    jwtRole(providedBearer) !== "service_role" &&
+    jwtRole(providedApiKey) !== "service_role"
+  ) {
     throw new Error("Unauthorized request. Provide a valid Supabase secret key in the apikey header.");
   }
 }

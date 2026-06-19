@@ -84,11 +84,30 @@ function bearerToken(request: Request): string {
     : "";
 }
 
+function jwtRole(token: string): string | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) {
+      return null;
+    }
+    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized.padEnd(normalized.length + ((4 - normalized.length % 4) % 4), "=");
+    return JSON.parse(atob(padded))?.role ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function assertAuthorized(request: Request, serviceRoleKey: string): void {
   const allowedKeys = new Set([serviceRoleKey, ...secretKeys()]);
   const providedApiKey = request.headers.get("apikey") ?? "";
   const providedBearer = bearerToken(request);
-  if (!allowedKeys.has(providedApiKey) && !allowedKeys.has(providedBearer)) {
+  if (
+    !allowedKeys.has(providedApiKey) &&
+    !allowedKeys.has(providedBearer) &&
+    jwtRole(providedBearer) !== "service_role" &&
+    jwtRole(providedApiKey) !== "service_role"
+  ) {
     throw new Error("Unauthorized request. Provide a valid Supabase secret key in the apikey header.");
   }
 }
@@ -210,7 +229,7 @@ async function upsertPrediction(
   serviceRoleKey: string,
   record: Record<string, unknown>,
 ): Promise<void> {
-  const response = await supabaseRequest(
+  let response = await supabaseRequest(
     supabaseUrl,
     serviceRoleKey,
     "prediction_records?on_conflict=source_key",
@@ -221,7 +240,30 @@ async function upsertPrediction(
     },
   );
   if (!response.ok) {
-    throw new Error(`Supabase prediction upsert failed: ${response.status} ${await response.text()}`);
+    const errorText = await response.text();
+    const compatibilityColumns = ["asi_state", "asi_learning_context", "model_name", "reasoning_source"];
+    if (compatibilityColumns.some((column) => errorText.includes(column))) {
+      const compatibleRecord = { ...record };
+      for (const column of compatibilityColumns) {
+        delete compatibleRecord[column];
+      }
+      response = await supabaseRequest(
+        supabaseUrl,
+        serviceRoleKey,
+        "prediction_records?on_conflict=source_key",
+        {
+          method: "POST",
+          headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify([compatibleRecord]),
+        },
+      );
+      if (response.ok) {
+        console.warn(`Prediction upsert used compatibility mode because ASI columns are not migrated yet: ${errorText}`);
+        return;
+      }
+      throw new Error(`Supabase prediction compatibility upsert failed: ${response.status} ${await response.text()}`);
+    }
+    throw new Error(`Supabase prediction upsert failed: ${response.status} ${errorText}`);
   }
 }
 
@@ -252,24 +294,34 @@ async function reserveNotification(
   const existingResponse = await supabaseRequest(
     supabaseUrl,
     serviceRoleKey,
-    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&select=notification_key,status,target_date,sent_at`,
+    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&select=notification_key,status,target_date,sent_at,created_at`,
   );
   if (!existingResponse.ok) {
     throw new Error(`Supabase notification lookup failed: ${existingResponse.status} ${await existingResponse.text()}`);
   }
-  const existingRows = await existingResponse.json() as Array<{ status?: string; target_date?: string; sent_at?: string | null }>;
+  const existingRows = await existingResponse.json() as Array<{
+    status?: string;
+    target_date?: string;
+    sent_at?: string | null;
+    created_at?: string;
+  }>;
   const existing = existingRows[0];
+  const reservedAgeMs = existing?.created_at ? Date.now() - new Date(existing.created_at).getTime() : 0;
   const canRetryFailed = existing?.status === "failed";
+  const canRetryStaleReserved = existing?.status === "reserved" &&
+    !existing.sent_at &&
+    reservedAgeMs > 5 * 60 * 1000;
   const canRetryEarlySent = existing?.status === "sent" &&
     notificationSentBeforeRelease(existing.sent_at, String(row.target_date ?? existing.target_date ?? ""));
-  if (!canRetryFailed && !canRetryEarlySent) {
+  if (!canRetryFailed && !canRetryStaleReserved && !canRetryEarlySent) {
     return false;
   }
 
+  const retryStatus = canRetryFailed ? "failed" : canRetryStaleReserved ? "reserved" : "sent";
   const retryResponse = await supabaseRequest(
     supabaseUrl,
     serviceRoleKey,
-    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&status=eq.${canRetryFailed ? "failed" : "sent"}`,
+    `notification_logs?notification_key=eq.${encodeURIComponent(key)}&status=eq.${retryStatus}`,
     {
       method: "PATCH",
       headers: { Prefer: "return=representation" },
@@ -369,11 +421,14 @@ async function enhancePredictionWithGemini(
   ].join("\n\n");
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45_000);
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
         body: JSON.stringify({
           systemInstruction: {
             parts: [{
@@ -441,6 +496,7 @@ async function enhancePredictionWithGemini(
         }),
       },
     );
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.warn(`Gemini quantitative prediction failed: ${response.status} ${await response.text()}`);
@@ -467,7 +523,7 @@ async function enhancePredictionWithGemini(
       },
     };
   } catch (error) {
-    console.warn(`Gemini quantitative prediction error: ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`Gemini quantitative prediction error: ${error instanceof Error ? error.message : String(error)}; using statistical fallback.`);
     return record;
   }
 }
