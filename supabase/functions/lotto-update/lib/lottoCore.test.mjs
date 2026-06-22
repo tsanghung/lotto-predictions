@@ -62,6 +62,28 @@ test("parses Taiwan Lottery Lotto649 official payload with special number", () =
   assert.equal(draws[0].special_number, 31);
 });
 
+test("parses Taiwan Lottery Power Lottery official payload with second area", () => {
+  const payload = {
+    rtCode: 0,
+    content: {
+      superLotto638Res: [
+        {
+          period: "115000043",
+          lotteryDate: "2026-05-28T00:00:00",
+          drawNumberSize: [31, 1, 24, 38, 2, 34, 3],
+        },
+      ],
+    },
+  };
+
+  const draws = parseOfficialPayload("power", payload);
+
+  assert.equal(draws[0].draw_id, "115000043");
+  assert.equal(draws[0].date, "2026-05-28");
+  assert.deepEqual(draws[0].numbers, [1, 2, 24, 31, 34, 38]);
+  assert.equal(draws[0].special_number, 3);
+});
+
 test("parses Auzonet Daily539 HTML as the secondary source", () => {
   const html = `
     <section>
@@ -173,6 +195,29 @@ test("maps draw to Supabase row", () => {
     raw: {
       source: "taiwan_lottery_official",
       payload: { period: "115000142" },
+    },
+  });
+});
+
+test("maps Power Lottery draw to Supabase row", () => {
+  const row = toLottoDrawRow("power", {
+    draw_id: "115000043",
+    date: "2026-05-28",
+    numbers: [1, 2, 24, 31, 34, 38],
+    special_number: 3,
+    source: "taiwan_lottery_official",
+    raw: { period: "115000043" },
+  });
+
+  assert.deepEqual(row, {
+    game_name: "威力彩",
+    draw_id: "115000043",
+    draw_date: "2026-05-28",
+    numbers: [1, 2, 24, 31, 34, 38],
+    special_number: 3,
+    raw: {
+      source: "taiwan_lottery_official",
+      payload: { period: "115000043" },
     },
   });
 });

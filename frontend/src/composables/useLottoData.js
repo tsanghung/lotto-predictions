@@ -6,7 +6,8 @@ export function useLottoData() {
   const predictions = ref([])
   const history = ref({
     '大樂透': [],
-    '今彩539': []
+    '今彩539': [],
+    '威力彩': []
   })
   const performance = ref(null)
   const asiLearning = ref([])
@@ -39,6 +40,11 @@ export function useLottoData() {
     const dailyRes = await fetch(`${dataBaseUrl}/daily539.json?t=${timestamp}`)
     if (dailyRes.ok) {
       history.value['今彩539'] = await dailyRes.json()
+    }
+
+    const powerRes = await fetch(`${dataBaseUrl}/power.json?t=${timestamp}`)
+    if (powerRes.ok) {
+      history.value['威力彩'] = await powerRes.json()
     }
 
     const perfRes = await fetch(`${dataBaseUrl}/performance.json?t=${timestamp}`)

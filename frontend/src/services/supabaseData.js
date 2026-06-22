@@ -92,6 +92,7 @@ export async function fetchSupabaseLottoData() {
     predictionRows,
     lottoRows,
     dailyRows,
+    powerRows,
     performanceRows,
     learningRows
   ] = await Promise.all([
@@ -99,11 +100,12 @@ export async function fetchSupabaseLottoData() {
     requestAll('prediction_records?select=source_key,predicted_at,target_draw_date,game_name,prediction,is_evaluated,evaluation&order=target_draw_date.asc,predicted_at.asc'),
     requestAll('lotto_draws?game_name=eq.%E5%A4%A7%E6%A8%82%E9%80%8F&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     requestAll('lotto_draws?game_name=eq.%E4%BB%8A%E5%BD%A9539&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
+    requestAll('lotto_draws?game_name=eq.%E5%A8%81%E5%8A%9B%E5%BD%A9&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     request('performance_snapshots?snapshot_key=eq.current&select=payload&limit=1'),
     requestOptionalAll('asi_learning_records?select=game_name,target_draw_date,draw_id,matched_numbers,missed_numbers,actual_numbers,strategy_effectiveness,next_adjustments,reasoning_source,model_name,created_at&order=target_draw_date.asc,created_at.asc')
   ])
 
-  if (!metaRows[0]?.payload || !lottoRows.length || !dailyRows.length) {
+  if (!metaRows[0]?.payload || !lottoRows.length || !dailyRows.length || !powerRows.length) {
     throw new Error('Supabase data is empty')
   }
 
@@ -112,7 +114,8 @@ export async function fetchSupabaseLottoData() {
     predictions: filterVisiblePredictions(predictionRows.map(mapPrediction)),
     history: {
       '大樂透': lottoRows.map(mapDraw),
-      '今彩539': dailyRows.map(mapDraw)
+      '今彩539': dailyRows.map(mapDraw),
+      '威力彩': powerRows.map(mapDraw)
     },
     performance: performanceRows[0]?.payload || null,
     asiLearning: learningRows.map(mapAsiLearning)

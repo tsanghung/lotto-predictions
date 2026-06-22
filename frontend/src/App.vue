@@ -36,6 +36,15 @@ const pageThemes = {
     liveGlow: 'rgba(251,191,36,0.78)',
     headline: 'linear-gradient(135deg,#fbbf24 0%,#ec4899 46%,#a78bfa 100%)',
   },
+  'power': {
+    background: 'linear-gradient(145deg,#120807 0%,#1f1213 45%,#211506 100%)',
+    orbA: 'radial-gradient(circle,rgba(245,158,11,0.18) 0%,rgba(245,158,11,0.05) 38%,transparent 72%)',
+    orbB: 'radial-gradient(circle,rgba(225,29,72,0.16) 0%,rgba(251,191,36,0.05) 44%,transparent 74%)',
+    orbC: 'radial-gradient(circle,rgba(251,113,133,0.10) 0%,transparent 68%)',
+    liveColor: '#f59e0b',
+    liveGlow: 'rgba(245,158,11,0.82)',
+    headline: 'linear-gradient(135deg,#fde68a 0%,#f59e0b 44%,#fb7185 100%)',
+  },
 }
 
 const activeTheme = computed(() => pageThemes[activeTab.value])
@@ -111,6 +120,10 @@ const formatDate = (iso) => {
             <span style="font-size:15px;color:#94a3b8;">今彩539期數</span>
             <span style="font-size:15px;font-weight:700;color:#a78bfa;">{{ meta.daily539_total }} 期</span>
           </div>
+          <div v-if="meta && !loading" style="display:inline-flex;align-items:center;gap:8px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:100px;padding:6px 16px;">
+            <span style="font-size:15px;color:#94a3b8;">威力彩期數</span>
+            <span style="font-size:15px;font-weight:700;color:#f59e0b;">{{ meta.power_total }} 期</span>
+          </div>
         </div>
       </header>
 
@@ -150,6 +163,16 @@ const formatDate = (iso) => {
               boxShadow: activeTab==='539' ? '0 2px 12px rgba(167,139,250,0.25)' : 'none'
             }">
             ⚡ 今彩539
+          </button>
+          <button @click="activeTab='power'"
+            :style="{
+              padding:'10px 28px', borderRadius:'10px', border:'none', cursor:'pointer',
+              fontWeight:'700', fontSize:'17px', transition:'all 0.2s',
+              background: activeTab==='power' ? 'linear-gradient(135deg,#b45309,#e11d48)' : 'transparent',
+              color: activeTab==='power' ? '#fff' : '#64748b',
+              boxShadow: activeTab==='power' ? '0 2px 12px rgba(245,158,11,0.28)' : 'none'
+            }">
+            威力彩
           </button>
         </div>
 
@@ -254,6 +277,57 @@ const formatDate = (iso) => {
               :max-number="39" :balls-per-draw="5" :has-special="false" accent="#a78bfa" />
           </section>
         </div>
+
+        <!-- 威力彩 -->
+        <div v-show="activeTab==='power'" style="display:flex;flex-direction:column;gap:56px;">
+
+          <!-- 區塊一：AI 預測與統計 -->
+          <section>
+            <SectionHeader label="AI Prediction" title="AI 預測與即時統計"
+              desc="Gemini 推理生成的第一區投注組合，並列第二區歷史特別號與近期開獎概況" accent="#f59e0b" />
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
+              <PredictionCard game-name="威力彩" :prediction-data="predictions"
+                :history-data="history['威力彩']" accent="#f59e0b" />
+              <StatsPanel game-name="威力彩" :history-data="history['威力彩']"
+                :max-number="38" accent="#f59e0b" />
+            </div>
+          </section>
+
+          <!-- 區塊二：號碼分析 -->
+          <section>
+            <SectionHeader label="Number Analysis" title="號碼熱度與分佈"
+              desc="從全歷史與近期視窗觀察第一區號碼頻率、熱力分佈與奇偶大小結構" accent="#f59e0b" />
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              <HotColdChart game-name="威力彩" :history-data="history['威力彩']"
+                :max-number="38" accent="#f59e0b" />
+              <HeatmapChart game-name="威力彩" :history-data="history['威力彩']" />
+              <IntervalAnalysis game-name="威力彩" :history-data="history['威力彩']"
+                :max-number="38" accent="#f59e0b" />
+              <DistributionChart game-name="威力彩" :history-data="history['威力彩']" />
+            </div>
+          </section>
+
+          <!-- 區塊三：成效追蹤 -->
+          <section>
+            <SectionHeader label="Performance" title="AI 預測成效追蹤"
+              desc="歷次對獎的命中率、走勢與科學歸因分析" accent="#f59e0b" />
+            <div style="display:flex;flex-direction:column;gap:24px;">
+              <AttributionReport
+                :prediction="[...predictions].reverse().find(p => p.game_name === '威力彩')" />
+              <PredictionHistoryPanel game-name="威力彩" :prediction-data="predictions" accent="#f59e0b" />
+              <AsiLearningPanel game-name="威力彩" :records="asiLearning" accent="#f59e0b" />
+              <PerformanceChart game-name="威力彩" :performance-data="performance" />
+            </div>
+          </section>
+
+          <!-- 區塊四：公正性稽核 -->
+          <section>
+            <SectionHeader label="Fairness Audit" title="開獎公正性稽核"
+              desc="用多種統計檢定，從全歷史資料驗證威力彩第一區是否真隨機、有無人為操控指紋" accent="#f59e0b" />
+            <RandomnessAudit game-name="威力彩" :history-data="history['威力彩']"
+              :max-number="38" :balls-per-draw="6" :has-special="true" accent="#f59e0b" />
+          </section>
+        </div>
       </div>
 
       <!-- Footer -->
@@ -262,7 +336,7 @@ const formatDate = (iso) => {
           ⚠️ 本系統僅供娛樂參考，不構成任何投注建議。請理性投注，勿過度沉迷。
         </p>
         <p style="font-size:14px;color:#1e293b;margin-top:8px;">
-          由 Gemini AI × GitHub Actions 全自動驅動 · 資料來源：台灣彩券官方網站
+          由 Gemini AI × Supabase Edge Functions 全自動驅動 · 資料來源：台灣彩券官方網站
         </p>
       </footer>
     </div>

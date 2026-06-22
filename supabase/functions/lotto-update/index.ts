@@ -11,7 +11,7 @@ import {
   toLottoDrawRow,
 } from "./lib/lottoCore.js";
 
-type GameType = "539" | "649";
+type GameType = "539" | "649" | "power";
 
 type LottoDraw = {
   draw_id: string;
@@ -51,11 +51,13 @@ type DrawRow = {
 const OFFICIAL_URLS: Record<GameType, string> = {
   "539": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Daily539Result",
   "649": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Lotto649Result",
+  "power": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/SuperLotto638Result",
 };
 
 const GAME_NAMES: Record<GameType, string> = {
   "539": "今彩539",
   "649": "大樂透",
+  "power": "威力彩",
 };
 
 const CORS_HEADERS = {
@@ -182,7 +184,13 @@ async function fetchText(url: string): Promise<string> {
 
 async function fetchOfficialLatest(game: GameType, targetDate: string): Promise<LottoDraw> {
   const month = targetDate.slice(0, 7);
-  const params = new URLSearchParams({ period: "", month });
+  const params = new URLSearchParams({
+    period: "",
+    month,
+    endMonth: month,
+    pageNum: "1",
+    pageSize: "200",
+  });
   const payload = await fetchJson(`${OFFICIAL_URLS[game]}?${params}`);
   const draws = parseOfficialPayload(game, payload);
   const latest = latestByDrawId(draws);
@@ -558,10 +566,12 @@ async function handleRequest(request: Request): Promise<Response> {
       ? ["539"]
       : requestedGame === "649"
         ? ["649"]
-        : ["649", "539"];
+        : requestedGame === "power"
+          ? ["power"]
+          : ["649", "539", "power"];
 
-    if (!["all", "539", "649"].includes(requestedGame)) {
-      return failFast(400, "Unsupported game parameter", requestedGame, "Use game=all, game=539, or game=649.");
+    if (!["all", "539", "649", "power"].includes(requestedGame)) {
+      return failFast(400, "Unsupported game parameter", requestedGame, "Use game=all, game=539, game=649, or game=power.");
     }
 
     const results = [];
@@ -595,15 +605,17 @@ async function handleRequest(request: Request): Promise<Response> {
       }
       : null;
 
-    const [lotto649Total, daily539Total] = await Promise.all([
+    const [lotto649Total, daily539Total, powerTotal] = await Promise.all([
       fetchDrawCount(supabaseUrl, serviceRoleKey, "649"),
       fetchDrawCount(supabaseUrl, serviceRoleKey, "539"),
+      fetchDrawCount(supabaseUrl, serviceRoleKey, "power"),
     ]);
 
     const metaPayload = {
       last_updated: new Date().toISOString(),
       lotto649_total: lotto649Total,
       daily539_total: daily539Total,
+      power_total: powerTotal,
       source: "supabase_edge_function",
       target_date: targetDate,
       results,

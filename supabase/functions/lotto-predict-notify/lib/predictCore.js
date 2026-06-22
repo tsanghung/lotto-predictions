@@ -11,6 +11,11 @@ export const GAME_CONFIG = {
     maxNumber: 49,
     picks: 6,
   },
+  "power": {
+    name: "威力彩",
+    maxNumber: 38,
+    picks: 6,
+  },
 };
 
 const STRATEGY_NAMES = ["激進包牌", "穩健平衡", "統計趨勢"];
@@ -49,6 +54,9 @@ export function isDrawDate(gameType, dateString) {
   if (gameType === "649") {
     return day === 2 || day === 5;
   }
+  if (gameType === "power") {
+    return day === 1 || day === 4;
+  }
   return false;
 }
 
@@ -81,6 +89,9 @@ export function nextDrawDate(gameType, fromDate) {
     if (gameType === "649" && (day === 2 || day === 5)) {
       return date;
     }
+    if (gameType === "power" && (day === 1 || day === 4)) {
+      return date;
+    }
     date = dateAdd(date, 1);
   }
 }
@@ -111,7 +122,7 @@ function numberStats(draws, maxNumber) {
 }
 
 function recentPeriodFor(gameType, drawCount) {
-  const target = gameType === "649" ? 100 : 300;
+  const target = gameType === "539" ? 300 : 100;
   return Math.min(target, drawCount);
 }
 

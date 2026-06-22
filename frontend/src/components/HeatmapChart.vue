@@ -12,9 +12,13 @@ const props = defineProps({
   }
 })
 
-const maxNum = computed(() => (props.gameName === '大樂透' ? 49 : 39))
-// 大樂透近 100 期、今彩539 近 300 期
-const periods = computed(() => (props.gameName === '大樂透' ? 100 : 300))
+const maxNum = computed(() => {
+  if (props.gameName === '大樂透') return 49
+  if (props.gameName === '威力彩') return 38
+  return 39
+})
+// 大樂透與威力彩近 100 期、今彩539 近 300 期
+const periods = computed(() => (props.gameName === '今彩539' ? 300 : 100))
 
 // 計算近 N 期各號碼出現頻率
 const frequencies = computed(() => {
@@ -36,12 +40,15 @@ const maxFreq = computed(() => Math.max(...counts.value, 1))
 const minFreq = computed(() => Math.min(...counts.value, 0))
 
 // 主題色階（由冷到熱，刻意拉大明度對比，確保肉眼可辨）
-//   大樂透：暗墨綠 → 亮青；今彩539：暗紫 → 亮洋紅
-const palette = computed(() =>
-  props.gameName === '大樂透'
-    ? ['#0c1f22', '#0f3f3b', '#0d9488', '#2dd4bf', '#5eead4', '#a7f3e4']
-    : ['#1c1233', '#4c1d95', '#a21caf', '#d946ef', '#e879f9', '#f7c8fd']
-)
+const palette = computed(() => {
+  if (props.gameName === '大樂透') {
+    return ['#0c1f22', '#0f3f3b', '#0d9488', '#2dd4bf', '#5eead4', '#a7f3e4']
+  }
+  if (props.gameName === '威力彩') {
+    return ['#21130b', '#5b2a12', '#b45309', '#f59e0b', '#fbbf24', '#fde68a']
+  }
+  return ['#1c1233', '#4c1d95', '#a21caf', '#d946ef', '#e879f9', '#f7c8fd']
+})
 
 // min-max 正規化：把實際出現範圍（最冷~最熱）攤平到 0~1，避免顏色擠在同一段
 const bandIndex = (count) => {

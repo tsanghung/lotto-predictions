@@ -11,7 +11,7 @@ import {
   sourceKey,
 } from "./lib/predictCore.js";
 
-type GameType = "539" | "649";
+type GameType = "539" | "649" | "power";
 
 type DrawRow = {
   draw_id: string;
@@ -664,8 +664,8 @@ async function handleRequest(request: Request): Promise<Response> {
     const targetDate = url.searchParams.get("target_date") ?? now.date;
     const generatedAt = url.searchParams.get("generated_at") ?? now.timestamp;
 
-    if (!["due", "all", "539", "649"].includes(requestedGame)) {
-      return failFast(400, "Unsupported game parameter", requestedGame, "Use game=due, game=all, game=539, or game=649.");
+    if (!["due", "all", "539", "649", "power"].includes(requestedGame)) {
+      return failFast(400, "Unsupported game parameter", requestedGame, "Use game=due, game=all, game=539, game=649, or game=power.");
     }
 
     const games: GameType[] = requestedGame === "due"
@@ -674,7 +674,9 @@ async function handleRequest(request: Request): Promise<Response> {
       ? ["539"]
       : requestedGame === "649"
         ? ["649"]
-        : ["539", "649"];
+        : requestedGame === "power"
+          ? ["power"]
+          : ["539", "649", "power"];
 
     const results = [];
     for (const game of games) {

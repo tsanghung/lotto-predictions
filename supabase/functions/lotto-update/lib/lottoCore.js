@@ -1,11 +1,13 @@
 export const GAME_NAMES = {
   "539": "今彩539",
   "649": "大樂透",
+  "power": "威力彩",
 };
 
 const OFFICIAL_KEYS = {
   "539": "daily539Res",
   "649": "lotto649Res",
+  "power": "superLotto638Res",
 };
 
 export function normalizeNumbers(numbers) {
@@ -25,10 +27,10 @@ export function parseOfficialPayload(gameType, payload) {
 
   return rows.map((row) => {
     const drawNumbers = row.drawNumberSize || [];
-    const baseNumbers = gameType === "649"
+    const baseNumbers = gameType === "649" || gameType === "power"
       ? drawNumbers.slice(0, 6)
       : drawNumbers.slice(0, 5);
-    const specialNumber = gameType === "649" ? Number(drawNumbers[6]) : null;
+    const specialNumber = gameType === "649" || gameType === "power" ? Number(drawNumbers[6]) : null;
 
     return {
       draw_id: String(row.period),
