@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildAsiLearningRecord,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -59,6 +60,28 @@ test("parses Taiwan Lottery Lotto649 official payload with special number", () =
   assert.equal(draws[0].draw_id, "115000060");
   assert.deepEqual(draws[0].numbers, [13, 18, 25, 39, 40, 46]);
   assert.equal(draws[0].special_number, 31);
+});
+
+test("parses Taiwan Lottery Power Lottery official payload with second area", () => {
+  const payload = {
+    rtCode: 0,
+    content: {
+      superLotto638Res: [
+        {
+          period: "115000043",
+          lotteryDate: "2026-05-28T00:00:00",
+          drawNumberSize: [31, 1, 24, 38, 2, 34, 3],
+        },
+      ],
+    },
+  };
+
+  const draws = parseOfficialPayload("power", payload);
+
+  assert.equal(draws[0].draw_id, "115000043");
+  assert.equal(draws[0].date, "2026-05-28");
+  assert.deepEqual(draws[0].numbers, [1, 2, 24, 31, 34, 38]);
+  assert.equal(draws[0].special_number, 3);
 });
 
 test("parses Auzonet Daily539 HTML as the secondary source", () => {
@@ -176,6 +199,29 @@ test("maps draw to Supabase row", () => {
   });
 });
 
+test("maps Power Lottery draw to Supabase row", () => {
+  const row = toLottoDrawRow("power", {
+    draw_id: "115000043",
+    date: "2026-05-28",
+    numbers: [1, 2, 24, 31, 34, 38],
+    special_number: 3,
+    source: "taiwan_lottery_official",
+    raw: { period: "115000043" },
+  });
+
+  assert.deepEqual(row, {
+    game_name: "威力彩",
+    draw_id: "115000043",
+    draw_date: "2026-05-28",
+    numbers: [1, 2, 24, 31, 34, 38],
+    special_number: 3,
+    raw: {
+      source: "taiwan_lottery_official",
+      payload: { period: "115000043" },
+    },
+  });
+});
+
 test("evaluates a prediction record against its target draw", () => {
   const evaluation = evaluatePredictionRecord(
     {
@@ -276,6 +322,46 @@ test("builds post-draw learning report with hit, miss, and uncovered actual anal
 
   assert.ok(evaluation.learning_report.strategy_reviews.balanced.analysis.includes("2 / 5"));
   assert.ok(evaluation.learning_report.next_prediction_guidance.length >= 3);
+});
+
+test("builds ASI learning record from evaluated prediction", () => {
+  const predictionRecord = {
+    source_key: "prediction|今彩539|2026-06-17",
+    game_name: "今彩539",
+    target_draw_date: "2026-06-17",
+    prediction: {
+      model: "gemini-2.5-flash",
+      reasoning_source: "gemini_quantitative",
+      combinations: {
+        aggressive: [1, 2, 3, 4, 5],
+        balanced: [8, 10, 15, 16, 37],
+      },
+      number_insights: {
+        selected_numbers: {
+          "8": { reason: "recent co-occurrence support" },
+        },
+      },
+    },
+  };
+  const draw = {
+    draw_id: "115000147",
+    draw_date: "2026-06-17",
+    numbers: [8, 10, 15, 16, 37],
+    special_number: null,
+  };
+  const evaluation = evaluatePredictionRecord(predictionRecord, draw);
+  const asi = buildAsiLearningRecord(predictionRecord, draw, evaluation);
+
+  assert.equal(asi.game_name, "今彩539");
+  assert.equal(asi.target_draw_date, "2026-06-17");
+  assert.equal(asi.prediction_source_key, "prediction|今彩539|2026-06-17");
+  assert.equal(asi.model_name, "gemini-2.5-flash");
+  assert.equal(asi.reasoning_source, "gemini_quantitative");
+  assert.deepEqual(asi.actual_numbers, [8, 10, 15, 16, 37]);
+  assert.ok(asi.matched_numbers.includes(8));
+  assert.equal(asi.selected_number_reasons["8"], "recent co-occurrence support");
+  assert.ok(asi.next_adjustments.length >= 1);
+  assert.equal(asi.raw_learning_report.version, "post_draw_learning_v1");
 });
 
 test("builds performance snapshot from latest evaluated prediction per target draw date", () => {

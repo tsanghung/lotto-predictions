@@ -1,11 +1,13 @@
 export const GAME_NAMES = {
   "539": "今彩539",
   "649": "大樂透",
+  "power": "威力彩",
 };
 
 const OFFICIAL_KEYS = {
   "539": "daily539Res",
   "649": "lotto649Res",
+  "power": "superLotto638Res",
 };
 
 export function normalizeNumbers(numbers) {
@@ -25,10 +27,10 @@ export function parseOfficialPayload(gameType, payload) {
 
   return rows.map((row) => {
     const drawNumbers = row.drawNumberSize || [];
-    const baseNumbers = gameType === "649"
+    const baseNumbers = gameType === "649" || gameType === "power"
       ? drawNumbers.slice(0, 6)
       : drawNumbers.slice(0, 5);
-    const specialNumber = gameType === "649" ? Number(drawNumbers[6]) : null;
+    const specialNumber = gameType === "649" || gameType === "power" ? Number(drawNumbers[6]) : null;
 
     return {
       draw_id: String(row.period),
@@ -387,6 +389,40 @@ export function evaluatePredictionRecord(record, draw) {
     learning_report: buildPostDrawLearningReport(record, actualNumbers, strategies),
     attribution_report: null,
     attribution_trigger: "supabase_edge_basic_evaluation",
+  };
+}
+
+export function buildAsiLearningRecord(record, draw, evaluation) {
+  const prediction = record?.prediction || {};
+  const learningReport = evaluation?.learning_report || {};
+  const predictedRows = learningReport.predicted_numbers || [];
+  const actualRows = learningReport.actual_numbers || [];
+  const selected = prediction.number_insights?.selected_numbers || {};
+
+  const selectedReasons = {};
+  for (const item of predictedRows) {
+    selectedReasons[String(item.number)] =
+      item.selection_reason ||
+      selected[String(item.number)]?.reason ||
+      "no recorded reason";
+  }
+
+  return {
+    game_name: record.game_name,
+    target_draw_date: record.target_draw_date || draw.draw_date || draw.date,
+    draw_id: String(draw.draw_id),
+    prediction_source_key: record.source_key,
+    predicted_numbers: predictedRows.map((item) => item.number),
+    actual_numbers: evaluation.actual_numbers || normalizeNumbers(draw.numbers || []),
+    matched_numbers: learningReport.summary?.hit_predicted_numbers || [],
+    missed_numbers: learningReport.summary?.missed_predicted_numbers || [],
+    selected_number_reasons: selectedReasons,
+    actual_number_analysis: actualRows,
+    strategy_effectiveness: learningReport.strategy_reviews || {},
+    next_adjustments: learningReport.next_prediction_guidance || [],
+    model_name: prediction.model || null,
+    reasoning_source: prediction.reasoning_source || null,
+    raw_learning_report: learningReport,
   };
 }
 

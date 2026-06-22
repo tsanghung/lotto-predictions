@@ -25,7 +25,7 @@ const distribution = computed(() => {
 
   if (!props.historyData || props.historyData.length === 0) return { odd, even, large, small }
 
-  const midPoint = props.gameName === '大樂透' ? 24.5 : 19.5
+  const midPoint = props.gameName === '大樂透' ? 24.5 : props.gameName === '威力彩' ? 19 : 19.5
 
   props.historyData.forEach(draw => {
     draw.numbers.forEach(n => {
@@ -75,11 +75,11 @@ const oddEvenData = computed(() => ({
   datasets: [{
     data: [distribution.value.odd, distribution.value.even],
     backgroundColor: [
-      props.gameName === '大樂透' ? '#2dd4bf' : '#d946ef', // teal-400 : fuchsia-500
+      props.gameName === '大樂透' ? '#2dd4bf' : props.gameName === '威力彩' ? '#f59e0b' : '#d946ef',
       '#334155' // slate-700
     ],
     hoverBackgroundColor: [
-      props.gameName === '大樂透' ? '#14b8a6' : '#c026d3', // teal-500 : fuchsia-600
+      props.gameName === '大樂透' ? '#14b8a6' : props.gameName === '威力彩' ? '#d97706' : '#c026d3',
       '#475569' // slate-600
     ]
   }]
@@ -90,11 +90,11 @@ const largeSmallData = computed(() => ({
   datasets: [{
     data: [distribution.value.large, distribution.value.small],
     backgroundColor: [
-      props.gameName === '大樂透' ? '#3b82f6' : '#ec4899', // blue-500 : pink-500
+      props.gameName === '大樂透' ? '#3b82f6' : props.gameName === '威力彩' ? '#e11d48' : '#ec4899',
       '#334155'
     ],
     hoverBackgroundColor: [
-      props.gameName === '大樂透' ? '#2563eb' : '#db2777', // blue-600 : pink-600
+      props.gameName === '大樂透' ? '#2563eb' : props.gameName === '威力彩' ? '#be123c' : '#db2777',
       '#475569'
     ]
   }]

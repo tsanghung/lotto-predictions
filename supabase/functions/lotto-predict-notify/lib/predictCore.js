@@ -11,6 +11,11 @@ export const GAME_CONFIG = {
     maxNumber: 49,
     picks: 6,
   },
+  "power": {
+    name: "威力彩",
+    maxNumber: 38,
+    picks: 6,
+  },
 };
 
 const STRATEGY_NAMES = ["激進包牌", "穩健平衡", "統計趨勢"];
@@ -49,6 +54,9 @@ export function isDrawDate(gameType, dateString) {
   if (gameType === "649") {
     return day === 2 || day === 5;
   }
+  if (gameType === "power") {
+    return day === 1 || day === 4;
+  }
   return false;
 }
 
@@ -81,6 +89,9 @@ export function nextDrawDate(gameType, fromDate) {
     if (gameType === "649" && (day === 2 || day === 5)) {
       return date;
     }
+    if (gameType === "power" && (day === 1 || day === 4)) {
+      return date;
+    }
     date = dateAdd(date, 1);
   }
 }
@@ -111,7 +122,7 @@ function numberStats(draws, maxNumber) {
 }
 
 function recentPeriodFor(gameType, drawCount) {
-  const target = gameType === "649" ? 100 : 300;
+  const target = gameType === "539" ? 300 : 100;
   return Math.min(target, drawCount);
 }
 
@@ -417,7 +428,38 @@ function fullHistoryRows(draws) {
   }));
 }
 
-export function buildGeminiDecisionPayload({ gameType, draws, generatedAt }) {
+export function buildAsiLearningContext(records = [], limit = 5) {
+  return records
+    .filter((record) => record && record.target_draw_date)
+    .slice(0, limit)
+    .map((record) => {
+      const strategyEntries = Object.entries(record.strategy_effectiveness || {});
+      return {
+        game_name: record.game_name || null,
+        target_draw_date: record.target_draw_date,
+        matched_numbers: normalizeNumbers(record.matched_numbers || []),
+        missed_numbers: normalizeNumbers(record.missed_numbers || []),
+        reasoning_source: record.reasoning_source || "unknown",
+        model_name: record.model_name || null,
+        lessons: (record.next_adjustments || []).filter(Boolean),
+        strategy_notes: strategyEntries.map(([strategy, review]) => {
+          const hits = review?.hits ?? review?.hit_count ?? "unknown";
+          const analysis = review?.analysis || review?.learning_note || "no analysis";
+          return `${strategy}: hits=${hits}; ${analysis}`;
+        }),
+      };
+    });
+}
+
+/**
+ * @param {{
+ *   gameType: string,
+ *   draws: Array<Record<string, unknown>>,
+ *   generatedAt: string,
+ *   learningRecords?: Array<Record<string, unknown>>,
+ * }} options
+ */
+export function buildGeminiDecisionPayload({ gameType, draws, generatedAt, learningRecords = [] }) {
   const config = GAME_CONFIG[gameType];
   if (!config) {
     throw new Error(`Unsupported game type: ${gameType}`);
@@ -428,6 +470,7 @@ export function buildGeminiDecisionPayload({ gameType, draws, generatedAt }) {
 
   const allCounts = frequencyCounts(draws, config.maxNumber);
   const recentPeriods = recentPeriodFor(gameType, draws.length);
+  const asiLearningMemory = buildAsiLearningContext(learningRecords);
   const windows = [...new Set([Math.min(draws.length, 30), Math.min(draws.length, 50), Math.min(draws.length, 100), Math.min(draws.length, 300), recentPeriods])]
     .filter((period) => period > 0)
     .sort((left, right) => left - right);
@@ -438,8 +481,9 @@ export function buildGeminiDecisionPayload({ gameType, draws, generatedAt }) {
     generated_at: generatedAt,
     number_range: { min: 1, max: config.maxNumber, picks: config.picks },
     full_history: fullHistoryRows(draws),
+    asi_learning_memory: asiLearningMemory,
     quantitative_features: {
-      methodology: "statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; metaphysical signals are entertainment-only and capped at 10 percent.",
+      methodology: "statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; ASI learning memory from recent post-draw evaluations; metaphysical signals are entertainment-only and capped at 10 percent.",
       full_history_sample_size: draws.length,
       first_draw_date: draws[0]?.draw_date,
       latest_draw_id: draws.at(-1)?.draw_id,

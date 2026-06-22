@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   applyGeminiQuantDecision,
   backtestCombinations,
+  buildAsiLearningContext,
   buildGeminiDecisionPayload,
   buildLineMessage,
   dueGamesForDate,
@@ -23,6 +24,14 @@ const dailyDraws = [
   { draw_id: "115000142", draw_date: "2026-06-11", numbers: [8, 15, 20, 29, 31] },
 ];
 
+const powerDraws = [
+  { draw_id: "115000039", draw_date: "2026-05-14", numbers: [4, 8, 10, 25, 29, 32], special_number: 4 },
+  { draw_id: "115000040", draw_date: "2026-05-18", numbers: [5, 11, 18, 24, 31, 37], special_number: 5 },
+  { draw_id: "115000041", draw_date: "2026-05-21", numbers: [2, 6, 13, 19, 28, 36], special_number: 7 },
+  { draw_id: "115000042", draw_date: "2026-05-25", numbers: [3, 9, 16, 21, 33, 35], special_number: 8 },
+  { draw_id: "115000043", draw_date: "2026-05-28", numbers: [1, 2, 24, 31, 34, 38], special_number: 3 },
+];
+
 test("generates three deterministic Daily539 prediction combinations", () => {
   const prediction = generatePrediction({
     gameType: "539",
@@ -38,6 +47,24 @@ test("generates three deterministic Daily539 prediction combinations", () => {
     assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
     assert.ok(nums.every((n) => n >= 1 && n <= 39));
   }
+});
+
+test("generates Power Lottery predictions with first-area rules", () => {
+  const prediction = generatePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-06-25T10:00:00+08:00",
+  });
+
+  assert.equal(prediction.game_name, "威力彩");
+  assert.deepEqual(Object.keys(prediction.prediction.combinations), ["激進包牌", "穩健平衡", "統計趨勢"]);
+  for (const nums of Object.values(prediction.prediction.combinations)) {
+    assert.equal(nums.length, 6);
+    assert.equal(new Set(nums).size, 6);
+    assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
+    assert.ok(nums.every((n) => n >= 1 && n <= 38));
+  }
+  assert.equal(prediction.prediction.number_insights.full_history_sample_size, undefined);
 });
 
 test("source key is stable for game and target draw date", () => {
@@ -112,6 +139,55 @@ test("builds Gemini payload with full raw draw history and quantitative features
   assert.equal(payload.quantitative_features.full_history_sample_size, dailyDraws.length);
   assert.ok(payload.quantitative_features.trend_windows["5"].hot.length > 0);
   assert.ok(payload.quantitative_features.methodology.includes("statistical"));
+});
+
+test("normalizes recent ASI learning records for Gemini context", () => {
+  const context = buildAsiLearningContext([
+    {
+      game_name: "今彩539",
+      target_draw_date: "2026-06-17",
+      matched_numbers: [10, 8],
+      missed_numbers: [3, 1, 2],
+      strategy_effectiveness: {
+        balanced: { hits: 2, analysis: "balanced caught recurring mid-zone numbers" },
+      },
+      next_adjustments: [
+        "降低過冷號碼的單次權重。",
+        "補強近期同開號碼與遺漏區間的交叉驗證。",
+      ],
+      reasoning_source: "gemini_quantitative",
+      model_name: "gemini-2.5-flash",
+    },
+  ]);
+
+  assert.equal(context.length, 1);
+  assert.equal(context[0].game_name, "今彩539");
+  assert.deepEqual(context[0].matched_numbers, [8, 10]);
+  assert.deepEqual(context[0].missed_numbers, [1, 2, 3]);
+  assert.ok(context[0].lessons.includes("降低過冷號碼的單次權重。"));
+  assert.ok(context[0].strategy_notes[0].includes("balanced"));
+});
+
+test("adds ASI learning memory into Gemini decision payload", () => {
+  const payload = buildGeminiDecisionPayload({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-06-18T10:00:00+08:00",
+    learningRecords: [
+      {
+        game_name: "今彩539",
+        target_draw_date: "2026-06-17",
+        matched_numbers: [8],
+        missed_numbers: [2, 4, 6],
+        strategy_effectiveness: { aggressive: { hits: 1, analysis: "too cold-heavy" } },
+        next_adjustments: ["降低冷門反彈假設的權重。"],
+      },
+    ],
+  });
+
+  assert.equal(payload.asi_learning_memory.length, 1);
+  assert.equal(payload.asi_learning_memory[0].target_draw_date, "2026-06-17");
+  assert.ok(payload.quantitative_features.methodology.includes("ASI learning"));
 });
 
 test("Gemini quantitative decision drives combinations while verifier rejects invalid numbers", () => {
@@ -230,16 +306,24 @@ test("calculates next Lotto649 draw date as Tuesday or Friday", () => {
   assert.equal(nextDrawDate("649", "2026-06-15"), "2026-06-16");
 });
 
+test("calculates next Power Lottery draw date as Monday or Thursday", () => {
+  assert.equal(nextDrawDate("power", "2026-06-19"), "2026-06-22");
+  assert.equal(nextDrawDate("power", "2026-06-22"), "2026-06-25");
+});
+
 test("targets the same draw date for 10 AM draw-day predictions", () => {
   assert.equal(predictionTargetDate("539", "2026-06-15"), "2026-06-15");
   assert.equal(predictionTargetDate("649", "2026-06-16"), "2026-06-16");
+  assert.equal(predictionTargetDate("power", "2026-06-25"), "2026-06-25");
   assert.equal(predictionTargetDate("539", "2026-06-14"), null);
   assert.equal(predictionTargetDate("649", "2026-06-15"), null);
+  assert.equal(predictionTargetDate("power", "2026-06-23"), null);
 });
 
 test("due games are only games drawing on that calendar date", () => {
-  assert.deepEqual(dueGamesForDate("2026-06-15"), ["539"]);
+  assert.deepEqual(dueGamesForDate("2026-06-15"), ["539", "power"]);
   assert.deepEqual(dueGamesForDate("2026-06-16"), ["539", "649"]);
+  assert.deepEqual(dueGamesForDate("2026-06-25"), ["539", "power"]);
   assert.deepEqual(dueGamesForDate("2026-06-14"), []);
 });
 
