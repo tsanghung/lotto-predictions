@@ -1,3 +1,10 @@
+"""Legacy Python prediction entrypoint.
+
+Do not schedule or invoke this file for production. Supabase Cron calls
+`supabase/functions/lotto-predict-notify` for live AI predictions and LINE
+notifications.
+"""
+
 import logging
 import argparse
 from datetime import datetime
