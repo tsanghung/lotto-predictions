@@ -126,7 +126,7 @@ test("stores statistical insight payload used by the LINE message", () => {
   assert.ok(insights.selected_numbers[firstPicked].reason.includes("近 5 期") || insights.selected_numbers[firstPicked].reason.includes("已隔"));
 });
 
-test("builds Gemini payload with full raw draw history and quantitative features", () => {
+test("builds Gemini payload with server-computed features and omits raw draw history", () => {
   const payload = buildGeminiDecisionPayload({
     gameType: "539",
     draws: dailyDraws,
@@ -134,9 +134,9 @@ test("builds Gemini payload with full raw draw history and quantitative features
   });
 
   assert.equal(payload.game_name, "今彩539");
-  assert.equal(payload.full_history.length, dailyDraws.length);
-  assert.deepEqual(payload.full_history.map((draw) => draw.draw_id), dailyDraws.map((draw) => draw.draw_id));
+  assert.equal(Object.hasOwn(payload, "full_history"), false);
   assert.equal(payload.quantitative_features.full_history_sample_size, dailyDraws.length);
+  assert.equal(payload.quantitative_features.raw_history_policy, "omitted_from_prompt");
   assert.ok(payload.quantitative_features.trend_windows["5"].hot.length > 0);
   assert.ok(payload.quantitative_features.methodology.includes("statistical"));
 });

@@ -419,15 +419,6 @@ function trendWindow(draws, config, period) {
   };
 }
 
-function fullHistoryRows(draws) {
-  return draws.map((draw) => ({
-    draw_id: String(draw.draw_id),
-    draw_date: String(draw.draw_date),
-    numbers: normalizeNumbers(draw.numbers || []),
-    special_number: draw.special_number ?? null,
-  }));
-}
-
 export function buildAsiLearningContext(records = [], limit = 5) {
   return records
     .filter((record) => record && record.target_draw_date)
@@ -480,10 +471,10 @@ export function buildGeminiDecisionPayload({ gameType, draws, generatedAt, learn
     game_name: config.name,
     generated_at: generatedAt,
     number_range: { min: 1, max: config.maxNumber, picks: config.picks },
-    full_history: fullHistoryRows(draws),
     asi_learning_memory: asiLearningMemory,
     quantitative_features: {
-      methodology: "statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; ASI learning memory from recent post-draw evaluations; metaphysical signals are entertainment-only and capped at 10 percent.",
+      methodology: "server-computed statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; raw draw history is intentionally omitted from the prompt; ASI learning memory from recent post-draw evaluations; metaphysical signals are entertainment-only and capped at 10 percent.",
+      raw_history_policy: "omitted_from_prompt",
       full_history_sample_size: draws.length,
       first_draw_date: draws[0]?.draw_date,
       latest_draw_id: draws.at(-1)?.draw_id,
