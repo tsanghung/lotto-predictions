@@ -72,6 +72,7 @@ const drawId = (record) => record?.evaluation?.draw_id || null
 const strategyEvaluation = (record, strategy) => record?.evaluation?.strategies?.[strategy] || null
 const secondAreaNumbers = (record, strategy) => record?.prediction?.special_combinations?.[strategy] || []
 const actualSecondAreaNumber = (record) => record?.evaluation?.special_number || null
+const formatPercent = (rate) => `${((Number(rate) || 0) * 100).toFixed(1)}%`
 
 const hitCount = (record, strategy, nums) => {
   const evaluation = strategyEvaluation(record, strategy)
@@ -87,6 +88,54 @@ const hitLabel = (record, strategy, nums) => {
   if (!secondArea.length) return firstAreaText
   return `${firstAreaText}，第二區 ${evaluation.special_hits ?? 0} / ${secondArea.length}`
 }
+
+const secondAreaSummary = computed(() => {
+  const summary = {
+    total_hits: 0,
+    total_predictions: 0,
+    hit_rate: 0,
+    strategies: {},
+  }
+
+  for (const record of gameRecords.value) {
+    if (!record?.is_evaluated) continue
+
+    for (const strategy of Object.keys(record.prediction?.special_combinations || {})) {
+      const picks = secondAreaNumbers(record, strategy)
+      if (!picks.length) continue
+
+      const evaluation = strategyEvaluation(record, strategy)
+      if (!evaluation) continue
+
+      if (!summary.strategies[strategy]) {
+        summary.strategies[strategy] = {
+          total_hits: 0,
+          total_predictions: 0,
+          hit_rate: 0,
+        }
+      }
+
+      const actualSecondArea = Number(actualSecondAreaNumber(record))
+      const hits = Number.isFinite(Number(evaluation.special_hits))
+        ? Number(evaluation.special_hits)
+        : Number.isInteger(actualSecondArea)
+          ? picks.filter((number) => number === actualSecondArea).length
+          : 0
+
+      summary.total_hits += hits
+      summary.total_predictions += picks.length
+      summary.strategies[strategy].total_hits += hits
+      summary.strategies[strategy].total_predictions += picks.length
+    }
+  }
+
+  summary.hit_rate = summary.total_predictions ? summary.total_hits / summary.total_predictions : 0
+  for (const stats of Object.values(summary.strategies)) {
+    stats.hit_rate = stats.total_predictions ? stats.total_hits / stats.total_predictions : 0
+  }
+
+  return summary
+})
 
 const isMatched = (record, strategy, number) => {
   const evaluation = strategyEvaluation(record, strategy)
@@ -143,6 +192,39 @@ const showMore = () => {
     </div>
 
     <div v-else style="display:flex;flex-direction:column;gap:16px;">
+      <section v-if="secondAreaSummary.total_predictions"
+        style="border:1px solid rgba(251,191,36,0.22);background:rgba(251,191,36,0.06);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+          <div>
+            <p style="font-size:12px;font-weight:800;color:#fbbf24;letter-spacing:0.16em;text-transform:uppercase;margin:0 0 4px;">
+              Second Area
+            </p>
+            <h4 style="font-size:20px;font-weight:900;color:#f8fafc;margin:0;">第二區歷史累積命中率</h4>
+          </div>
+          <div style="text-align:right;">
+            <p style="font-size:13px;font-weight:700;color:#94a3b8;margin:0 0 4px;">累積命中</p>
+            <p style="font-size:28px;font-weight:900;color:#fbbf24;font-family:monospace;margin:0;">
+              {{ secondAreaSummary.total_hits }} / {{ secondAreaSummary.total_predictions }}
+            </p>
+            <p style="font-size:15px;font-weight:900;color:#fde68a;font-family:monospace;margin:0;">
+              {{ formatPercent(secondAreaSummary.hit_rate) }}
+            </p>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;">
+          <div v-for="(stats, strategy) in secondAreaSummary.strategies" :key="`history-second-area-${strategy}`"
+            style="background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <span style="font-size:14px;font-weight:800;color:#cbd5e1;">{{ strategy }}</span>
+              <span style="font-size:18px;font-weight:900;color:#fbbf24;font-family:monospace;">{{ formatPercent(stats.hit_rate) }}</span>
+            </div>
+            <p style="font-size:12px;font-weight:700;color:#64748b;margin:4px 0 0;">
+              命中 {{ stats.total_hits }} / {{ stats.total_predictions }}
+            </p>
+          </div>
+        </div>
+      </section>
+
       <article v-for="record in visibleRecords" :key="record.source_key || `${record.game_name}-${recordTargetDate(record)}`"
         style="background:rgba(15,23,42,0.58);border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:18px;">
         <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:16px;">
