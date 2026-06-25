@@ -364,19 +364,32 @@ function buildPostDrawLearningReport(record, actualNumbers, strategies) {
 export function evaluatePredictionRecord(record, draw) {
   const actualNumbers = normalizeNumbers(draw.numbers || []);
   const actualSet = new Set(actualNumbers);
+  const actualSpecialNumber = Number(draw.special_number);
   const combinations = record?.prediction?.combinations || {};
+  const specialCombinations = record?.prediction?.special_combinations || {};
   const strategies = {};
 
   for (const [strategyName, predictedNumbers] of Object.entries(combinations)) {
     const predicted = normalizeNumbers(predictedNumbers || []);
     const matches = predicted.filter((number) => actualSet.has(number));
     const missed = predicted.filter((number) => !actualSet.has(number));
+    const predictedSpecial = normalizeNumbers(specialCombinations[strategyName] || []);
+    const specialMatches = Number.isInteger(actualSpecialNumber)
+      ? predictedSpecial.filter((number) => number === actualSpecialNumber)
+      : [];
+    const specialMissed = Number.isInteger(actualSpecialNumber)
+      ? predictedSpecial.filter((number) => number !== actualSpecialNumber)
+      : predictedSpecial;
 
     strategies[strategyName] = {
       hits: matches.length,
       matches,
       miss_count: missed.length,
       missed_numbers: missed,
+      special_hits: specialMatches.length,
+      special_matches: specialMatches,
+      special_miss_count: specialMissed.length,
+      special_missed_numbers: specialMissed,
     };
   }
 

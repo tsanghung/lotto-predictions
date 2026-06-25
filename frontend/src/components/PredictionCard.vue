@@ -47,6 +47,9 @@ const tagStyle = (tag) => {
 // 取某號碼的理由文字（供徽章 tooltip 使用）
 const reasonOf = (n) => (numberInsights.value && numberInsights.value[n]?.reason ? numberInsights.value[n].reason : '')
 
+const secondAreaNumbers = (strategy) =>
+  latestPrediction.value?.prediction?.special_combinations?.[strategy] || []
+
 // 依即將開出指數由高至低排序，最具話題性的（久未開出）優先列出
 const sortedInsights = computed(() => {
   if (!numberInsights.value) return []
@@ -111,7 +114,8 @@ const sortedInsights = computed(() => {
               display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:'10px'
             }">
             <span :style="{ fontSize:'15px', fontWeight:'700', color: strategyStyle(strategy).color, minWidth:'80px' }">{{ strategy }}</span>
-            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <span v-if="secondAreaNumbers(strategy).length" style="font-size:13px;font-weight:800;color:#94a3b8;margin-right:2px;">第一區</span>
               <span v-for="n in nums" :key="n"
                 :title="reasonOf(n)"
                 :style="{
@@ -123,6 +127,18 @@ const sortedInsights = computed(() => {
                 }">
                 {{ n.toString().padStart(2, '0') }}
               </span>
+              <template v-if="secondAreaNumbers(strategy).length">
+                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin:0 2px 0 8px;">第二區</span>
+                <span v-for="n in secondAreaNumbers(strategy)" :key="`special-${strategy}-${n}`"
+                  :style="{
+                    width:'32px', height:'32px', borderRadius:'50%',
+                    background:'rgba(251,191,36,0.16)', border:'1px solid rgba(251,191,36,0.45)',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:'15px', fontWeight:'800', fontFamily:'monospace', color:'#fbbf24'
+                  }">
+                  {{ n.toString().padStart(2, '0') }}
+                </span>
+              </template>
             </div>
           </div>
         </div>
