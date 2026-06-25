@@ -41,6 +41,10 @@ const gamePerf = computed(() => {
   return props.performanceData.games[props.gameName]
 })
 
+const secondAreaStats = computed(() => gamePerf.value?.second_area || null)
+
+const formatRate = (rate) => `${((Number(rate) || 0) * 100).toFixed(1)}%`
+
 // 共用的 Chart.js 設定
 const commonOptions = {
   responsive: true,
@@ -143,6 +147,40 @@ const hitMissChartData = computed(() => {
       </span>
     </div>
     
+    <section v-if="secondAreaStats" class="rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] p-5">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="text-xs font-bold uppercase tracking-[0.18em] text-amber-300/80">Second Area</p>
+          <h4 class="mt-1 text-lg font-black text-slate-100">第二區歷史累積命中率</h4>
+        </div>
+        <div class="text-right">
+          <p class="text-xs font-semibold text-slate-400">累積命中</p>
+          <p class="font-mono text-2xl font-black text-amber-300">
+            {{ secondAreaStats.total_hits }} / {{ secondAreaStats.total_hits + secondAreaStats.total_misses }}
+          </p>
+          <p class="font-mono text-sm font-bold text-amber-200">
+            {{ formatRate(secondAreaStats.hit_rate) }}
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div
+          v-for="(stats, strategy) in secondAreaStats.strategies"
+          :key="`second-area-${strategy}`"
+          class="rounded-xl border border-white/10 bg-slate-950/35 p-4"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <span class="text-sm font-bold text-slate-300">{{ strategy }}</span>
+            <span class="font-mono text-lg font-black text-amber-300">{{ formatRate(stats.hit_rate) }}</span>
+          </div>
+          <p class="mt-1 text-xs font-semibold text-slate-500">
+            命中 {{ stats.total_hits }} / {{ stats.total_hits + stats.total_misses }}
+          </p>
+        </div>
+      </div>
+    </section>
+
     <div class="grid grid-cols-1 gap-6">
       
       <!-- 長條圖: 命中與未命中對比 -->

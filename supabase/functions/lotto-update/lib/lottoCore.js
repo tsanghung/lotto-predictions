@@ -524,6 +524,42 @@ export function buildPerformanceSnapshot(records, generatedAt = new Date().toISO
       gamePerf.strategies[strategy].total_hits += hits;
       gamePerf.strategies[strategy].total_misses += missCount;
       trendData.strategies[strategy] = hits;
+
+      const specialPredictedCount = record.prediction?.special_combinations?.[strategy]?.length || 0;
+      const hasSpecialStats = specialPredictedCount > 0 ||
+        Number.isFinite(Number(stats?.special_hits)) ||
+        Number.isFinite(Number(stats?.special_miss_count));
+
+      if (hasSpecialStats) {
+        if (!gamePerf.second_area) {
+          gamePerf.second_area = {
+            label: "第二區",
+            total_hits: 0,
+            total_misses: 0,
+            strategies: {},
+          };
+        }
+        if (!gamePerf.second_area.strategies[strategy]) {
+          gamePerf.second_area.strategies[strategy] = {
+            total_hits: 0,
+            total_misses: 0,
+          };
+        }
+        if (!trendData.second_area) {
+          trendData.second_area = { strategies: {} };
+        }
+
+        const specialHits = Number(stats?.special_hits || 0);
+        const specialMissCount = Number.isFinite(Number(stats?.special_miss_count))
+          ? Number(stats.special_miss_count)
+          : Math.max(specialPredictedCount - specialHits, 0);
+
+        gamePerf.second_area.total_hits += specialHits;
+        gamePerf.second_area.total_misses += specialMissCount;
+        gamePerf.second_area.strategies[strategy].total_hits += specialHits;
+        gamePerf.second_area.strategies[strategy].total_misses += specialMissCount;
+        trendData.second_area.strategies[strategy] = specialHits;
+      }
     }
 
     gamePerf.trend.push(trendData);
@@ -533,6 +569,14 @@ export function buildPerformanceSnapshot(records, generatedAt = new Date().toISO
     for (const stats of Object.values(gamePerf.strategies)) {
       const total = stats.total_hits + stats.total_misses;
       stats.win_rate = total > 0 ? Number((stats.total_hits / total).toFixed(4)) : 0;
+    }
+    if (gamePerf.second_area) {
+      const total = gamePerf.second_area.total_hits + gamePerf.second_area.total_misses;
+      gamePerf.second_area.hit_rate = total > 0 ? Number((gamePerf.second_area.total_hits / total).toFixed(4)) : 0;
+      for (const stats of Object.values(gamePerf.second_area.strategies)) {
+        const strategyTotal = stats.total_hits + stats.total_misses;
+        stats.hit_rate = strategyTotal > 0 ? Number((stats.total_hits / strategyTotal).toFixed(4)) : 0;
+      }
     }
   }
 

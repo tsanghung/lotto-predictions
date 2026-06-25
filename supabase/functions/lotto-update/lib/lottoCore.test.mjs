@@ -472,3 +472,69 @@ test("builds performance snapshot from latest evaluated prediction per target dr
     win_rate: 0.4,
   });
 });
+
+test("builds Power Lottery second-area cumulative hit rates", () => {
+  const records = [
+    {
+      game_name: "威力彩",
+      predicted_at: "2026-06-22T02:00:00+00:00",
+      target_draw_date: "2026-06-22",
+      is_evaluated: true,
+      prediction: {
+        combinations: {
+          "激進包牌": [1, 2, 3, 4, 5, 6],
+          "穩健平衡": [7, 8, 9, 10, 11, 12],
+        },
+        special_combinations: {
+          "激進包牌": [3],
+          "穩健平衡": [7],
+        },
+      },
+      evaluation: {
+        draw_id: "115000050",
+        draw_date: "2026-06-22",
+        strategies: {
+          "激進包牌": { hits: 1, miss_count: 5, special_hits: 1, special_miss_count: 0 },
+          "穩健平衡": { hits: 0, miss_count: 6, special_hits: 0, special_miss_count: 1 },
+        },
+      },
+    },
+    {
+      game_name: "威力彩",
+      predicted_at: "2026-06-25T02:00:00+00:00",
+      target_draw_date: "2026-06-25",
+      is_evaluated: true,
+      prediction: {
+        combinations: {
+          "激進包牌": [1, 2, 3, 4, 5, 6],
+          "穩健平衡": [7, 8, 9, 10, 11, 12],
+        },
+        special_combinations: {
+          "激進包牌": [4],
+          "穩健平衡": [8],
+        },
+      },
+      evaluation: {
+        draw_id: "115000051",
+        draw_date: "2026-06-25",
+        strategies: {
+          "激進包牌": { hits: 0, miss_count: 6, special_hits: 0, special_miss_count: 1 },
+          "穩健平衡": { hits: 2, miss_count: 4, special_hits: 1, special_miss_count: 0 },
+        },
+      },
+    },
+  ];
+
+  const snapshot = buildPerformanceSnapshot(records, "2026-06-26T00:00:00.000Z");
+
+  assert.deepEqual(snapshot.games["威力彩"].second_area, {
+    label: "第二區",
+    total_hits: 2,
+    total_misses: 2,
+    hit_rate: 0.5,
+    strategies: {
+      "激進包牌": { total_hits: 1, total_misses: 1, hit_rate: 0.5 },
+      "穩健平衡": { total_hits: 1, total_misses: 1, hit_rate: 0.5 },
+    },
+  });
+});
