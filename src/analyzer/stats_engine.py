@@ -1,3 +1,10 @@
+"""Legacy offline statistics engine.
+
+Production predictions do not run this module. Supabase Edge Function
+`lotto-predict-notify` owns the live prediction path. Keep this module only for
+local research, backtests, attribution experiments, and migration reference.
+"""
+
 import pandas as pd
 import json
 from itertools import combinations

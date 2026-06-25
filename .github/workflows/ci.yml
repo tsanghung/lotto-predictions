@@ -1,4 +1,4 @@
-name: Python CI - Compile Check
+name: Legacy Python CI - Compile Check
 
 on:
   push:
@@ -22,6 +22,6 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Compile Python files (syntax check)
+      - name: Compile legacy Python files (syntax check only)
         run: |
           python -m compileall -q src || (echo "Syntax errors in Python files" && exit 1)

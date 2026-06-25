@@ -1,3 +1,10 @@
+"""Legacy Python AI predictor.
+
+Production predictions and LINE notifications do not run this module. The live
+runtime is Supabase Edge Function `lotto-predict-notify`. This file is retained
+only as a historical GitHub Actions-era pipeline and offline reference.
+"""
+
 import os
 import json
 import re

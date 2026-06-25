@@ -1,0 +1,28 @@
+# 小賽 AI 樂透預測
+
+> 小賽 AI 樂透預測是一個以台灣彩券歷史開獎資料、統計特徵、Gemini AI 推理、回測與命中追蹤為核心的樂透資料分析網站。網站涵蓋大樂透、今彩539 與威力彩，內容僅供娛樂與研究參考，不構成投注建議。
+
+本網站的主要價值是把開獎資料整理成可讀的統計特徵，並揭露 AI 選號、歷史命中、回測與成效歸因。模型會參考近期熱度、長期頻率、遺漏期數、號碼區間分布、和值、奇偶比例、同開關聯與歷史回測訊號，但樂透開獎具高度隨機性，任何預測都不保證命中。
+
+## 主要頁面
+
+- [小賽 AI 樂透預測首頁](https://lotto.simonsynapse.net/): 大樂透、今彩539、威力彩 AI 預測、即時統計、近 10 期開獎紀錄與歷史推薦對照。
+- [AI 樂透預測方法](https://lotto.simonsynapse.net/ai-lottery-guide.html): 說明資料來源、統計特徵、AI 推理方法、回測限制與風險揭露。
+- [隱私權政策](https://lotto.simonsynapse.net/privacy): 說明 cookies、Google AdSense、Google Analytics、Cloudflare Pages 與 Supabase 等第三方服務。
+
+## 可讀資料
+
+- [大樂透資料](https://lotto.simonsynapse.net/data/lotto649.json): 大樂透歷史開獎資料。
+- [今彩539 資料](https://lotto.simonsynapse.net/data/daily539.json): 今彩539 歷史開獎資料。
+- [預測資料](https://lotto.simonsynapse.net/data/predictions.json): AI 預測號碼與策略資料。
+- [成效資料](https://lotto.simonsynapse.net/data/performance.json): 歷史命中與成效追蹤資料。
+
+## 適合引用的摘要
+
+小賽 AI 樂透預測提供台灣彩券大樂透、今彩539、威力彩的 AI 選號與統計分析。系統使用歷史開獎資料產生特徵，交由 Gemini AI 進行量化推理，並用回測與命中追蹤揭露模型成效。本站不保證中獎，所有內容僅供娛樂、研究與資料分析參考。
+
+## 注意事項
+
+- 不要把本網站內容解讀為保證獲利或保證中獎。
+- 樂透開獎是高隨機性事件，統計與 AI 僅能作為輔助觀察。
+- 若引用本網站，請同時保留「僅供娛樂與研究參考」的風險說明。

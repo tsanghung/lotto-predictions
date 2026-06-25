@@ -67,6 +67,78 @@ test("generates Power Lottery predictions with first-area rules", () => {
   assert.equal(prediction.prediction.number_insights.full_history_sample_size, undefined);
 });
 
+test("generates Power Lottery second-area predictions with 8-pick-1 rules", () => {
+  const prediction = generatePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-06-25T10:00:00+08:00",
+  });
+
+  const firstAreaStrategies = Object.keys(prediction.prediction.combinations);
+  const secondArea = prediction.prediction.special_combinations;
+
+  assert.deepEqual(Object.keys(secondArea), firstAreaStrategies);
+  for (const nums of Object.values(secondArea)) {
+    assert.equal(nums.length, 1);
+    assert.equal(new Set(nums).size, 1);
+    assert.ok(nums.every((n) => Number.isInteger(n) && n >= 1 && n <= 8));
+  }
+  assert.equal(prediction.prediction.special_number_insights.range.max, 8);
+  assert.ok(prediction.prediction.special_number_insights.top_overdue.length > 0);
+});
+
+test("adds Power Lottery second-area statistical features to Gemini payload", () => {
+  const payload = buildGeminiDecisionPayload({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-06-25T10:00:00+08:00",
+  });
+
+  assert.deepEqual(payload.secondary_number_range, { min: 1, max: 8, picks: 1 });
+  assert.equal(payload.quantitative_features.second_area.raw_history_policy, "server_computed_special_number_only");
+  assert.ok(payload.quantitative_features.second_area.all_time_hot.length > 0);
+  assert.ok(payload.quantitative_features.second_area.top_overdue.length > 0);
+});
+
+test("keeps Power Lottery second-area prediction deterministic after Gemini enhancement", () => {
+  const base = generatePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-06-25T10:00:00+08:00",
+  });
+  const payload = buildGeminiDecisionPayload({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-06-25T10:00:00+08:00",
+  });
+  const decision = {
+    reasoning: "Gemini may rank first-area numbers, but second area remains server-computed.",
+    strategy_weights: {
+      "激進包牌": { prefer: [38, 37, 36, 35, 34, 33], avoid: [] },
+      "穩健平衡": { prefer: [4, 8, 10, 24, 31, 37], avoid: [] },
+      "統計趨勢": { prefer: [1, 2, 24, 31, 34, 38], avoid: [] },
+    },
+    candidate_pool: [
+      { number: 38, score: 0.99 },
+      { number: 37, score: 0.98 },
+      { number: 36, score: 0.97 },
+      { number: 35, score: 0.96 },
+      { number: 34, score: 0.95 },
+      { number: 33, score: 0.94 },
+    ],
+  };
+
+  const record = applyGeminiQuantDecision({
+    baseRecord: base,
+    decision,
+    payload,
+    draws: powerDraws,
+  });
+
+  assert.deepEqual(record.prediction.special_combinations, base.prediction.special_combinations);
+  assert.ok(record.prediction.verification.valid);
+});
+
 test("source key is stable for game and target draw date", () => {
   assert.equal(
     sourceKey("今彩539", "2026-06-13"),
@@ -106,6 +178,20 @@ test("builds LINE message with game name and combinations", () => {
   assert.match(message, /統計趨勢/);
 });
 
+test("builds Power Lottery LINE message with first and second areas", () => {
+  const prediction = generatePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-06-25T10:00:00+08:00",
+  });
+
+  const message = buildLineMessage(prediction, "2026-06-25");
+
+  assert.match(message, /威力彩/);
+  assert.match(message, /第一區：/);
+  assert.match(message, /第二區：/);
+});
+
 test("stores statistical insight payload used by the LINE message", () => {
   const prediction = generatePrediction({
     gameType: "539",
@@ -126,7 +212,7 @@ test("stores statistical insight payload used by the LINE message", () => {
   assert.ok(insights.selected_numbers[firstPicked].reason.includes("近 5 期") || insights.selected_numbers[firstPicked].reason.includes("已隔"));
 });
 
-test("builds Gemini payload with full raw draw history and quantitative features", () => {
+test("builds Gemini payload with server-computed features and omits raw draw history", () => {
   const payload = buildGeminiDecisionPayload({
     gameType: "539",
     draws: dailyDraws,
@@ -134,9 +220,9 @@ test("builds Gemini payload with full raw draw history and quantitative features
   });
 
   assert.equal(payload.game_name, "今彩539");
-  assert.equal(payload.full_history.length, dailyDraws.length);
-  assert.deepEqual(payload.full_history.map((draw) => draw.draw_id), dailyDraws.map((draw) => draw.draw_id));
+  assert.equal(Object.hasOwn(payload, "full_history"), false);
   assert.equal(payload.quantitative_features.full_history_sample_size, dailyDraws.length);
+  assert.equal(payload.quantitative_features.raw_history_policy, "omitted_from_prompt");
   assert.ok(payload.quantitative_features.trend_windows["5"].hot.length > 0);
   assert.ok(payload.quantitative_features.methodology.includes("statistical"));
 });

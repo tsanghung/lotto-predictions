@@ -259,18 +259,55 @@ test("evaluates a prediction record against its target draw", () => {
         matches: [6, 18, 29],
         miss_count: 2,
         missed_numbers: [1, 33],
+        special_hits: 0,
+        special_matches: [],
+        special_miss_count: 0,
+        special_missed_numbers: [],
       },
       "穩健平衡": {
         hits: 5,
         matches: [6, 8, 18, 29, 31],
         miss_count: 0,
         missed_numbers: [],
+        special_hits: 0,
+        special_matches: [],
+        special_miss_count: 0,
+        special_missed_numbers: [],
       },
     },
     attribution_report: null,
     attribution_trigger: "supabase_edge_basic_evaluation",
   });
   assert.equal(evaluation.learning_report.version, "post_draw_learning_v1");
+});
+
+test("evaluates Power Lottery second-area special number matches", () => {
+  const evaluation = evaluatePredictionRecord(
+    {
+      prediction: {
+        combinations: {
+          aggressive: [1, 2, 3, 4, 5, 6],
+          balanced: [8, 10, 18, 24, 31, 37],
+        },
+        special_combinations: {
+          aggressive: [3],
+          balanced: [7],
+        },
+      },
+    },
+    {
+      draw_id: "115000043",
+      draw_date: "2026-05-28",
+      numbers: [1, 2, 24, 31, 34, 38],
+      special_number: 3,
+    },
+  );
+
+  assert.deepEqual(evaluation.strategies.aggressive.special_matches, [3]);
+  assert.equal(evaluation.strategies.aggressive.special_hits, 1);
+  assert.deepEqual(evaluation.strategies.balanced.special_matches, []);
+  assert.deepEqual(evaluation.strategies.balanced.special_missed_numbers, [7]);
+  assert.equal(evaluation.special_number, 3);
 });
 
 test("builds post-draw learning report with hit, miss, and uncovered actual analysis", () => {

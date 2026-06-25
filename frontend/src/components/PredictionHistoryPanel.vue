@@ -70,6 +70,8 @@ const strategyTheme = (strategy) => {
 const actualNumbers = (record) => record?.evaluation?.actual_numbers || []
 const drawId = (record) => record?.evaluation?.draw_id || null
 const strategyEvaluation = (record, strategy) => record?.evaluation?.strategies?.[strategy] || null
+const secondAreaNumbers = (record, strategy) => record?.prediction?.special_combinations?.[strategy] || []
+const actualSecondAreaNumber = (record) => record?.evaluation?.special_number || null
 
 const hitCount = (record, strategy, nums) => {
   const evaluation = strategyEvaluation(record, strategy)
@@ -77,9 +79,23 @@ const hitCount = (record, strategy, nums) => {
   return `${evaluation.hits ?? 0} / ${nums.length}`
 }
 
+const hitLabel = (record, strategy, nums) => {
+  const evaluation = strategyEvaluation(record, strategy)
+  if (!record?.is_evaluated || !evaluation) return '待對獎'
+  const secondArea = secondAreaNumbers(record, strategy)
+  const firstAreaText = secondArea.length ? `第一區 ${evaluation.hits ?? 0} / ${nums.length}` : `命中 ${evaluation.hits ?? 0} / ${nums.length}`
+  if (!secondArea.length) return firstAreaText
+  return `${firstAreaText}，第二區 ${evaluation.special_hits ?? 0} / ${secondArea.length}`
+}
+
 const isMatched = (record, strategy, number) => {
   const evaluation = strategyEvaluation(record, strategy)
   return Boolean(evaluation?.matches?.includes(number))
+}
+
+const isSecondAreaMatched = (record, strategy, number) => {
+  const evaluation = strategyEvaluation(record, strategy)
+  return Boolean(evaluation?.special_matches?.includes(number))
 }
 
 const learningReport = (record) => record?.evaluation?.learning_report || null
@@ -159,6 +175,13 @@ const showMore = () => {
                 :style="{ width:'40px', height:'40px', borderRadius:'50%', background:`linear-gradient(135deg, ${accent}22, ${accent}44)`, border:`1px solid ${accent}66`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', fontWeight:'900', fontFamily:'monospace', color: accent }">
                 {{ n.toString().padStart(2, '0') }}
               </span>
+              <template v-if="actualSecondAreaNumber(record)">
+                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin-left:4px;">第二區</span>
+                <span
+                  :style="{ width:'40px', height:'40px', borderRadius:'50%', background:'rgba(251,191,36,0.16)', border:'1px solid rgba(251,191,36,0.48)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', fontWeight:'900', fontFamily:'monospace', color:'#fbbf24' }">
+                  {{ actualSecondAreaNumber(record).toString().padStart(2, '0') }}
+                </span>
+              </template>
             </template>
             <span v-else style="font-size:16px;color:#64748b;">尚未對獎</span>
           </div>
@@ -170,6 +193,7 @@ const showMore = () => {
             class="prediction-history-row">
             <span :style="{ fontSize:'16px', fontWeight:'800', color:strategyTheme(strategy).color }">{{ strategy }}</span>
             <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <span v-if="secondAreaNumbers(record, strategy).length" style="font-size:13px;font-weight:800;color:#94a3b8;">第一區</span>
               <span v-for="n in nums" :key="n"
                 :style="{
                   width:'38px', height:'38px', borderRadius:'50%',
@@ -182,9 +206,24 @@ const showMore = () => {
                 }">
                 {{ n.toString().padStart(2, '0') }}
               </span>
+              <template v-if="secondAreaNumbers(record, strategy).length">
+                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin-left:6px;">第二區</span>
+                <span v-for="n in secondAreaNumbers(record, strategy)" :key="`special-${strategy}-${n}`"
+                  :style="{
+                    width:'38px', height:'38px', borderRadius:'50%',
+                    background: isSecondAreaMatched(record, strategy, n) ? 'rgba(251,191,36,0.28)' : 'rgba(251,191,36,0.12)',
+                    border: isSecondAreaMatched(record, strategy, n) ? '2px solid rgba(251,191,36,0.9)' : '1px solid rgba(251,191,36,0.42)',
+                    display:'flex', alignItems:'center', justifyContent:'center',
+                    fontSize:'19px', fontWeight:'900', fontFamily:'monospace',
+                    color:'#fbbf24',
+                    boxShadow: isSecondAreaMatched(record, strategy, n) ? '0 0 12px rgba(251,191,36,0.35)' : 'none'
+                  }">
+                  {{ n.toString().padStart(2, '0') }}
+                </span>
+              </template>
             </div>
             <span :style="{ fontSize:'15px', fontWeight:'800', color: hitCount(record, strategy, nums) ? '#cbd5e1' : '#fbbf24', whiteSpace:'nowrap' }">
-              {{ hitCount(record, strategy, nums) ? `命中 ${hitCount(record, strategy, nums)}` : '待對獎' }}
+              {{ hitLabel(record, strategy, nums) }}
             </span>
           </div>
         </div>

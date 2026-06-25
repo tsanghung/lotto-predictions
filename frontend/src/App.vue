@@ -338,6 +338,14 @@ const formatDate = (iso) => {
         <p style="font-size:14px;color:#1e293b;margin-top:8px;">
           由 Gemini AI × Supabase Edge Functions 全自動驅動 · 資料來源：台灣彩券官方網站
         </p>
+        <p style="font-size:14px;color:#334155;margin-top:12px;">
+          <a href="/ai-lottery-guide.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            AI 樂透預測方法
+          </a>
+          <a href="/privacy" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);">
+            隱私權政策
+          </a>
+        </p>
       </footer>
     </div>
   </div>

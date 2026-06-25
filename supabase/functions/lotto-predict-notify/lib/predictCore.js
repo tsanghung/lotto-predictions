@@ -15,6 +15,11 @@ export const GAME_CONFIG = {
     name: "威力彩",
     maxNumber: 38,
     picks: 6,
+    secondaryNumber: {
+      label: "第二區",
+      maxNumber: 8,
+      picks: 1,
+    },
   },
 };
 
@@ -137,6 +142,17 @@ function frequencyCounts(draws, maxNumber) {
     }
   }
   return counts;
+}
+
+function specialNumberDraws(draws, maxNumber) {
+  return draws
+    .map((draw) => {
+      const number = Number(draw.special_number);
+      return Number.isInteger(number) && number >= 1 && number <= maxNumber
+        ? { ...draw, numbers: [number] }
+        : null;
+    })
+    .filter(Boolean);
 }
 
 function rankCounts(counts, direction = "desc") {
@@ -419,15 +435,6 @@ function trendWindow(draws, config, period) {
   };
 }
 
-function fullHistoryRows(draws) {
-  return draws.map((draw) => ({
-    draw_id: String(draw.draw_id),
-    draw_date: String(draw.draw_date),
-    numbers: normalizeNumbers(draw.numbers || []),
-    special_number: draw.special_number ?? null,
-  }));
-}
-
 export function buildAsiLearningContext(records = [], limit = 5) {
   return records
     .filter((record) => record && record.target_draw_date)
@@ -480,10 +487,13 @@ export function buildGeminiDecisionPayload({ gameType, draws, generatedAt, learn
     game_name: config.name,
     generated_at: generatedAt,
     number_range: { min: 1, max: config.maxNumber, picks: config.picks },
-    full_history: fullHistoryRows(draws),
+    ...(config.secondaryNumber
+      ? { secondary_number_range: { min: 1, max: config.secondaryNumber.maxNumber, picks: config.secondaryNumber.picks } }
+      : {}),
     asi_learning_memory: asiLearningMemory,
     quantitative_features: {
-      methodology: "statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; ASI learning memory from recent post-draw evaluations; metaphysical signals are entertainment-only and capped at 10 percent.",
+      methodology: "server-computed statistical frequency, recency gaps, average intervals, co-occurrence pairs, sum distribution, odd-even distribution, large-small distribution, verifier and rolling backtest; raw draw history is intentionally omitted from the prompt; ASI learning memory from recent post-draw evaluations; metaphysical signals are entertainment-only and capped at 10 percent.",
+      raw_history_policy: "omitted_from_prompt",
       full_history_sample_size: draws.length,
       first_draw_date: draws[0]?.draw_date,
       latest_draw_id: draws.at(-1)?.draw_id,
@@ -495,6 +505,9 @@ export function buildGeminiDecisionPayload({ gameType, draws, generatedAt, learn
       all_time_odd_even: oddEvenStats(draws),
       all_time_large_small: largeSmallStats(draws, config.maxNumber),
       trend_windows: Object.fromEntries(windows.map((period) => [String(period), trendWindow(draws, config, period)])),
+      ...(config.secondaryNumber
+        ? { second_area: buildSpecialNumberInsights({ draws, config, recentPeriods }) }
+        : {}),
       metaphysics_framework: {
         label: "entertainment_only",
         max_weight: 0.1,
@@ -607,7 +620,7 @@ function sanitizeCandidatePool(decision, maxNumber) {
     .sort((left, right) => right.score - left.score || left.number - right.number);
 }
 
-function verifyCombinations(combinations, config) {
+function verifyCombinations(combinations, config, specialCombinations = null) {
   const errors = [];
   for (const [strategy, numbers] of Object.entries(combinations)) {
     if (!Array.isArray(numbers)) {
@@ -640,6 +653,25 @@ function verifyCombinations(combinations, config) {
       }
     }
   }
+  if (config.secondaryNumber) {
+    const secondary = config.secondaryNumber;
+    for (const strategy of Object.keys(combinations)) {
+      const numbers = specialCombinations?.[strategy];
+      if (!Array.isArray(numbers)) {
+        errors.push(`${strategy} second area is not an array`);
+        continue;
+      }
+      if (numbers.length !== secondary.picks) {
+        errors.push(`${strategy} second area has ${numbers.length} numbers, expected ${secondary.picks}`);
+      }
+      if (new Set(numbers).size !== numbers.length) {
+        errors.push(`${strategy} second area contains duplicate numbers`);
+      }
+      if (numbers.some((number) => !Number.isInteger(number) || number < 1 || number > secondary.maxNumber)) {
+        errors.push(`${strategy} second area contains out-of-range numbers`);
+      }
+    }
+  }
   return {
     valid: errors.length === 0,
     errors,
@@ -647,7 +679,7 @@ function verifyCombinations(combinations, config) {
   };
 }
 
-export function backtestCombinations({ combinations, draws, maxWindow = 50 }) {
+export function backtestCombinations({ combinations, specialCombinations = null, draws, maxWindow = 50 }) {
   const sample = draws.slice(-Math.min(maxWindow, draws.length));
   const strategies = {};
   for (const [strategy, numbers] of Object.entries(combinations)) {
@@ -658,10 +690,17 @@ export function backtestCombinations({ combinations, draws, maxWindow = 50 }) {
       hitDistribution[String(hits)] = (hitDistribution[String(hits)] || 0) + 1;
     }
     const totalHits = hitCounts.reduce((sum, hits) => sum + hits, 0);
+    const specialPicks = new Set(specialCombinations?.[strategy] || []);
+    const specialHitCounts = specialPicks.size
+      ? sample.map((draw) => specialPicks.has(Number(draw.special_number)) ? 1 : 0)
+      : [];
+    const specialTotalHits = specialHitCounts.reduce((sum, hits) => sum + hits, 0);
     strategies[strategy] = {
       best_hits: hitCounts.length ? Math.max(...hitCounts) : 0,
       average_hits: hitCounts.length ? Number((totalHits / hitCounts.length).toFixed(2)) : 0,
       hit_distribution: hitDistribution,
+      special_best_hits: specialHitCounts.length ? Math.max(...specialHitCounts) : 0,
+      special_average_hits: specialHitCounts.length ? Number((specialTotalHits / specialHitCounts.length).toFixed(2)) : 0,
     };
   }
   return {
@@ -686,6 +725,10 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
   const recentHot = (insights.recent_hot || []).map((item) => item.number);
   const recentCold = (insights.recent_cold || []).map((item) => item.number);
   const baseline = prediction.combinations || {};
+  const baselineSpecial = prediction.special_combinations || null;
+  const computedSpecial = buildSpecialCombinations({ draws, config, recentPeriods: recentPeriodFor(gameType, draws.length) });
+  const specialCombinations = baselineSpecial || computedSpecial?.combinations || null;
+  const specialNumberInsights = prediction.special_number_insights || computedSpecial?.insights || null;
   const strategyWeights = decision?.strategy_weights || {};
 
   const combinations = {};
@@ -710,9 +753,10 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
     );
   }
 
-  const verification = verifyCombinations(combinations, config);
+  const verification = verifyCombinations(combinations, config, specialCombinations);
   const backtest = backtestCombinations({
     combinations,
+    specialCombinations,
     draws,
     maxWindow: Math.min(100, Math.max(10, Math.floor(draws.length / 4))),
   });
@@ -740,6 +784,12 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
         : prediction.risk_warning,
       reasoning_source: "gemini_quantitative",
       combinations,
+      ...(specialCombinations
+        ? {
+            special_combinations: specialCombinations,
+            special_number_insights: specialNumberInsights,
+          }
+        : {}),
       number_insights: {
         ...insights,
         ...selectedNumberInsights,
@@ -797,6 +847,75 @@ function buildInsightPayload({ gameType, draws, recentDraws, config }) {
   };
 }
 
+function buildSpecialNumberInsights({ draws, config, recentPeriods }) {
+  const secondary = config.secondaryNumber;
+  if (!secondary) {
+    return null;
+  }
+
+  const specialDraws = specialNumberDraws(draws, secondary.maxNumber);
+  const recentSpecialDraws = specialDraws.slice(-Math.min(recentPeriods, specialDraws.length));
+  const allCounts = frequencyCounts(specialDraws, secondary.maxNumber);
+  const recentCounts = frequencyCounts(recentSpecialDraws, secondary.maxNumber);
+
+  return {
+    label: secondary.label,
+    range: { min: 1, max: secondary.maxNumber, picks: secondary.picks },
+    raw_history_policy: "server_computed_special_number_only",
+    sample_size: specialDraws.length,
+    recent_periods: recentSpecialDraws.length,
+    all_time_hot: rankCounts(allCounts, "desc").slice(0, secondary.maxNumber),
+    all_time_cold: rankCounts(allCounts, "asc").slice(0, secondary.maxNumber),
+    recent_hot: rankCounts(recentCounts, "desc").slice(0, secondary.maxNumber),
+    top_overdue: overdueRanks(specialDraws, secondary.maxNumber).slice(0, secondary.maxNumber),
+  };
+}
+
+function buildSpecialCombinations({ draws, config, recentPeriods }) {
+  const secondary = config.secondaryNumber;
+  if (!secondary) {
+    return null;
+  }
+
+  const specialDraws = specialNumberDraws(draws, secondary.maxNumber);
+  const recentSpecialDraws = specialDraws.slice(-Math.min(recentPeriods, specialDraws.length));
+  const insights = buildSpecialNumberInsights({ draws, config, recentPeriods });
+  const allCounts = frequencyCounts(specialDraws, secondary.maxNumber);
+  const expectedFrequency = specialDraws.length / secondary.maxNumber;
+  const intervals = averageIntervals(specialDraws, secondary.maxNumber);
+  const missing = missingValues(specialDraws, secondary.maxNumber);
+  const balancedRank = Array.from({ length: secondary.maxNumber }, (_, index) => {
+    const number = index + 1;
+    return {
+      number,
+      frequencyDistance: Math.abs((allCounts.get(number) || 0) - expectedFrequency),
+      intervalDistance: Math.abs((missing.get(number) || 0) - (intervals.get(number) || 1)),
+    };
+  }).sort((left, right) =>
+    left.frequencyDistance - right.frequencyDistance ||
+    left.intervalDistance - right.intervalDistance ||
+    left.number - right.number
+  ).map((item) => item.number);
+  const recentHot = rankCounts(frequencyCounts(recentSpecialDraws, secondary.maxNumber), "desc")
+    .map((item) => item.number);
+  const overdue = insights.top_overdue.map((item) => item.number);
+  const used = new Set();
+  const choose = (candidates) => {
+    const selected = candidates.find((number) => !used.has(number)) ?? candidates[0] ?? 1;
+    used.add(selected);
+    return [selected];
+  };
+
+  return {
+    combinations: {
+      [STRATEGY_NAMES[0]]: choose(overdue),
+      [STRATEGY_NAMES[1]]: choose(balancedRank),
+      [STRATEGY_NAMES[2]]: choose(recentHot),
+    },
+    insights,
+  };
+}
+
 function buildReasoning(insights, combinations) {
   const hotText = formatNumberCount(insights.recent_hot, "次");
   const coldText = insights.recent_cold.slice(0, 3).map((item) => `${item.number}(遺漏${item.gap}期)`).join("、");
@@ -849,6 +968,7 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
     "穩健平衡": uniqueTake(balancedCandidates(stats, averageTarget), config.picks, config.maxNumber),
     "統計趨勢": uniqueTake([...hot, ...pairNumbers, ...allTimeHot], config.picks, config.maxNumber),
   };
+  const specialPrediction = buildSpecialCombinations({ draws, config, recentPeriods });
   const reasoning = buildReasoning(insights, combinations);
   const selectedNumberInsights = buildSelectedNumberInsights({
     combinations,
@@ -867,6 +987,12 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
       reasoning,
       risk_warning: "樂透屬隨機事件，統計洞察僅供輔助參考，請理性投注。",
       combinations,
+      ...(specialPrediction
+        ? {
+            special_combinations: specialPrediction.combinations,
+            special_number_insights: specialPrediction.insights,
+          }
+        : {}),
       number_insights: {
         ...insights,
         ...selectedNumberInsights,
@@ -885,6 +1011,7 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
 
 export function buildLineMessage(record, targetDate) {
   const combinations = record.prediction?.combinations || {};
+  const specialCombinations = record.prediction?.special_combinations || {};
   const insights = record.prediction?.number_insights || {};
   const hotText = Array.isArray(insights.recent_hot) ? formatNumberCount(insights.recent_hot, "次", 5) : "";
   const coldText = Array.isArray(insights.recent_cold)
@@ -921,7 +1048,15 @@ export function buildLineMessage(record, targetDate) {
 
   for (const [strategy, numbers] of Object.entries(combinations)) {
     const numberText = numbers.map((number) => String(number).padStart(2, "0")).join(", ");
-    message += `[${strategy}]\n${numberText}\n\n`;
+    const secondArea = specialCombinations[strategy] || [];
+    message += `[${strategy}]\n`;
+    if (secondArea.length) {
+      const secondAreaText = secondArea.map((number) => String(number).padStart(2, "0")).join(", ");
+      message += `第一區：${numberText}\n`;
+      message += `第二區：${secondAreaText}\n\n`;
+    } else {
+      message += `${numberText}\n\n`;
+    }
   }
 
   message += `------------------\n`;

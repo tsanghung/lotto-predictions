@@ -411,8 +411,8 @@ async function enhancePredictionWithGemini(
   }
 
   const prompt = [
-    "你會收到 full_history，這是此彩種目前資料庫內的全部歷史開獎資料，已依日期由舊到新排序。",
-    "請依照統計、機率、資料方法論進行量化推理，Gemini 必須主導候選號碼池與三種策略權重。",
+    "你不會收到 full_history 或任何逐期 raw draw rows；完整歷史資料只在 server 端計算成 quantitative_features 後提供。",
+    "請只依照 server-computed quantitative_features、ASI learning memory、統計、機率與資料方法論進行量化推理，不得編造未提供的逐期歷史資料。",
     "科學的盡頭是玄學，但玄學只能作為 5% 到 10% 的娛樂輔助權重，必須清楚標示 metaphysics_note，不能宣稱保證命中。",
     "請輸出繁體中文 JSON，不要 Markdown。",
     "strategy_weights 必須包含【激進包牌】、【穩健平衡】、【統計趨勢】，每個策略提供 weight、prefer、avoid、rationale。",
