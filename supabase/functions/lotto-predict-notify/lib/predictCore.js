@@ -587,18 +587,42 @@ function averageSum(draws) {
   return Math.round(draws.reduce((sum, draw) => sum + (draw.numbers || []).reduce((a, b) => a + b, 0), 0) / draws.length);
 }
 
-function balancedCandidates(stats, averageTarget) {
-  return [...stats].sort((left, right) => {
-    const leftCenter = Math.abs(left.number - averageTarget);
-    const rightCenter = Math.abs(right.number - averageTarget);
-    if (leftCenter !== rightCenter) {
-      return leftCenter - rightCenter;
+function balancedCandidates(stats, config) {
+  // 「穩健平衡」應跨號段均勻分布，而非全擠在中位數附近（舊版排序「離中心最近」會
+  // 直接吐出 22,23,24,25,26,27 這種中央連號團）。改為把 1..maxNumber 切成 picks 個
+  // 連續號段，每段挑一個代表號（近期最熱，平手取靠近段中心者），確保橫跨全範圍、
+  // 結構真正平衡，且不會形成長連號。
+  const { maxNumber, picks } = config;
+  const byNumber = new Map(stats.map((item) => [item.number, item]));
+  const bandSize = maxNumber / picks;
+  const primary = [];
+  const chosen = new Set();
+  for (let band = 0; band < picks; band += 1) {
+    const low = Math.floor(band * bandSize) + 1;
+    const high = band === picks - 1 ? maxNumber : Math.floor((band + 1) * bandSize);
+    const center = (low + high) / 2;
+    let best = null;
+    for (let number = low; number <= high; number += 1) {
+      const frequency = byNumber.get(number)?.frequency ?? 0;
+      if (
+        !best ||
+        frequency > best.frequency ||
+        (frequency === best.frequency && Math.abs(number - center) < Math.abs(best.number - center))
+      ) {
+        best = { number, frequency };
+      }
     }
-    if (right.frequency !== left.frequency) {
-      return right.frequency - left.frequency;
+    if (best) {
+      primary.push(best.number);
+      chosen.add(best.number);
     }
-    return left.number - right.number;
-  }).map((item) => item.number);
+  }
+  // 備援池：剩餘號碼按近期頻率排序，供 uniqueTake 在邊界情況補足。
+  const rest = [...stats]
+    .filter((item) => !chosen.has(item.number))
+    .sort((left, right) => right.frequency - left.frequency || left.number - right.number)
+    .map((item) => item.number);
+  return [...primary, ...rest];
 }
 
 function asNumberArray(value) {
@@ -620,6 +644,44 @@ function sanitizeCandidatePool(decision, maxNumber) {
     .sort((left, right) => right.score - left.score || left.number - right.number);
 }
 
+function indexInsideLongRun(sorted) {
+  let run = 1;
+  for (let index = 1; index < sorted.length; index += 1) {
+    run = sorted[index] === sorted[index - 1] + 1 ? run + 1 : 1;
+    if (run >= 4) {
+      return index; // 第 4 個連續號；移除它即可把連號段打斷成 <= 3
+    }
+  }
+  return -1;
+}
+
+// 確保任何策略組合都不含 4 個（含）以上的連續整數（與舊版 Python 採樣器一致）。
+// 作法：移除連號段中的第 4 個號，改從候選池補入一個不會重新形成長連號的號碼。
+function breakConsecutiveRuns(numbers, candidates, config) {
+  let combo = normalizeNumbers(numbers);
+  const fallback = [...candidates, ...Array.from({ length: config.maxNumber }, (_, i) => i + 1)];
+  let guard = 0;
+  let runIndex = indexInsideLongRun(combo);
+  while (runIndex !== -1 && guard < config.maxNumber * 2) {
+    guard += 1;
+    const removed = combo[runIndex];
+    const without = combo.filter((number) => number !== removed);
+    const replacement = fallback.find((number) =>
+      Number.isInteger(number) &&
+      number >= 1 &&
+      number <= config.maxNumber &&
+      !without.includes(number) &&
+      indexInsideLongRun(normalizeNumbers([...without, number])) === -1
+    );
+    if (replacement === undefined) {
+      break;
+    }
+    combo = normalizeNumbers([...without, replacement]);
+    runIndex = indexInsideLongRun(combo);
+  }
+  return combo;
+}
+
 function verifyCombinations(combinations, config, specialCombinations = null) {
   const errors = [];
   for (const [strategy, numbers] of Object.entries(combinations)) {
@@ -639,6 +701,14 @@ function verifyCombinations(combinations, config, specialCombinations = null) {
     const sorted = normalizeNumbers(numbers);
     if (JSON.stringify(sorted) !== JSON.stringify(numbers)) {
       errors.push(`${strategy} is not sorted`);
+    }
+    let consecutiveRun = 1;
+    for (let index = 1; index < sorted.length; index += 1) {
+      consecutiveRun = sorted[index] === sorted[index - 1] + 1 ? consecutiveRun + 1 : 1;
+      if (consecutiveRun >= 4) {
+        errors.push(`${strategy} contains a run of 4+ consecutive numbers`);
+        break;
+      }
     }
   }
   const entries = Object.entries(combinations).filter(([, numbers]) => Array.isArray(numbers));
@@ -745,10 +815,14 @@ export function applyGeminiQuantDecision({ baseRecord, decision, payload, draws 
       ...recentHot,
       ...allTimeHot,
     ].filter((number) => !avoid.has(number));
-    combinations[strategy] = diversifyAgainstPrior(
-      uniqueTake(candidates, config.picks, config.maxNumber),
+    combinations[strategy] = breakConsecutiveRuns(
+      diversifyAgainstPrior(
+        uniqueTake(candidates, config.picks, config.maxNumber),
+        candidates,
+        Object.values(combinations),
+        config,
+      ),
       candidates,
-      Object.values(combinations),
       config,
     );
   }
@@ -958,15 +1032,17 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
     left.frequency - right.frequency ||
     left.number - right.number
   ).map((item) => item.number);
-  const averageTarget = Math.max(1, Math.round(averageSum(recentDraws) / config.picks));
   const overdue = insights.top_overdue.map((item) => item.number);
   const pairNumbers = insights.top_pairs.flatMap((item) => item.pair);
   const allTimeHot = insights.all_time_hot.map((item) => item.number);
 
+  const aggressiveCandidates = [...overdue, ...cold];
+  const balancedPool = balancedCandidates(stats, config);
+  const trendCandidates = [...hot, ...pairNumbers, ...allTimeHot];
   const combinations = {
-    "激進包牌": uniqueTake([...overdue, ...cold], config.picks, config.maxNumber),
-    "穩健平衡": uniqueTake(balancedCandidates(stats, averageTarget), config.picks, config.maxNumber),
-    "統計趨勢": uniqueTake([...hot, ...pairNumbers, ...allTimeHot], config.picks, config.maxNumber),
+    "激進包牌": breakConsecutiveRuns(uniqueTake(aggressiveCandidates, config.picks, config.maxNumber), aggressiveCandidates, config),
+    "穩健平衡": breakConsecutiveRuns(uniqueTake(balancedPool, config.picks, config.maxNumber), balancedPool, config),
+    "統計趨勢": breakConsecutiveRuns(uniqueTake(trendCandidates, config.picks, config.maxNumber), trendCandidates, config),
   };
   const specialPrediction = buildSpecialCombinations({ draws, config, recentPeriods });
   const reasoning = buildReasoning(insights, combinations);

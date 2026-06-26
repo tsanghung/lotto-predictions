@@ -314,7 +314,11 @@ test("Gemini quantitative decision drives combinations while verifier rejects in
 
   assert.equal(record.prediction.model, "gemini-quant-v2");
   assert.equal(record.prediction.reasoning_source, "gemini_quantitative");
-  assert.deepEqual(record.prediction.combinations["激進包牌"], [35, 36, 37, 38, 39]);
+  const aggressive = record.prediction.combinations["激進包牌"];
+  assert.equal(aggressive.length, 5);
+  assert.ok(maxConsecutiveRun(aggressive) < 4); // 新政策：不得出現 4 連號（即使 Gemini 偏好連號池）
+  const preferredHonored = [35, 36, 37, 38, 39].filter((number) => aggressive.includes(number)).length;
+  assert.ok(preferredHonored >= 4); // 仍盡量採用 Gemini 偏好號
   assert.ok(record.prediction.number_insights.selected_numbers["39"].reason.includes("Gemini 量化訊號"));
   assert.equal(record.prediction.number_insights["39"].metaphysics_signal, "尾數 9");
   assert.ok(record.prediction.verification.valid);
@@ -418,4 +422,38 @@ test("detects notifications sent before draw-day 10 AM release time", () => {
   assert.equal(notificationSentBeforeRelease("2026-06-15T01:59:59Z", "2026-06-15"), true);
   assert.equal(notificationSentBeforeRelease("2026-06-15T02:00:00Z", "2026-06-15"), false);
   assert.equal(notificationSentBeforeRelease(null, "2026-06-15"), false);
+});
+
+function maxConsecutiveRun(numbers) {
+  const sorted = [...numbers].sort((a, b) => a - b);
+  let run = 1;
+  let best = 1;
+  for (let i = 1; i < sorted.length; i += 1) {
+    run = sorted[i] === sorted[i - 1] + 1 ? run + 1 : 1;
+    best = Math.max(best, run);
+  }
+  return best;
+}
+
+test("statistical strategies avoid 4+ consecutive runs; balanced strategy spreads across the range", () => {
+  const cases = [
+    ["539", dailyDraws, 39],
+    ["power", powerDraws, 38],
+  ];
+  for (const [gameType, draws, maxNumber] of cases) {
+    const record = generatePrediction({ gameType, draws, generatedAt: "2026-06-26T10:00:00+08:00" });
+    const combinations = record.prediction.combinations;
+    for (const [strategy, numbers] of Object.entries(combinations)) {
+      assert.ok(
+        maxConsecutiveRun(numbers) < 4,
+        `${gameType} ${strategy} should not contain a 4+ consecutive run: ${numbers}`,
+      );
+    }
+    const balanced = combinations["穩健平衡"];
+    const spread = Math.max(...balanced) - Math.min(...balanced);
+    assert.ok(
+      spread >= maxNumber / 2,
+      `${gameType} 穩健平衡 should span the range, got ${balanced} (spread ${spread})`,
+    );
+  }
 });
