@@ -3,6 +3,7 @@ import {
   buildGeminiDecisionPayload,
   buildLineMessage,
   dueGamesForDate,
+  generateHonestPrediction,
   generatePrediction,
   GAME_CONFIG,
   notificationSentBeforeRelease,
@@ -545,18 +546,12 @@ async function processGame(
     options.serviceRoleKey,
     gameName,
   );
-  const payload = buildGeminiDecisionPayload({
-    gameType,
-    draws,
-    generatedAt: options.generatedAt,
-    learningRecords,
-  });
-  let record: Record<string, unknown> = generatePrediction({
+  // 誠實博弈版：不呼叫 Gemini 預測號碼；改為公正性健診 + 博弈低均分選號(確定性)。
+  const record: Record<string, unknown> = generateHonestPrediction({
     gameType,
     draws,
     generatedAt: options.generatedAt,
   });
-  record = await enhancePredictionWithGemini(record, payload, draws);
   const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
   if (!drawTargetDate) {
     return {

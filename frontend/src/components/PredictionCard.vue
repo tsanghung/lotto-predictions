@@ -22,10 +22,13 @@ const latestPredictionDate = computed(() => {
 })
 
 const strategyStyle = (strategy) => {
-  if (strategy.includes('激進') || strategy.includes('AI')) return { color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)' }
-  if (strategy.includes('穩健') || strategy.includes('平衡')) return { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.25)' }
+  if (strategy.includes('①') || strategy.includes('激進') || strategy.includes('AI')) return { color: '#f87171', bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.25)' }
+  if (strategy.includes('②') || strategy.includes('穩健') || strategy.includes('平衡')) return { color: '#34d399', bg: 'rgba(52,211,153,0.08)', border: 'rgba(52,211,153,0.25)' }
   return { color: '#fbbf24', bg: 'rgba(251,191,36,0.08)', border: 'rgba(251,191,36,0.25)' }
 }
+
+// 公正性健診（誠實博弈版的招牌）
+const fairness = computed(() => latestPrediction.value?.prediction?.fairness_diagnostic || null)
 
 // 各號碼的選號理由（相容舊版數字 key 與新版 selected_numbers）
 const numberInsights = computed(() => {
@@ -81,7 +84,7 @@ const sortedInsights = computed(() => {
 
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
         <h2 style="font-size:1.1rem;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
-          <span>🔮</span> AI 預測號碼
+          <span>🎲</span> 公正性健診 + 博弈選號
         </h2>
         <span v-if="latestPrediction" style="font-size:14px;color:#64748b;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);border-radius:100px;padding:3px 10px;">
           {{ latestPredictionDate }}
@@ -91,21 +94,35 @@ const sortedInsights = computed(() => {
       <!-- No data state -->
       <div v-if="!latestPrediction" style="text-align:center;padding:40px 0;color:#475569;">
         <div style="font-size:38px;margin-bottom:12px;">🎲</div>
-        <p style="font-size:17px;">尚無預測資料</p>
-        <p style="font-size:15px;margin-top:4px;">請等待 AI 每日自動生成</p>
+        <p style="font-size:17px;">尚無本期資料</p>
+        <p style="font-size:15px;margin-top:4px;">請等待每日自動生成</p>
       </div>
 
       <!-- Prediction content -->
       <div v-else>
-        <!-- AI Reasoning -->
+        <!-- 公正性健診 -->
+        <div v-if="fairness" :style="{ background: fairness.passed ? 'rgba(52,211,153,0.08)' : 'rgba(251,191,36,0.08)', border: `1px solid ${fairness.passed ? 'rgba(52,211,153,0.28)' : 'rgba(251,191,36,0.28)'}`, borderRadius:'12px', padding:'14px', marginBottom:'16px' }">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;">
+            <span style="font-size:20px;">{{ fairness.passed ? '✅' : '⚠️' }}</span>
+            <p style="font-size:15px;font-weight:700;color:#e2e8f0;">公正性健診：{{ fairness.passed ? '通過（開獎與真隨機無法區分）' : '異常待查' }}</p>
+          </div>
+          <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:14px;color:#94a3b8;font-family:monospace;">
+            <span>號碼均勻性 p = {{ fairness.uniform_p }}</span>
+            <span>前後期獨立性 p = {{ fairness.serial_p }}</span>
+            <span>樣本 {{ fairness.sample_size }} 期</span>
+          </div>
+          <p style="font-size:13px;color:#475569;line-height:1.6;margin-top:10px;">p ≥ 0.05 代表與「真隨機」無法區分 → 沒有可預測的號碼。以下為降低均分風險的博弈選號。</p>
+        </div>
+
+        <!-- 選號說明 -->
         <div style="background:rgba(0,0,0,0.2);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.05);">
-          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">📊 AI 統計洞察</p>
+          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;">📊 健診與選號說明</p>
           <p style="font-size:16px;color:#94a3b8;line-height:1.6;">{{ latestPrediction.prediction.reasoning }}</p>
         </div>
 
         <!-- Combinations -->
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">💡 推薦投注組合</p>
+          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">🎲 博弈低均分組合</p>
           <div v-for="(nums, strategy) in latestPrediction.prediction.combinations" :key="strategy"
             :style="{
               background: strategyStyle(strategy).bg,
@@ -145,7 +162,7 @@ const sortedInsights = computed(() => {
 
         <!-- 今日選號理由 -->
         <div v-if="sortedInsights.length" style="margin-top:16px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.05);border-radius:12px;padding:14px;">
-          <p style="font-size:18px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">🔍 今日選號理由</p>
+          <p style="font-size:18px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px;">🔍 選號號碼統計特徵</p>
           <div style="display:flex;flex-direction:column;gap:14px;">
             <div v-for="item in sortedInsights" :key="item.num"
               style="display:flex;align-items:flex-start;gap:12px;">
