@@ -8,6 +8,7 @@ import {
   buildGeminiDecisionPayload,
   buildLineMessage,
   dueGamesForDate,
+  generateHonestPrediction,
   generatePrediction,
   notificationSentBeforeRelease,
   predictionTargetDate,
@@ -434,6 +435,26 @@ function maxConsecutiveRun(numbers) {
   }
   return best;
 }
+
+test("honest game-theory engine: fairness diagnostic + low-split combinations + honest message", () => {
+  for (const [gameType, draws] of [["539", dailyDraws], ["power", powerDraws]]) {
+    const record = generateHonestPrediction({ gameType, draws, generatedAt: "2026-06-30T10:00:00+08:00" });
+    assert.equal(record.prediction.model, "game-theory-v1");
+    assert.equal(record.prediction.reasoning_source, "honest_game_theory");
+    assert.equal(typeof record.prediction.fairness_diagnostic.uniform_p, "number");
+    const combos = Object.values(record.prediction.combinations);
+    assert.equal(combos.length, 3);
+    for (const c of combos) {
+      assert.equal(new Set(c).size, c.length);                // 不重複
+      assert.ok(maxConsecutiveRun(c) < 4);                    // 無長連號
+      assert.ok(c.filter((n) => n > 31).length >= 2, `${gameType} low-split should favor unpopular high numbers: ${c}`);
+    }
+    const message = buildLineMessage(record, "2026-06-30");
+    assert.ok(message.includes("公正性健診"));
+    assert.ok(message.includes("不預測號碼"));
+    assert.ok(!message.includes("AI 樂透預測"));
+  }
+});
 
 test("statistical strategies avoid 4+ consecutive runs; balanced strategy spreads across the range", () => {
   const cases = [

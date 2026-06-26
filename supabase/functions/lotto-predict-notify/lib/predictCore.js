@@ -1085,7 +1085,180 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
   };
 }
 
+// ── 誠實博弈版引擎：公正性健診 + 博弈低均分選號 ─────────────────────────────
+function gammaln(x) {
+  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
+    -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+  let tmp = x + 5.5;
+  tmp -= (x + 0.5) * Math.log(tmp);
+  let ser = 1.000000000190015;
+  let y = x;
+  for (let j = 0; j < 6; j += 1) { y += 1; ser += c[j] / y; }
+  return -tmp + Math.log(2.5066282746310005 * ser / x);
+}
+
+function gammaincUpper(a, x) {
+  const ITMAX = 300, EPS = 1e-13, FPMIN = 1e-300;
+  if (x <= 0) return 1;
+  if (x < a + 1) {
+    let ap = a, sum = 1 / a, del = 1 / a;
+    for (let n = 0; n < ITMAX; n += 1) { ap += 1; del *= x / ap; sum += del; if (Math.abs(del) < Math.abs(sum) * EPS) break; }
+    return 1 - sum * Math.exp(-x + a * Math.log(x) - gammaln(a));
+  }
+  let b = x + 1 - a, c = 1 / FPMIN, d = 1 / b, h = d;
+  for (let i = 1; i < ITMAX; i += 1) {
+    const an = -i * (i - a);
+    b += 2;
+    d = an * d + b; if (Math.abs(d) < FPMIN) d = FPMIN;
+    c = b + an / c; if (Math.abs(c) < FPMIN) c = FPMIN;
+    d = 1 / d; const del = d * c; h *= del;
+    if (Math.abs(del - 1) < EPS) break;
+  }
+  return Math.exp(-x + a * Math.log(x) - gammaln(a)) * h;
+}
+
+const chiSquareP = (chi2, df) => gammaincUpper(df / 2, chi2 / 2);
+
+function erfApprox(x) {
+  const sign = x < 0 ? -1 : 1;
+  const ax = Math.abs(x);
+  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741, a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
+  const t = 1 / (1 + p * ax);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-ax * ax);
+  return sign * y;
+}
+
+const twoTailNormalP = (z) => 2 * (1 - 0.5 * (1 + erfApprox(Math.abs(z) / Math.SQRT2)));
+
+export function fairnessDiagnostic(draws, config) {
+  const N = config.maxNumber;
+  const k = config.picks;
+  const T = draws.length;
+  const freq = new Array(N + 1).fill(0);
+  for (const draw of draws) {
+    for (const number of draw.numbers || []) {
+      if (number >= 1 && number <= N) freq[number] += 1;
+    }
+  }
+  const expected = T * k / N;
+  let chi2 = 0;
+  for (let n = 1; n <= N; n += 1) chi2 += (freq[n] - expected) ** 2 / expected;
+  const uniformP = T > 0 ? chiSquareP(chi2, N - 1) : 1;
+
+  let overlapSum = 0;
+  for (let i = 1; i < T; i += 1) {
+    const prev = new Set(draws[i - 1].numbers || []);
+    overlapSum += (draws[i].numbers || []).filter((number) => prev.has(number)).length;
+  }
+  const theoOverlap = k * k / N;
+  const theoVar = k * (k / N) * (1 - k / N) * (N - k) / (N - 1);
+  const meanOverlap = T > 1 ? overlapSum / (T - 1) : 0;
+  const zOverlap = (theoVar > 0 && T > 1) ? (meanOverlap - theoOverlap) / (Math.sqrt(theoVar) / Math.sqrt(T - 1)) : 0;
+  const serialP = twoTailNormalP(zOverlap);
+
+  return {
+    sample_size: T,
+    chi2: Number(chi2.toFixed(1)),
+    uniform_p: Number(uniformP.toFixed(4)),
+    serial_p: Number(serialP.toFixed(4)),
+    passed: uniformP >= 0.05 && serialP >= 0.05,
+  };
+}
+
+function lowSplitWeight(n) {
+  if (n <= 12) return 3;     // 可當月/日 → 大眾最常選
+  if (n <= 31) return 2;     // 可當日 → 大眾常選
+  return 1;                  // > 31 無日曆意義 → 大眾冷落(最利於低均分)
+}
+
+export function lowSplitCombinations(draws, config) {
+  const N = config.maxNumber;
+  const k = config.picks;
+  const base = Array.from({ length: N }, (_, i) => i + 1);
+  let seed = ((draws.length + 1) * 2654435761) >>> 0;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+  const names = ["低均分①", "低均分②", "低均分③"];
+  const combinations = {};
+  for (let s = 0; s < 3; s += 1) {
+    const ranked = base
+      .map((n) => ({ n, key: lowSplitWeight(n) + rand() }))   // 低人氣優先 + 偽隨機打散(避免規則圖形)
+      .sort((a, b) => a.key - b.key)
+      .map((o) => o.n);
+    const pick = [];
+    for (const n of ranked) {
+      if (pick.length >= k) break;
+      if (pick.every((p) => Math.abs(p - n) !== 1)) pick.push(n);   // 避免連號
+    }
+    for (const n of ranked) { if (pick.length >= k) break; if (!pick.includes(n)) pick.push(n); }
+    combinations[names[s]] = breakConsecutiveRuns(normalizeNumbers(pick.slice(0, k)), ranked, config);
+  }
+  return combinations;
+}
+
+function secondAreaLowSplit(config) {
+  const sec = config.secondaryNumber;
+  if (!sec) return null;
+  const pref = [4, 5, 7, 2, 1, 3, 6, 8].filter((n) => n >= 1 && n <= sec.maxNumber);
+  return {
+    "低均分①": [pref[0]],
+    "低均分②": [pref[1] ?? pref[0]],
+    "低均分③": [pref[2] ?? pref[0]],
+  };
+}
+
+export function generateHonestPrediction({ gameType, draws, generatedAt }) {
+  const config = GAME_CONFIG[gameType];
+  if (!config) {
+    throw new Error(`Unsupported game type: ${gameType}`);
+  }
+  if (!Array.isArray(draws) || draws.length < 3) {
+    throw new Error(`${config.name} requires at least 3 historical draws`);
+  }
+
+  const diagnostic = fairnessDiagnostic(draws, config);
+  const combinations = lowSplitCombinations(draws, config);
+  const specialCombinations = secondAreaLowSplit(config);
+  const recentPeriods = recentPeriodFor(gameType, draws.length);
+  const recentDraws = draws.slice(-recentPeriods);
+  const insights = buildInsightPayload({ gameType, draws, recentDraws, config });
+  const selectedNumberInsights = buildSelectedNumberInsights({ combinations, draws, recentDraws, config, recentPeriods });
+
+  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，沒有可預測的號碼。以下為「博弈低均分」選號：刻意避開生日(1–31)、連號與規則圖形等大眾熱門選擇——不改變中獎機率，但中頭獎時可降低與他人均分的機率，提高期望分得金額。`;
+
+  return {
+    timestamp: generatedAt,
+    game_name: config.name,
+    is_offline: false,
+    prediction: {
+      model: "game-theory-v1",
+      engine: "honest-game-theory",
+      reasoning_source: "honest_game_theory",
+      reasoning,
+      risk_warning: "本系統不預測號碼。樂透為隨機事件、期望值為負；博弈選號僅降低中獎時的均分風險，請理性投注、量力而為。",
+      fairness_diagnostic: diagnostic,
+      strategy_kind: "low_split_game_theory",
+      combinations,
+      ...(specialCombinations ? { special_combinations: specialCombinations } : {}),
+      number_insights: {
+        ...insights,
+        ...selectedNumberInsights,
+        selected_numbers: selectedNumberInsights,
+      },
+    },
+    is_evaluated: false,
+    evaluation: {
+      draw_id: null,
+      actual_numbers: [],
+      strategies: {},
+      attribution_report: null,
+    },
+  };
+}
+
 export function buildLineMessage(record, targetDate) {
+  if (record.prediction?.model === "game-theory-v1" || record.prediction?.fairness_diagnostic) {
+    return buildHonestLineMessage(record, targetDate);
+  }
   const combinations = record.prediction?.combinations || {};
   const specialCombinations = record.prediction?.special_combinations || {};
   const insights = record.prediction?.number_insights || {};
@@ -1137,5 +1310,38 @@ export function buildLineMessage(record, targetDate) {
 
   message += `------------------\n`;
   message += `提醒：樂透屬隨機事件，請理性投注。`;
+  return message;
+}
+
+function buildHonestLineMessage(record, targetDate) {
+  const prediction = record.prediction || {};
+  const diagnostic = prediction.fairness_diagnostic || {};
+  const combinations = prediction.combinations || {};
+  const specialCombinations = prediction.special_combinations || null;
+
+  let message = `🎲 樂透公正性健診 + 博弈選號\n\n`;
+  message += `日期：${targetDate}\n`;
+  message += `彩種：${record.game_name}\n`;
+  message += `------------------\n`;
+  message += `公正性健診：${diagnostic.passed ? "✅ 通過" : "⚠ 異常待查"}\n`;
+  message += `本期開獎在統計上與「真隨機」無法區分`;
+  if (diagnostic.uniform_p !== undefined) {
+    message += `（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）`;
+  }
+  message += `。\n→ 沒有可預測的號碼，任何「明牌」都與隨機無異。\n`;
+  message += `------------------\n`;
+  message += `博弈低均分選號（不提高中獎率，只在中獎時降低與他人均分的機率）：\n`;
+  for (const [name, numbers] of Object.entries(combinations)) {
+    const numberText = (numbers || []).map((n) => String(n).padStart(2, "0")).join(", ");
+    const second = specialCombinations?.[name];
+    if (Array.isArray(second) && second.length) {
+      message += `[${name}] 第一區 ${numberText}　第二區 ${second.map((n) => String(n).padStart(2, "0")).join(", ")}\n`;
+    } else {
+      message += `[${name}] ${numberText}\n`;
+    }
+  }
+  message += `（刻意避開生日 1–31、連號與規則圖形等大眾熱門號）\n`;
+  message += `------------------\n`;
+  message += `提醒：本系統不預測號碼。樂透期望值為負，請理性投注、量力而為。`;
   return message;
 }
