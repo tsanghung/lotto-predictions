@@ -127,8 +127,8 @@ function numberStats(draws, maxNumber) {
 }
 
 function recentPeriodFor(gameType, drawCount) {
-  const target = gameType === "539" ? 300 : 100;
-  return Math.min(target, drawCount);
+  // 誠實版：三個彩種一律以「全歷史」資料做分析（不再 539 用近 300、大樂透/威力彩用近 100）。
+  return drawCount;
 }
 
 function frequencyCounts(draws, maxNumber) {
@@ -384,7 +384,7 @@ function buildSelectedNumberInsights({ combinations, draws, recentDraws, config,
       reason = `久未開出：已隔 ${daysText}，約為自身平均週期 ${avgText} 的 ${overdueIndex.toFixed(1)} 倍，具冷門反彈觀察價值`;
     } else if (recentFreq >= avgRecent * 1.3) {
       tag = "hot";
-      reason = `近期熱門：近 ${recentPeriods} 期開出 ${recentFreq} 次，高於理論平均約 ${avgRecent.toFixed(1)} 次；史上累計 ${appearances} 次`;
+      reason = `歷史熱門：全歷史 ${recentPeriods} 期累計開出 ${recentFreq} 次，高於理論平均約 ${avgRecent.toFixed(1)} 次`;
     } else if (gapDraws <= 1) {
       tag = "fresh";
       reason = gapDays === null || gapDays === 0
@@ -393,7 +393,7 @@ function buildSelectedNumberInsights({ combinations, draws, recentDraws, config,
     } else {
       const gapText = gapDays === null ? `已隔 ${gapDraws} 期` : `已隔 ${gapDays} 天`;
       const avgText = avgIntervalDays ? `，貼近平均 ${avgIntervalDays.toFixed(0)} 天` : "";
-      reason = `週期穩定：${gapText}${avgText}，近 ${recentPeriods} 期開出 ${recentFreq} 次，作為結構平衡補位`;
+      reason = `週期穩定：${gapText}${avgText}，全歷史 ${recentPeriods} 期累計開出 ${recentFreq} 次，作為結構平衡補位`;
     }
 
     if (aiSignal?.statistics_reason) {

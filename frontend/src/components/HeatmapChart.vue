@@ -17,8 +17,8 @@ const maxNum = computed(() => {
   if (props.gameName === '威力彩') return 38
   return 39
 })
-// 大樂透與威力彩近 100 期、今彩539 近 300 期
-const periods = computed(() => (props.gameName === '今彩539' ? 300 : 100))
+// 誠實版：三個彩種一律使用全歷史資料
+const periods = computed(() => (props.historyData?.length || 0))
 
 // 計算近 N 期各號碼出現頻率
 const frequencies = computed(() => {
@@ -73,7 +73,7 @@ const cellStyle = (count) => {
   <div class="rounded-2xl border border-white/[0.07] bg-white/[0.03] p-6">
     <div class="flex items-center justify-between flex-wrap gap-2 mb-5">
       <h3 class="text-base font-semibold text-slate-200 flex items-center">
-        <span class="mr-2">🔥</span> 近 {{ periods }} 期熱力圖
+        <span class="mr-2">🔥</span> 全歷史 {{ periods }} 期熱力圖
       </h3>
       <!-- 冷熱色階圖例 -->
       <div class="flex items-center gap-1.5 text-xs text-slate-500">
@@ -87,7 +87,7 @@ const cellStyle = (count) => {
     <div class="grid gap-1.5 sm:gap-2"
          :style="{ gridTemplateColumns: `repeat(${maxNum <= 39 ? 8 : 10}, minmax(0, 1fr))` }">
       <div v-for="item in frequencies" :key="item.number"
-           :title="`號碼 ${item.number}：近 ${periods} 期開出 ${item.count} 次`"
+           :title="`號碼 ${item.number}：全歷史 ${periods} 期累計開出 ${item.count} 次`"
            :style="{
              ...cellStyle(item.count),
              aspectRatio: '1', borderRadius: '10px',
