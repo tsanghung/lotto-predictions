@@ -12,7 +12,7 @@ function injectStructuredData() {
         url: 'https://lotto.simonsynapse.net/',
         name: '小賽 AI 樂透預測',
         inLanguage: 'zh-Hant-TW',
-        description: '整合 Gemini AI、台灣彩券歷史開獎資料、統計特徵、回測與命中追蹤的樂透預測儀表板。',
+        description: '整合台灣彩券歷史開獎資料、公正性統計檢定、博弈低均分選號與命中追蹤的樂透儀表板（誠實揭露：樂透為隨機事件，不預測號碼）。',
         publisher: {
           '@id': 'https://lotto.simonsynapse.net/#organization',
         },
@@ -33,7 +33,7 @@ function injectStructuredData() {
         applicationCategory: 'DataVisualizationApplication',
         operatingSystem: 'Web',
         inLanguage: 'zh-Hant-TW',
-        description: '提供大樂透、今彩539、威力彩的 AI 選號、統計分析、歷史回測與成效追蹤。',
+        description: '提供大樂透、今彩539、威力彩的公正性健診、博弈低均分選號、統計分析與成效追蹤。',
         offers: {
           '@type': 'Offer',
           price: '0',

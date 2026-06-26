@@ -91,7 +91,7 @@ const formatDate = (iso) => {
           小賽 AI 樂透預測
         </h1>
         <p style="color:#64748b;font-size:1.05rem;max-width:560px;margin:0 auto 24px;line-height:1.6;">
-          結合 Gemini AI 深度推理 × 統計機率分析，全自動數據驅動的開獎預測儀表板
+          結合公正性統計檢定 × 博弈論期望值最佳化，全自動、不預測號碼的誠實樂透儀表板
         </p>
 
         <!-- Status badges -->
@@ -181,8 +181,8 @@ const formatDate = (iso) => {
 
           <!-- 區塊一：AI 預測與統計 -->
           <section>
-            <SectionHeader label="AI Prediction" title="AI 預測與即時統計"
-              desc="Gemini 推理生成的投注組合，並列歷史熱冷號與近期開獎概況" accent="#2dd4bf" />
+            <SectionHeader label="Fairness & Strategy" title="公正性健診 + 博弈選號"
+              desc="每期公正性統計健診，並提供避開大眾號的博弈低均分選號" accent="#2dd4bf" />
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
               <PredictionCard game-name="大樂透" :prediction-data="predictions"
                 :history-data="history['大樂透']" accent="#2dd4bf" />
@@ -207,8 +207,8 @@ const formatDate = (iso) => {
 
           <!-- 區塊三：成效追蹤 -->
           <section>
-            <SectionHeader label="Performance" title="AI 預測成效追蹤"
-              desc="歷次對獎的命中率、走勢與科學歸因分析" accent="#2dd4bf" />
+            <SectionHeader label="Performance" title="選號成效追蹤"
+              desc="歷次對獎的命中率與走勢（與隨機基準對照）" accent="#2dd4bf" />
             <div style="display:flex;flex-direction:column;gap:24px;">
               <AttributionReport
                 :prediction="[...predictions].reverse().find(p => p.game_name === '大樂透')" />
@@ -232,8 +232,8 @@ const formatDate = (iso) => {
 
           <!-- 區塊一：AI 預測與統計 -->
           <section>
-            <SectionHeader label="AI Prediction" title="AI 預測與即時統計"
-              desc="Gemini 推理生成的投注組合，並列歷史熱冷號與近期開獎概況" accent="#a78bfa" />
+            <SectionHeader label="Fairness & Strategy" title="公正性健診 + 博弈選號"
+              desc="每期公正性統計健診，並提供避開大眾號的博弈低均分選號" accent="#a78bfa" />
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
               <PredictionCard game-name="今彩539" :prediction-data="predictions"
                 :history-data="history['今彩539']" accent="#a78bfa" />
@@ -258,8 +258,8 @@ const formatDate = (iso) => {
 
           <!-- 區塊三：成效追蹤 -->
           <section>
-            <SectionHeader label="Performance" title="AI 預測成效追蹤"
-              desc="歷次對獎的命中率、走勢與科學歸因分析" accent="#a78bfa" />
+            <SectionHeader label="Performance" title="選號成效追蹤"
+              desc="歷次對獎的命中率與走勢（與隨機基準對照）" accent="#a78bfa" />
             <div style="display:flex;flex-direction:column;gap:24px;">
               <AttributionReport
                 :prediction="[...predictions].reverse().find(p => p.game_name === '今彩539')" />
@@ -283,8 +283,8 @@ const formatDate = (iso) => {
 
           <!-- 區塊一：AI 預測與統計 -->
           <section>
-            <SectionHeader label="AI Prediction" title="AI 預測與即時統計"
-              desc="Gemini 推理生成的第一區投注組合，並列第二區歷史特別號與近期開獎概況" accent="#f59e0b" />
+            <SectionHeader label="Fairness & Strategy" title="公正性健診 + 博弈選號"
+              desc="每期公正性統計健診，並提供第一區與第二區的博弈低均分選號" accent="#f59e0b" />
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
               <PredictionCard game-name="威力彩" :prediction-data="predictions"
                 :history-data="history['威力彩']" accent="#f59e0b" />
@@ -309,8 +309,8 @@ const formatDate = (iso) => {
 
           <!-- 區塊三：成效追蹤 -->
           <section>
-            <SectionHeader label="Performance" title="AI 預測成效追蹤"
-              desc="歷次對獎的命中率、走勢與科學歸因分析" accent="#f59e0b" />
+            <SectionHeader label="Performance" title="選號成效追蹤"
+              desc="歷次對獎的命中率與走勢（與隨機基準對照）" accent="#f59e0b" />
             <div style="display:flex;flex-direction:column;gap:24px;">
               <AttributionReport
                 :prediction="[...predictions].reverse().find(p => p.game_name === '威力彩')" />
@@ -336,7 +336,7 @@ const formatDate = (iso) => {
           ⚠️ 本系統僅供娛樂參考，不構成任何投注建議。請理性投注，勿過度沉迷。
         </p>
         <p style="font-size:14px;color:#1e293b;margin-top:8px;">
-          由 Gemini AI × Supabase Edge Functions 全自動驅動 · 資料來源：台灣彩券官方網站
+          由 公正性統計檢定 × 博弈論 × Supabase Edge Functions 全自動驅動 · 資料來源：台灣彩券官方網站
         </p>
         <p style="font-size:14px;color:#334155;margin-top:12px;">
           <a href="/ai-lottery-guide.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
