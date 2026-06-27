@@ -1172,38 +1172,30 @@ function lowSplitWeight(n) {
 }
 
 export function lowSplitCombinations(draws, config) {
+  // 誠實版：只給「一組」明確的低均分推薦（三組其實是同一策略的不同抽樣，徒增「有多種選擇」的假象）。
   const N = config.maxNumber;
   const k = config.picks;
   const base = Array.from({ length: N }, (_, i) => i + 1);
   let seed = ((draws.length + 1) * 2654435761) >>> 0;
   const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-  const names = ["低均分①", "低均分②", "低均分③"];
-  const combinations = {};
-  for (let s = 0; s < 3; s += 1) {
-    const ranked = base
-      .map((n) => ({ n, key: lowSplitWeight(n) + rand() }))   // 低人氣優先 + 偽隨機打散(避免規則圖形)
-      .sort((a, b) => a.key - b.key)
-      .map((o) => o.n);
-    const pick = [];
-    for (const n of ranked) {
-      if (pick.length >= k) break;
-      if (pick.every((p) => Math.abs(p - n) !== 1)) pick.push(n);   // 避免連號
-    }
-    for (const n of ranked) { if (pick.length >= k) break; if (!pick.includes(n)) pick.push(n); }
-    combinations[names[s]] = breakConsecutiveRuns(normalizeNumbers(pick.slice(0, k)), ranked, config);
+  const ranked = base
+    .map((n) => ({ n, key: lowSplitWeight(n) + rand() }))   // 低人氣優先 + 偽隨機打散(避免規則圖形)
+    .sort((a, b) => a.key - b.key)
+    .map((o) => o.n);
+  const pick = [];
+  for (const n of ranked) {
+    if (pick.length >= k) break;
+    if (pick.every((p) => Math.abs(p - n) !== 1)) pick.push(n);   // 避免連號
   }
-  return combinations;
+  for (const n of ranked) { if (pick.length >= k) break; if (!pick.includes(n)) pick.push(n); }
+  return { "低均分組合": breakConsecutiveRuns(normalizeNumbers(pick.slice(0, k)), ranked, config) };
 }
 
 function secondAreaLowSplit(config) {
   const sec = config.secondaryNumber;
   if (!sec) return null;
   const pref = [4, 5, 7, 2, 1, 3, 6, 8].filter((n) => n >= 1 && n <= sec.maxNumber);
-  return {
-    "低均分①": [pref[0]],
-    "低均分②": [pref[1] ?? pref[0]],
-    "低均分③": [pref[2] ?? pref[0]],
-  };
+  return { "低均分組合": [pref[0]] };
 }
 
 export function generateHonestPrediction({ gameType, draws, generatedAt }) {
