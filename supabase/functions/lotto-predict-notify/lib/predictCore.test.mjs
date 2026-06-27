@@ -443,7 +443,8 @@ test("honest game-theory engine: fairness diagnostic + low-split combinations + 
     assert.equal(record.prediction.reasoning_source, "honest_game_theory");
     assert.equal(typeof record.prediction.fairness_diagnostic.uniform_p, "number");
     const combos = Object.values(record.prediction.combinations);
-    assert.equal(combos.length, 3);
+    assert.equal(combos.length, 1);                          // 單一明確推薦
+    assert.ok(Object.keys(record.prediction.combinations)[0] === "低均分組合");
     for (const c of combos) {
       assert.equal(new Set(c).size, c.length);                // 不重複
       assert.ok(maxConsecutiveRun(c) < 4);                    // 無長連號
