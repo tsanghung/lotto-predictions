@@ -1450,7 +1450,7 @@ function buildHonestLineMessage(record, targetDate) {
   const specialCombinations = prediction.special_combinations || null;
   const heartbeat = prediction.heartbeat || null;
 
-  let message = `🎲 樂透公正性健診 + 博弈選號\n\n`;
+  let message = `🎲 樂透公正性健診 + 選號\n\n`;
   message += `日期：${targetDate}\n`;
   message += `彩種：${record.game_name}\n`;
   message += `------------------\n`;
