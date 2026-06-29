@@ -24,6 +24,15 @@
 > 換句話說：①是「選號的方法論」、②是「現象的呈現」，兩者都**不提高中獎機率**，
 > 文案與 UI 一律據此標示（不保證命中、僅供參考）。心跳明牌永遠存在、固定一組。
 
+## 運作節奏（智能體行為）
+
+- 智能體會在每個彩種開獎日的當天早上10:00，開始執行統計跟分析。
+- 智能體會根據每一期的開獎獎號，比對過往的預測獎號，做滾動式調整跟校正回歸。
+
+（對應實作：Supabase Cron 於台灣時間 10:00 觸發 `lotto-predict-notify` 產生選號；
+開獎後 `lotto-update` 的 `evaluatePredictionRecord` 逐期比對實際獎號寫入 `evaluation`，
+心跳明牌另以 walk-forward 累積命中率對隨機基準做校正回歸。）
+
 ## 架構速覽
 
 - **預測產生**：Supabase Edge Function `supabase/functions/lotto-predict-notify`
