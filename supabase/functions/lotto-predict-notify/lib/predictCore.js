@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+// LSTM 權重（離線訓練，見 scripts/export_lstm_weights.py）。部署時 mlWeights.js 必須
+// 與本檔一起上傳（建議用 supabase functions deploy CLI，逐字節正確）。某彩種無權重時，
+// lstmScores 會回傳 null，融合自動退回「統計啟發 + 馬可夫」。
+import { ML_WEIGHTS } from "./mlWeights.js";
 
 export const GAME_CONFIG = {
   "539": {
@@ -1306,6 +1310,129 @@ function buildHeartbeat(draws, config, todayMs) {
   };
 }
 
+// ── 穩健平衡的方法論融合：統計啟發(頻率) + 馬可夫鏈 + LSTM ───────────────────
+// 三法都不提高中獎機率(回測≈隨機)；融合只改變「同一號段裡挑哪個號」，維持穩健平衡的
+// 跨號段均勻結構。各方法分數正規化到 [0,1] 後等權相加。
+function markovScores(draws, N) {
+  // 一階二態(在/不在)轉移，Laplace 平滑：P(下一期出現 | 本期狀態)。
+  const trans = Array.from({ length: N + 1 }, () => [[1, 1], [1, 1]]);
+  let prev = null;
+  for (const draw of draws) {
+    const cur = new Array(N + 1).fill(0);
+    for (const x of draw.numbers || []) {
+      if (Number.isInteger(x) && x >= 1 && x <= N) cur[x] = 1;
+    }
+    if (prev) {
+      for (let n = 1; n <= N; n += 1) trans[n][prev[n]][cur[n]] += 1;
+    }
+    prev = cur;
+  }
+  const scores = new Array(N).fill(0);
+  if (!prev) return scores;
+  for (let n = 1; n <= N; n += 1) {
+    const s = prev[n];
+    scores[n - 1] = trans[n][s][1] / (trans[n][s][0] + trans[n][s][1]);
+  }
+  return scores;
+}
+
+function lstmScores(weights, draws) {
+  // 用離線訓練好的權重做前向推論，輸出下一期各號碼出現機率；無權重則回傳 null。
+  if (!weights) return null;
+  const N = weights.N;
+  const H = weights.H;
+  const sig = (x) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));
+  const matvec = (W, z) => {
+    const r = new Array(W.length);
+    for (let i = 0; i < W.length; i += 1) {
+      const row = W[i];
+      let acc = 0;
+      for (let j = 0; j < z.length; j += 1) acc += row[j] * z[j];
+      r[i] = acc;
+    }
+    return r;
+  };
+  let h = new Array(H).fill(0);
+  let c = new Array(H).fill(0);
+  const z = new Array(N + H).fill(0);
+  for (const draw of draws) {
+    for (let j = 0; j < N; j += 1) z[j] = 0;
+    for (const v of draw.numbers || []) {
+      if (Number.isInteger(v) && v >= 1 && v <= N) z[v - 1] = 1;
+    }
+    for (let j = 0; j < H; j += 1) z[N + j] = h[j];
+    const f = matvec(weights.Wf, z);
+    const i = matvec(weights.Wi, z);
+    const g = matvec(weights.Wg, z);
+    const o = matvec(weights.Wo, z);
+    const nh = new Array(H);
+    const nc = new Array(H);
+    for (let k = 0; k < H; k += 1) {
+      const ff = sig(f[k] + weights.bf[k]);
+      const ii = sig(i[k] + weights.bi[k]);
+      const gg = Math.tanh(g[k] + weights.bg[k]);
+      const oo = sig(o[k] + weights.bo[k]);
+      nc[k] = ff * c[k] + ii * gg;
+      nh[k] = oo * Math.tanh(nc[k]);
+    }
+    h = nh;
+    c = nc;
+  }
+  const y = matvec(weights.Wy, h);
+  const out = new Array(N);
+  for (let n = 0; n < N; n += 1) out[n] = sig(y[n] + weights.by[n]);
+  return out;
+}
+
+function minMaxNormalize(values) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values.map((x) => (x - min) / span);
+}
+
+function blendScores(parts, N) {
+  const out = new Array(N).fill(0);
+  for (const part of parts) {
+    if (!part.score) continue;
+    const norm = minMaxNormalize(part.score);
+    for (let n = 0; n < N; n += 1) out[n] += part.weight * norm[n];
+  }
+  return out;
+}
+
+function balancedCandidatesByScore(score, config) {
+  // 與 balancedCandidates 相同的「跨號段均勻」結構，但每段以融合分數(而非純頻率)挑代表號。
+  const { maxNumber, picks } = config;
+  const bandSize = maxNumber / picks;
+  const primary = [];
+  const chosen = new Set();
+  for (let band = 0; band < picks; band += 1) {
+    const low = Math.floor(band * bandSize) + 1;
+    const high = band === picks - 1 ? maxNumber : Math.floor((band + 1) * bandSize);
+    const center = (low + high) / 2;
+    let best = null;
+    for (let number = low; number <= high; number += 1) {
+      const sc = score[number - 1] ?? 0;
+      if (
+        !best ||
+        sc > best.sc ||
+        (sc === best.sc && Math.abs(number - center) < Math.abs(best.number - center))
+      ) {
+        best = { number, sc };
+      }
+    }
+    if (best) {
+      primary.push(best.number);
+      chosen.add(best.number);
+    }
+  }
+  const rest = Array.from({ length: maxNumber }, (_, i) => i + 1)
+    .filter((n) => !chosen.has(n))
+    .sort((a, b) => (score[b - 1] ?? 0) - (score[a - 1] ?? 0) || a - b);
+  return [...primary, ...rest];
+}
+
 export function generateHonestPrediction({ gameType, draws, generatedAt }) {
   const config = GAME_CONFIG[gameType];
   if (!config) {
@@ -1319,12 +1446,23 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
   const recentPeriods = recentPeriodFor(gameType, draws.length);
   const recentDraws = draws.slice(-recentPeriods);
 
-  // ① 穩健平衡（沿用舊制邏輯）：把 1..maxNumber 切成 picks 個號段，每段取代表號，
-  //    跨號段均勻分布、結構平衡，每彩種一組。統計啟發式，不保證命中。
-  const stats = numberStats(recentDraws, config.maxNumber);
-  const balancedPool = balancedCandidates(stats, config);
+  // ① 穩健平衡（統計啟發 + 馬可夫 + LSTM 融合）：維持「跨號段均勻」結構，但每段以三法
+  //    融合分數挑代表號。三法回測均≈隨機，融合只改變選哪個號、不提高中獎機率。
+  const N = config.maxNumber;
+  const stats = numberStats(recentDraws, N);
+  const freqScore = stats.map((item) => item.frequency);
+  const markov = markovScores(draws, N);
+  const lstm = lstmScores(ML_WEIGHTS[gameType], draws);
+  const balancedMethods = ["統計啟發(頻率)", "馬可夫鏈"];
+  if (lstm) balancedMethods.push("LSTM");
+  const blended = blendScores([
+    { weight: 1, score: freqScore },
+    { weight: 1, score: markov },
+    { weight: 1, score: lstm },
+  ], N);
+  const balancedPool = balancedCandidatesByScore(blended, config);
   const balanced = breakConsecutiveRuns(
-    uniqueTake(balancedPool, config.picks, config.maxNumber),
+    uniqueTake(balancedPool, config.picks, N),
     balancedPool,
     config,
   );
@@ -1348,7 +1486,7 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
   const insights = buildInsightPayload({ gameType, draws, recentDraws, config });
   const selectedNumberInsights = buildSelectedNumberInsights({ combinations, draws, recentDraws, config, recentPeriods });
 
-  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，每一組號碼的中獎機率都相同、沒有「明牌」。\n① 穩健平衡：把號碼範圍切成數段、每段取代表號，跨號段均勻分布、結構平衡的一組選號（統計啟發式，不保證命中、不提高中獎機率）。\n② 心跳明牌：依各號平均間隔天數的節奏挑最久未開的號碼，純屬節奏觀察——回測命中率與隨機無異（${heartbeat.calibration.hit_rate}% vs 隨機 ${heartbeat.calibration.base_rate}%、近 ${heartbeat.calibration.window} 期），不提高中獎機率。`;
+  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，每一組號碼的中獎機率都相同、沒有「明牌」。\n① 穩健平衡（融合 ${balancedMethods.join("＋")}）：跨號段均勻分布、結構平衡的一組選號——以三法融合分數在每個號段挑代表號；上述方法回測均≈隨機，融合只改變選號、不提高中獎機率。\n② 心跳明牌：依各號平均間隔天數的節奏挑最久未開的號碼，純屬節奏觀察——回測命中率與隨機無異（${heartbeat.calibration.hit_rate}% vs 隨機 ${heartbeat.calibration.base_rate}%、近 ${heartbeat.calibration.window} 期），不提高中獎機率。`;
 
   return {
     timestamp: generatedAt,
@@ -1362,6 +1500,7 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
       risk_warning: "本系統不預測號碼。每組號碼中獎機率相同，樂透期望值為負，以下選號僅供參考，請理性投注、量力而為。",
       fairness_diagnostic: diagnostic,
       strategy_kind: "stable_balanced",
+      balanced_methods: balancedMethods,
       combinations,
       ...(specialCombinations ? { special_combinations: specialCombinations } : {}),
       heartbeat,
@@ -1466,11 +1605,14 @@ function buildHonestLineMessage(record, targetDate) {
   if (Array.isArray(balanced)) {
     const second = specialCombinations?.["穩健平衡"];
     message += `------------------\n`;
-    message += `① 穩健平衡（跨號段均勻分布、結構平衡的一組選號）：\n`;
+    const methods = Array.isArray(prediction.balanced_methods) && prediction.balanced_methods.length
+      ? prediction.balanced_methods.join("＋")
+      : "統計啟發";
+    message += `① 穩健平衡（融合 ${methods}）：\n`;
     message += Array.isArray(second) && second.length
       ? `第一區 ${formatBalls(balanced)}　第二區 ${formatBalls(second)}\n`
       : `${formatBalls(balanced)}\n`;
-    message += `（統計啟發式，不保證命中、不提高中獎機率）\n`;
+    message += `（跨號段均勻分布；三法回測均≈隨機，不保證命中、不提高中獎機率）\n`;
   }
 
   // ② 號碼心跳明牌（節奏觀察：回測命中率≈隨機，僅供對照）
