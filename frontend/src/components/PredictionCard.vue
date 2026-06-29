@@ -30,6 +30,24 @@ const strategyStyle = (strategy) => {
 // 公正性健診（誠實博弈版的招牌）
 const fairness = computed(() => latestPrediction.value?.prediction?.fairness_diagnostic || null)
 
+// 號碼心跳明牌（節奏推算，回測≈隨機，僅供對照）
+const heartbeat = computed(() => latestPrediction.value?.prediction?.heartbeat || null)
+
+// 博弈低均分組合（排除心跳明牌，後者另開區塊呈現）
+const lowSplitCombos = computed(() => {
+  const all = latestPrediction.value?.prediction?.combinations || {}
+  return Object.fromEntries(Object.entries(all).filter(([key]) => key !== '心跳明牌'))
+})
+
+// 心跳明牌各號的節奏明細，依 overdue 比值由高到低
+const heartbeatRows = computed(() => {
+  const hb = heartbeat.value
+  if (!hb || !hb.numbers) return []
+  return Object.entries(hb.numbers)
+    .map(([num, info]) => ({ num: parseInt(num, 10), ...info }))
+    .sort((a, b) => (b.overdue_ratio ?? 0) - (a.overdue_ratio ?? 0))
+})
+
 // 各號碼的選號理由（相容舊版數字 key 與新版 selected_numbers）
 const numberInsights = computed(() => {
   const insights = latestPrediction.value?.prediction?.number_insights || null
@@ -122,8 +140,8 @@ const sortedInsights = computed(() => {
 
         <!-- Combinations -->
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">🎲 博弈低均分組合</p>
-          <div v-for="(nums, strategy) in latestPrediction.prediction.combinations" :key="strategy"
+          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">① 🎲 博弈低均分組合</p>
+          <div v-for="(nums, strategy) in lowSplitCombos" :key="strategy"
             :style="{
               background: strategyStyle(strategy).bg,
               border: `1px solid ${strategyStyle(strategy).border}`,
@@ -157,6 +175,46 @@ const sortedInsights = computed(() => {
                 </span>
               </template>
             </div>
+          </div>
+        </div>
+
+        <!-- ② 號碼心跳明牌（節奏推算 + 滾動校正回歸） -->
+        <div v-if="heartbeat && heartbeat.combination" style="margin-top:16px;display:flex;flex-direction:column;gap:10px;">
+          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">② 💓 號碼心跳明牌</p>
+          <div style="background:rgba(168,85,247,0.06);border:1px solid rgba(168,85,247,0.22);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+            <span style="font-size:13px;font-weight:700;color:#c4b5fd;">依各號平均間隔（天）的節奏，挑最久未開（overdue 比值最高）的號</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+              <span v-if="heartbeat.second_area && heartbeat.second_area.length" style="font-size:13px;font-weight:800;color:#94a3b8;margin-right:2px;">第一區</span>
+              <span v-for="n in heartbeat.combination" :key="`hb-${n}`"
+                :style="{ width:'32px',height:'32px',borderRadius:'50%',background:'rgba(168,85,247,0.16)',border:'1px solid rgba(168,85,247,0.4)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px',fontWeight:'700',fontFamily:'monospace',color:'#e9d5ff' }">
+                {{ n.toString().padStart(2, '0') }}
+              </span>
+              <template v-if="heartbeat.second_area && heartbeat.second_area.length">
+                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin:0 2px 0 8px;">第二區</span>
+                <span v-for="n in heartbeat.second_area" :key="`hb2-${n}`"
+                  :style="{ width:'32px',height:'32px',borderRadius:'50%',background:'rgba(251,191,36,0.16)',border:'1px solid rgba(251,191,36,0.45)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'15px',fontWeight:'800',fontFamily:'monospace',color:'#fbbf24' }">
+                  {{ n.toString().padStart(2, '0') }}
+                </span>
+              </template>
+            </div>
+            <div v-if="heartbeat.calibration" style="font-size:13px;color:#94a3b8;font-family:monospace;background:rgba(0,0,0,0.2);border-radius:8px;padding:8px 10px;line-height:1.6;">
+              滾動校正：心跳命中率 {{ heartbeat.calibration.hit_rate }}% ≈ 隨機 {{ heartbeat.calibration.base_rate }}%
+              （近 {{ heartbeat.calibration.window }} 期回測，p={{ heartbeat.calibration.p_value }}）
+              <span :style="{ color: heartbeat.calibration.beats_random ? '#fca5a5' : '#86efac' }">
+                → {{ heartbeat.calibration.beats_random ? '⚠ 顯著偏離隨機，值得追查' : '與隨機無異' }}
+              </span>
+            </div>
+            <div v-if="heartbeatRows.length" style="display:flex;flex-direction:column;gap:6px;">
+              <div v-for="row in heartbeatRows" :key="`hbrow-${row.num}`" style="display:flex;align-items:center;gap:8px;font-size:13px;color:#94a3b8;flex-wrap:wrap;">
+                <span :style="{ flexShrink:0,width:'30px',height:'30px',borderRadius:'50%',background:'rgba(168,85,247,0.12)',border:'1px solid rgba(168,85,247,0.3)',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:'800',fontFamily:'monospace',color:'#e9d5ff' }">{{ row.num.toString().padStart(2, '0') }}</span>
+                <span v-if="row.avg_interval_days != null">平均間隔 {{ row.avg_interval_days }} 天</span>
+                <span v-if="row.gap_days != null">· 已隔 {{ row.gap_days }} 天</span>
+                <span v-if="row.overdue_ratio != null" style="color:#c4b5fd;font-weight:700;">· overdue {{ row.overdue_ratio }}×</span>
+              </div>
+            </div>
+            <p style="font-size:12px;color:#64748b;line-height:1.6;">
+              ⚠ 公正抽獎是「無記憶」過程，等再久也不會更可能開；回測證實此排名命中率與隨機無異，僅供節奏對照，非中獎保證。
+            </p>
           </div>
         </div>
 

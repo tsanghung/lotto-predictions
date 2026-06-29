@@ -442,17 +442,25 @@ test("honest game-theory engine: fairness diagnostic + low-split combinations + 
     assert.equal(record.prediction.model, "game-theory-v1");
     assert.equal(record.prediction.reasoning_source, "honest_game_theory");
     assert.equal(typeof record.prediction.fairness_diagnostic.uniform_p, "number");
-    const combos = Object.values(record.prediction.combinations);
-    assert.equal(combos.length, 1);                          // 單一明確推薦
-    assert.ok(Object.keys(record.prediction.combinations)[0] === "低均分組合");
-    for (const c of combos) {
-      assert.equal(new Set(c).size, c.length);                // 不重複
-      assert.ok(maxConsecutiveRun(c) < 4);                    // 無長連號
-      assert.ok(c.filter((n) => n > 31).length >= 2, `${gameType} low-split should favor unpopular high numbers: ${c}`);
-    }
+    const combos = record.prediction.combinations;
+    assert.equal(Object.keys(combos).length, 2);             // 兩組：低均分 + 心跳明牌
+    assert.ok("低均分組合" in combos);
+    assert.ok("心跳明牌" in combos);
+    const low = combos["低均分組合"];
+    assert.equal(new Set(low).size, low.length);              // 不重複
+    assert.ok(maxConsecutiveRun(low) < 4);                    // 無長連號
+    assert.ok(low.filter((n) => n > 31).length >= 2, `${gameType} low-split should favor unpopular high numbers: ${low}`);
+    // 心跳明牌：依節奏挑號 + 內附 walk-forward 校正回歸
+    const heartbeat = record.prediction.heartbeat;
+    assert.ok(Array.isArray(heartbeat.combination) && heartbeat.combination.length >= 1);
+    assert.deepEqual(combos["心跳明牌"], heartbeat.combination);
+    assert.equal(typeof heartbeat.calibration.hit_rate, "number");
+    assert.equal(typeof heartbeat.calibration.base_rate, "number");
     const message = buildLineMessage(record, "2026-06-30");
     assert.ok(message.includes("公正性健診"));
     assert.ok(message.includes("不預測號碼"));
+    assert.ok(message.includes("低均分組合"));
+    assert.ok(message.includes("心跳明牌"));
     assert.ok(!message.includes("AI 樂透預測"));
   }
 });
