@@ -1165,69 +1165,6 @@ export function fairnessDiagnostic(draws, config) {
   };
 }
 
-// ── 多注覆蓋 ──────────────────────────────────────────────────────────────
-// 公正抽獎下每一組號碼中獎機率都相同，「選哪些號」不影響中獎率；唯一能真正提高
-// 中獎機率的是「多買不同注」。本函式產生 lines 組互不重複、盡量涵蓋不同號碼的組合
-// （號碼以確定性偽隨機產生，因為號碼本身不影響機率）。⚠ 期望值仍為負。
-const COVERAGE_PREFIX = "覆蓋#";
-
-function makeRng(seedBase) {
-  let seed = (((seedBase >>> 0) * 2654435761) + 1013904223) >>> 0;
-  return () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-}
-
-function shuffledRange(maxNumber, rand) {
-  const a = Array.from({ length: maxNumber }, (_, i) => i + 1);
-  for (let i = a.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rand() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-
-export function coverageCombinations(config, lines, seedBase = 0) {
-  const N = config.maxNumber;
-  const k = config.picks;
-  const rand = makeRng(seedBase + 17);
-  let deck = shuffledRange(N, rand);
-  let di = 0;
-  const draw = () => {
-    if (di >= deck.length) { deck = shuffledRange(N, rand); di = 0; }
-    return deck[di++];
-  };
-  const result = {};
-  const seen = new Set();
-  for (let line = 1; line <= lines; line += 1) {
-    const picks = new Set();
-    let guard = 0;
-    while (picks.size < k && guard < N * 6) { guard += 1; picks.add(draw()); }
-    let combo = normalizeNumbers([...picks]);
-    let dupGuard = 0;
-    while (seen.has(combo.join(",")) && dupGuard < N) {
-      dupGuard += 1;
-      const repl = draw();
-      if (!combo.includes(repl)) combo = normalizeNumbers([repl, ...combo.slice(1)]);
-    }
-    seen.add(combo.join(","));
-    result[`${COVERAGE_PREFIX}${line}`] = combo;
-  }
-  return result;
-}
-
-function coverageSecondArea(config, lines, seedBase = 0) {
-  const sec = config.secondaryNumber;
-  if (!sec) return null;
-  const rand = makeRng(seedBase + 71);
-  let deck = shuffledRange(sec.maxNumber, rand);
-  let di = 0;
-  const result = {};
-  for (let line = 1; line <= lines; line += 1) {
-    if (di >= deck.length) { deck = shuffledRange(sec.maxNumber, rand); di = 0; }
-    result[`${COVERAGE_PREFIX}${line}`] = [deck[di++]];
-  }
-  return result;
-}
-
 // ── 號碼心跳 / 節奏推算 ──────────────────────────────────────────────────
 // 依各號碼「平均間隔(天)」的節奏，挑出 overdue 比值(已隔天數 / 自身平均間隔)最高、
 // 最「久未開」的號碼。⚠ 公正抽獎是無記憶過程，回測命中率與隨機無異——此為節奏觀察，
@@ -1369,7 +1306,7 @@ function buildHeartbeat(draws, config, todayMs) {
   };
 }
 
-export function generateHonestPrediction({ gameType, draws, generatedAt, coverageLines = 5 }) {
+export function generateHonestPrediction({ gameType, draws, generatedAt }) {
   const config = GAME_CONFIG[gameType];
   if (!config) {
     throw new Error(`Unsupported game type: ${gameType}`);
@@ -1379,29 +1316,39 @@ export function generateHonestPrediction({ gameType, draws, generatedAt, coverag
   }
 
   const diagnostic = fairnessDiagnostic(draws, config);
-  const coverageN = Math.max(1, Math.min(Math.floor(coverageLines) || 5, 20));
-  const coverage = coverageCombinations(config, coverageN, draws.length);
-  const coverageSecond = coverageSecondArea(config, coverageN, draws.length);
+  const recentPeriods = recentPeriodFor(gameType, draws.length);
+  const recentDraws = draws.slice(-recentPeriods);
+
+  // ① 穩健平衡（沿用舊制邏輯）：把 1..maxNumber 切成 picks 個號段，每段取代表號，
+  //    跨號段均勻分布、結構平衡，每彩種一組。統計啟發式，不保證命中。
+  const stats = numberStats(recentDraws, config.maxNumber);
+  const balancedPool = balancedCandidates(stats, config);
+  const balanced = breakConsecutiveRuns(
+    uniqueTake(balancedPool, config.picks, config.maxNumber),
+    balancedPool,
+    config,
+  );
+  const specialPrediction = buildSpecialCombinations({ draws, config, recentPeriods });
+  const balancedSecond = specialPrediction?.combinations?.["穩健平衡"] || null;
+
+  // ② 心跳明牌（節奏觀察，回測≈隨機；永遠固定一組）。
   const todayMs = (() => {
     const t = new Date(generatedAt).getTime();
     return Number.isNaN(t) ? (drawDateMs(draws.at(-1)) ?? 0) : t;
   })();
   const heartbeat = buildHeartbeat(draws, config, todayMs);
 
-  // 兩段推薦：① 多注覆蓋（提高中獎機率的唯一方法＝多買不同注）② 心跳明牌（節奏觀察，回測≈隨機）。
-  const combinations = { ...coverage, [HEARTBEAT_NAME]: heartbeat.combination };
-  const specialCombinations = (coverageSecond || heartbeat.second_area)
+  const combinations = { "穩健平衡": balanced, [HEARTBEAT_NAME]: heartbeat.combination };
+  const specialCombinations = (balancedSecond || heartbeat.second_area)
     ? {
-        ...(coverageSecond || {}),
+        ...(balancedSecond ? { "穩健平衡": balancedSecond } : {}),
         ...(heartbeat.second_area ? { [HEARTBEAT_NAME]: heartbeat.second_area } : {}),
       }
     : null;
-  const recentPeriods = recentPeriodFor(gameType, draws.length);
-  const recentDraws = draws.slice(-recentPeriods);
   const insights = buildInsightPayload({ gameType, draws, recentDraws, config });
   const selectedNumberInsights = buildSelectedNumberInsights({ combinations, draws, recentDraws, config, recentPeriods });
 
-  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，每一組號碼的中獎機率都相同、沒有「明牌」。\n① 多注覆蓋：提高中獎機率的唯一方法是多買「不同」注——以下 ${coverageN} 組互不重複、盡量涵蓋不同號碼；號碼本身不影響機率（隨機即可），重點只在注數。⚠ 期望值仍為負，多買是用錢換更高中獎機會。\n② 心跳明牌：依各號平均間隔天數的節奏挑最久未開的號碼，純屬節奏觀察——回測命中率與隨機無異（${heartbeat.calibration.hit_rate}% vs 隨機 ${heartbeat.calibration.base_rate}%、近 ${heartbeat.calibration.window} 期），不提高中獎機率。`;
+  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，每一組號碼的中獎機率都相同、沒有「明牌」。\n① 穩健平衡：把號碼範圍切成數段、每段取代表號，跨號段均勻分布、結構平衡的一組選號（統計啟發式，不保證命中、不提高中獎機率）。\n② 心跳明牌：依各號平均間隔天數的節奏挑最久未開的號碼，純屬節奏觀察——回測命中率與隨機無異（${heartbeat.calibration.hit_rate}% vs 隨機 ${heartbeat.calibration.base_rate}%、近 ${heartbeat.calibration.window} 期），不提高中獎機率。`;
 
   return {
     timestamp: generatedAt,
@@ -1412,10 +1359,9 @@ export function generateHonestPrediction({ gameType, draws, generatedAt, coverag
       engine: "honest-game-theory",
       reasoning_source: "honest_game_theory",
       reasoning,
-      risk_warning: "本系統不預測號碼。每組號碼中獎機率相同；唯一能提高中獎機率的是多買不同注，但樂透期望值為負，請理性投注、量力而為。",
+      risk_warning: "本系統不預測號碼。每組號碼中獎機率相同，樂透期望值為負，以下選號僅供參考，請理性投注、量力而為。",
       fairness_diagnostic: diagnostic,
-      strategy_kind: "coverage",
-      coverage_lines: coverageN,
+      strategy_kind: "stable_balanced",
       combinations,
       ...(specialCombinations ? { special_combinations: specialCombinations } : {}),
       heartbeat,
@@ -1515,18 +1461,16 @@ function buildHonestLineMessage(record, targetDate) {
   }
   message += `。\n→ 沒有可預測的號碼，任何「明牌」都與隨機無異。\n`;
 
-  // ① 多注覆蓋（提高中獎機率的唯一方法＝多買不同注；號碼不影響機率）
-  const coverageKeys = Object.keys(combinations).filter((key) => key.startsWith("覆蓋#"));
-  if (coverageKeys.length) {
+  // ① 穩健平衡（跨號段均勻分布的一組選號；統計啟發式，不保證命中）
+  const balanced = combinations["穩健平衡"];
+  if (Array.isArray(balanced)) {
+    const second = specialCombinations?.["穩健平衡"];
     message += `------------------\n`;
-    message += `① 多注覆蓋（提高中獎機率的唯一方法是多買「不同」注；號碼不影響機率）：\n`;
-    for (const key of coverageKeys) {
-      const second = specialCombinations?.[key];
-      message += Array.isArray(second) && second.length
-        ? `${key}　第一區 ${formatBalls(combinations[key])}　第二區 ${formatBalls(second)}\n`
-        : `${key} ${formatBalls(combinations[key])}\n`;
-    }
-    message += `（號碼本身不影響中獎機率，重點在注數；⚠ 期望值仍為負）\n`;
+    message += `① 穩健平衡（跨號段均勻分布、結構平衡的一組選號）：\n`;
+    message += Array.isArray(second) && second.length
+      ? `第一區 ${formatBalls(balanced)}　第二區 ${formatBalls(second)}\n`
+      : `${formatBalls(balanced)}\n`;
+    message += `（統計啟發式，不保證命中、不提高中獎機率）\n`;
   }
 
   // ② 號碼心跳明牌（節奏觀察：回測命中率≈隨機，僅供對照）

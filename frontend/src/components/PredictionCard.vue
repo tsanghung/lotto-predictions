@@ -33,8 +33,8 @@ const fairness = computed(() => latestPrediction.value?.prediction?.fairness_dia
 // 號碼心跳明牌（節奏推算，回測≈隨機，僅供對照）
 const heartbeat = computed(() => latestPrediction.value?.prediction?.heartbeat || null)
 
-// 多注覆蓋組合（排除心跳明牌，後者另開區塊呈現）
-const coverageCombos = computed(() => {
+// 穩健平衡組合（排除心跳明牌，後者另開區塊呈現）
+const balancedCombos = computed(() => {
   const all = latestPrediction.value?.prediction?.combinations || {}
   return Object.fromEntries(Object.entries(all).filter(([key]) => key !== '心跳明牌'))
 })
@@ -129,7 +129,7 @@ const sortedInsights = computed(() => {
             <span>前後期獨立性 p = {{ fairness.serial_p }}</span>
             <span>樣本 {{ fairness.sample_size }} 期</span>
           </div>
-          <p style="font-size:13px;color:#475569;line-height:1.6;margin-top:10px;">p ≥ 0.05 代表與「真隨機」無法區分 → 每組號碼中獎機率都相同、沒有「明牌」。提高中獎機率的唯一方法是多買「不同」注（見下方多注覆蓋）。</p>
+          <p style="font-size:13px;color:#475569;line-height:1.6;margin-top:10px;">p ≥ 0.05 代表與「真隨機」無法區分 → 每組號碼中獎機率都相同、沒有「明牌」。以下選號為統計啟發式，僅供參考，不提高中獎機率。</p>
         </div>
 
         <!-- 選號說明 -->
@@ -140,8 +140,8 @@ const sortedInsights = computed(() => {
 
         <!-- Combinations -->
         <div style="display:flex;flex-direction:column;gap:10px;">
-          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">① 🎯 多注覆蓋（多買不同注才是提高中獎機率的唯一方法）</p>
-          <div v-for="(nums, strategy) in coverageCombos" :key="strategy"
+          <p style="font-size:14px;font-weight:600;color:#64748b;letter-spacing:0.08em;text-transform:uppercase;">① ⚖️ 穩健平衡（跨號段均勻分布、結構平衡的一組選號）</p>
+          <div v-for="(nums, strategy) in balancedCombos" :key="strategy"
             :style="{
               background: strategyStyle(strategy).bg,
               border: `1px solid ${strategyStyle(strategy).border}`,
