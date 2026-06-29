@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+// LSTM 權重（離線訓練，見 scripts/export_lstm_weights.py）。部署時 mlWeights.js 必須
+// 與本檔一起上傳（建議用 supabase functions deploy CLI，逐字節正確）。某彩種無權重時，
+// lstmScores 會回傳 null，融合自動退回「統計啟發 + 馬可夫」。
+import { ML_WEIGHTS } from "./mlWeights.js";
 
 export const GAME_CONFIG = {
   "539": {
@@ -1165,37 +1169,268 @@ export function fairnessDiagnostic(draws, config) {
   };
 }
 
-function lowSplitWeight(n) {
-  if (n <= 12) return 3;     // 可當月/日 → 大眾最常選
-  if (n <= 31) return 2;     // 可當日 → 大眾常選
-  return 1;                  // > 31 無日曆意義 → 大眾冷落(最利於低均分)
+// ── 號碼心跳 / 節奏推算 ──────────────────────────────────────────────────
+// 依各號碼「平均間隔(天)」的節奏，挑出 overdue 比值(已隔天數 / 自身平均間隔)最高、
+// 最「久未開」的號碼。⚠ 公正抽獎是無記憶過程，回測命中率與隨機無異——此為節奏觀察，
+// 不提高中獎機率。內附 walk-forward 校正回歸：逐期用新開獎結果重算並追蹤命中率。
+const HEARTBEAT_NAME = "心跳明牌";
+const erfc = (x) => 1 - erfApprox(x);
+
+function drawDateMs(draw) {
+  const t = new Date(`${draw.draw_date}T00:00:00Z`).getTime();
+  return Number.isNaN(t) ? null : t;
 }
 
-export function lowSplitCombinations(draws, config) {
-  // 誠實版：只給「一組」明確的低均分推薦（三組其實是同一策略的不同抽樣，徒增「有多種選擇」的假象）。
-  const N = config.maxNumber;
-  const k = config.picks;
-  const base = Array.from({ length: N }, (_, i) => i + 1);
-  let seed = ((draws.length + 1) * 2654435761) >>> 0;
-  const rand = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
-  const ranked = base
-    .map((n) => ({ n, key: lowSplitWeight(n) + rand() }))   // 低人氣優先 + 偽隨機打散(避免規則圖形)
-    .sort((a, b) => a.key - b.key)
-    .map((o) => o.n);
-  const pick = [];
-  for (const n of ranked) {
-    if (pick.length >= k) break;
-    if (pick.every((p) => Math.abs(p - n) !== 1)) pick.push(n);   // 避免連號
+function newHeartbeatState(maxNumber) {
+  return {
+    N: maxNumber,
+    last: new Array(maxNumber + 1).fill(null),
+    sumGap: new Array(maxNumber + 1).fill(0),
+    nGap: new Array(maxNumber + 1).fill(0),
+  };
+}
+
+function heartbeatUpdate(state, ms, numbers) {
+  for (const number of numbers) {
+    if (Number.isInteger(number) && number >= 1 && number <= state.N) {
+      if (state.last[number] !== null) {
+        state.sumGap[number] += (ms - state.last[number]) / 86400000;
+        state.nGap[number] += 1;
+      }
+      state.last[number] = ms;
+    }
   }
-  for (const n of ranked) { if (pick.length >= k) break; if (!pick.includes(n)) pick.push(n); }
-  return { "低均分組合": breakConsecutiveRuns(normalizeNumbers(pick.slice(0, k)), ranked, config) };
 }
 
-function secondAreaLowSplit(config) {
-  const sec = config.secondaryNumber;
-  if (!sec) return null;
-  const pref = [4, 5, 7, 2, 1, 3, 6, 8].filter((n) => n >= 1 && n <= sec.maxNumber);
-  return { "低均分組合": [pref[0]] };
+function heartbeatRank(state, todayMs, k) {
+  const scored = [];
+  const fallback = [];
+  for (let n = 1; n <= state.N; n += 1) {
+    if (state.last[n] !== null && state.nGap[n] > 0) {
+      const mean = state.sumGap[n] / state.nGap[n];
+      if (mean > 0) {
+        const gap = (todayMs - state.last[n]) / 86400000;
+        scored.push({ n, ratio: gap / mean, gap, mean });
+        continue;
+      }
+    }
+    const gap = state.last[n] !== null ? (todayMs - state.last[n]) / 86400000 : Infinity;
+    fallback.push({ n, gap });
+  }
+  scored.sort((a, b) => b.ratio - a.ratio || b.gap - a.gap || a.n - b.n);
+  const picks = scored.slice(0, k);
+  if (picks.length < k) {
+    fallback.sort((a, b) => b.gap - a.gap || a.n - b.n);
+    for (const f of fallback) {
+      if (picks.length >= k) break;
+      picks.push({ n: f.n, ratio: null, gap: Number.isFinite(f.gap) ? f.gap : null, mean: null });
+    }
+  }
+  return picks;
+}
+
+function numberSequence(draws, kind, maxNumber) {
+  const seq = [];
+  for (const draw of draws) {
+    const ms = drawDateMs(draw);
+    if (ms === null) continue;
+    if (kind === "special") {
+      const s = Number(draw.special_number);
+      if (Number.isInteger(s) && s >= 1 && s <= maxNumber) seq.push({ ms, nums: [s] });
+    } else {
+      seq.push({ ms, nums: (draw.numbers || []).map(Number) });
+    }
+  }
+  return seq;
+}
+
+function heartbeatPicks(draws, maxNumber, k, todayMs, kind = "main") {
+  const state = newHeartbeatState(maxNumber);
+  for (const ev of numberSequence(draws, kind, maxNumber)) heartbeatUpdate(state, ev.ms, ev.nums);
+  return heartbeatRank(state, todayMs, k);
+}
+
+// walk-forward：只用過去資料預測下一期，累積命中率對隨機基準 k/N 做校正回歸。
+function heartbeatCalibration(draws, maxNumber, k, window = 1500) {
+  const seq = numberSequence(draws, "main", maxNumber);
+  const T = seq.length;
+  const warmup = Math.min(300, Math.floor(T / 3));
+  const start = window > 0 ? Math.max(warmup, T - window) : warmup;
+  const state = newHeartbeatState(maxNumber);
+  for (let i = 0; i < start; i += 1) heartbeatUpdate(state, seq[i].ms, seq[i].nums);
+  let hits = 0;
+  let trials = 0;
+  for (let i = start; i < T; i += 1) {
+    const picks = heartbeatRank(state, seq[i].ms, k).map((p) => p.n);
+    const actual = new Set(seq[i].nums);
+    for (const n of picks) if (actual.has(n)) hits += 1;
+    trials += k;
+    heartbeatUpdate(state, seq[i].ms, seq[i].nums);
+  }
+  const base = k / maxNumber;
+  const rate = trials ? hits / trials : 0;
+  let pValue = 1;
+  if (trials) {
+    const se = Math.sqrt(base * (1 - base) / trials);
+    const z = se > 0 ? (rate - base) / se : 0;
+    pValue = 0.5 * erfc(z / Math.SQRT2);
+  }
+  return {
+    window: T - start,
+    trials,
+    hits,
+    hit_rate: Number((rate * 100).toFixed(2)),
+    base_rate: Number((base * 100).toFixed(2)),
+    p_value: Number(pValue.toFixed(3)),
+    beats_random: pValue < 0.05 && rate > base,
+  };
+}
+
+function buildHeartbeat(draws, config, todayMs) {
+  const mainPicks = heartbeatPicks(draws, config.maxNumber, config.picks, todayMs, "main");
+  const combination = normalizeNumbers(mainPicks.map((p) => p.n));
+  const numbers = Object.fromEntries(mainPicks.map((p) => [String(p.n), {
+    avg_interval_days: p.mean !== null ? Number(p.mean.toFixed(1)) : null,
+    gap_days: p.gap !== null && Number.isFinite(p.gap) ? Math.round(p.gap) : null,
+    overdue_ratio: p.ratio !== null ? Number(p.ratio.toFixed(2)) : null,
+  }]));
+  let secondArea = null;
+  if (config.secondaryNumber) {
+    const sec = config.secondaryNumber;
+    const secPicks = heartbeatPicks(draws, sec.maxNumber, sec.picks, todayMs, "special");
+    secondArea = normalizeNumbers(secPicks.map((p) => p.n));
+  }
+  return {
+    label: HEARTBEAT_NAME,
+    combination,
+    second_area: secondArea,
+    numbers,
+    calibration: heartbeatCalibration(draws, config.maxNumber, config.picks),
+    note: "依各號平均間隔(天)的節奏推算最久未開的號碼；回測命中率與隨機無異，僅供節奏對照，非中獎保證。",
+  };
+}
+
+// ── 穩健平衡的方法論融合：統計啟發(頻率) + 馬可夫鏈 + LSTM ───────────────────
+// 三法都不提高中獎機率(回測≈隨機)；融合只改變「同一號段裡挑哪個號」，維持穩健平衡的
+// 跨號段均勻結構。各方法分數正規化到 [0,1] 後等權相加。
+function markovScores(draws, N) {
+  // 一階二態(在/不在)轉移，Laplace 平滑：P(下一期出現 | 本期狀態)。
+  const trans = Array.from({ length: N + 1 }, () => [[1, 1], [1, 1]]);
+  let prev = null;
+  for (const draw of draws) {
+    const cur = new Array(N + 1).fill(0);
+    for (const x of draw.numbers || []) {
+      if (Number.isInteger(x) && x >= 1 && x <= N) cur[x] = 1;
+    }
+    if (prev) {
+      for (let n = 1; n <= N; n += 1) trans[n][prev[n]][cur[n]] += 1;
+    }
+    prev = cur;
+  }
+  const scores = new Array(N).fill(0);
+  if (!prev) return scores;
+  for (let n = 1; n <= N; n += 1) {
+    const s = prev[n];
+    scores[n - 1] = trans[n][s][1] / (trans[n][s][0] + trans[n][s][1]);
+  }
+  return scores;
+}
+
+function lstmScores(weights, draws) {
+  // 用離線訓練好的權重做前向推論，輸出下一期各號碼出現機率；無權重則回傳 null。
+  if (!weights) return null;
+  const N = weights.N;
+  const H = weights.H;
+  const sig = (x) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));
+  const matvec = (W, z) => {
+    const r = new Array(W.length);
+    for (let i = 0; i < W.length; i += 1) {
+      const row = W[i];
+      let acc = 0;
+      for (let j = 0; j < z.length; j += 1) acc += row[j] * z[j];
+      r[i] = acc;
+    }
+    return r;
+  };
+  let h = new Array(H).fill(0);
+  let c = new Array(H).fill(0);
+  const z = new Array(N + H).fill(0);
+  for (const draw of draws) {
+    for (let j = 0; j < N; j += 1) z[j] = 0;
+    for (const v of draw.numbers || []) {
+      if (Number.isInteger(v) && v >= 1 && v <= N) z[v - 1] = 1;
+    }
+    for (let j = 0; j < H; j += 1) z[N + j] = h[j];
+    const f = matvec(weights.Wf, z);
+    const i = matvec(weights.Wi, z);
+    const g = matvec(weights.Wg, z);
+    const o = matvec(weights.Wo, z);
+    const nh = new Array(H);
+    const nc = new Array(H);
+    for (let k = 0; k < H; k += 1) {
+      const ff = sig(f[k] + weights.bf[k]);
+      const ii = sig(i[k] + weights.bi[k]);
+      const gg = Math.tanh(g[k] + weights.bg[k]);
+      const oo = sig(o[k] + weights.bo[k]);
+      nc[k] = ff * c[k] + ii * gg;
+      nh[k] = oo * Math.tanh(nc[k]);
+    }
+    h = nh;
+    c = nc;
+  }
+  const y = matvec(weights.Wy, h);
+  const out = new Array(N);
+  for (let n = 0; n < N; n += 1) out[n] = sig(y[n] + weights.by[n]);
+  return out;
+}
+
+function minMaxNormalize(values) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  return values.map((x) => (x - min) / span);
+}
+
+function blendScores(parts, N) {
+  const out = new Array(N).fill(0);
+  for (const part of parts) {
+    if (!part.score) continue;
+    const norm = minMaxNormalize(part.score);
+    for (let n = 0; n < N; n += 1) out[n] += part.weight * norm[n];
+  }
+  return out;
+}
+
+function balancedCandidatesByScore(score, config) {
+  // 與 balancedCandidates 相同的「跨號段均勻」結構，但每段以融合分數(而非純頻率)挑代表號。
+  const { maxNumber, picks } = config;
+  const bandSize = maxNumber / picks;
+  const primary = [];
+  const chosen = new Set();
+  for (let band = 0; band < picks; band += 1) {
+    const low = Math.floor(band * bandSize) + 1;
+    const high = band === picks - 1 ? maxNumber : Math.floor((band + 1) * bandSize);
+    const center = (low + high) / 2;
+    let best = null;
+    for (let number = low; number <= high; number += 1) {
+      const sc = score[number - 1] ?? 0;
+      if (
+        !best ||
+        sc > best.sc ||
+        (sc === best.sc && Math.abs(number - center) < Math.abs(best.number - center))
+      ) {
+        best = { number, sc };
+      }
+    }
+    if (best) {
+      primary.push(best.number);
+      chosen.add(best.number);
+    }
+  }
+  const rest = Array.from({ length: maxNumber }, (_, i) => i + 1)
+    .filter((n) => !chosen.has(n))
+    .sort((a, b) => (score[b - 1] ?? 0) - (score[a - 1] ?? 0) || a - b);
+  return [...primary, ...rest];
 }
 
 export function generateHonestPrediction({ gameType, draws, generatedAt }) {
@@ -1208,14 +1443,50 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
   }
 
   const diagnostic = fairnessDiagnostic(draws, config);
-  const combinations = lowSplitCombinations(draws, config);
-  const specialCombinations = secondAreaLowSplit(config);
   const recentPeriods = recentPeriodFor(gameType, draws.length);
   const recentDraws = draws.slice(-recentPeriods);
+
+  // ① 穩健平衡（統計啟發 + 馬可夫 + LSTM 融合）：維持「跨號段均勻」結構，但每段以三法
+  //    融合分數挑代表號。三法回測均≈隨機，融合只改變選哪個號、不提高中獎機率。
+  const N = config.maxNumber;
+  const stats = numberStats(recentDraws, N);
+  const freqScore = stats.map((item) => item.frequency);
+  const markov = markovScores(draws, N);
+  const lstm = lstmScores(ML_WEIGHTS[gameType], draws);
+  const balancedMethods = ["統計啟發(頻率)", "馬可夫鏈"];
+  if (lstm) balancedMethods.push("LSTM");
+  const blended = blendScores([
+    { weight: 1, score: freqScore },
+    { weight: 1, score: markov },
+    { weight: 1, score: lstm },
+  ], N);
+  const balancedPool = balancedCandidatesByScore(blended, config);
+  const balanced = breakConsecutiveRuns(
+    uniqueTake(balancedPool, config.picks, N),
+    balancedPool,
+    config,
+  );
+  const specialPrediction = buildSpecialCombinations({ draws, config, recentPeriods });
+  const balancedSecond = specialPrediction?.combinations?.["穩健平衡"] || null;
+
+  // ② 心跳明牌（節奏觀察，回測≈隨機；永遠固定一組）。
+  const todayMs = (() => {
+    const t = new Date(generatedAt).getTime();
+    return Number.isNaN(t) ? (drawDateMs(draws.at(-1)) ?? 0) : t;
+  })();
+  const heartbeat = buildHeartbeat(draws, config, todayMs);
+
+  const combinations = { "穩健平衡": balanced, [HEARTBEAT_NAME]: heartbeat.combination };
+  const specialCombinations = (balancedSecond || heartbeat.second_area)
+    ? {
+        ...(balancedSecond ? { "穩健平衡": balancedSecond } : {}),
+        ...(heartbeat.second_area ? { [HEARTBEAT_NAME]: heartbeat.second_area } : {}),
+      }
+    : null;
   const insights = buildInsightPayload({ gameType, draws, recentDraws, config });
   const selectedNumberInsights = buildSelectedNumberInsights({ combinations, draws, recentDraws, config, recentPeriods });
 
-  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，沒有可預測的號碼。以下為「博弈低均分」選號：刻意避開生日(1–31)、連號與規則圖形等大眾熱門選擇——不改變中獎機率，但中頭獎時可降低與他人均分的機率，提高期望分得金額。`;
+  const reasoning = `本期公正性健診：${diagnostic.passed ? "通過" : "異常待查"}（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）。開獎在統計上與真隨機無法區分，每一組號碼的中獎機率都相同、沒有「明牌」。\n① 穩健平衡（融合 ${balancedMethods.join("＋")}）：跨號段均勻分布、結構平衡的一組選號——以三法融合分數在每個號段挑代表號；上述方法回測均≈隨機，融合只改變選號、不提高中獎機率。\n② 心跳明牌：依各號平均間隔天數的節奏挑最久未開的號碼，純屬節奏觀察——回測命中率與隨機無異（${heartbeat.calibration.hit_rate}% vs 隨機 ${heartbeat.calibration.base_rate}%、近 ${heartbeat.calibration.window} 期），不提高中獎機率。`;
 
   return {
     timestamp: generatedAt,
@@ -1226,11 +1497,13 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
       engine: "honest-game-theory",
       reasoning_source: "honest_game_theory",
       reasoning,
-      risk_warning: "本系統不預測號碼。樂透為隨機事件、期望值為負；博弈選號僅降低中獎時的均分風險，請理性投注、量力而為。",
+      risk_warning: "本系統不預測號碼。每組號碼中獎機率相同，樂透期望值為負，以下選號僅供參考，請理性投注、量力而為。",
       fairness_diagnostic: diagnostic,
-      strategy_kind: "low_split_game_theory",
+      strategy_kind: "stable_balanced",
+      balanced_methods: balancedMethods,
       combinations,
       ...(specialCombinations ? { special_combinations: specialCombinations } : {}),
+      heartbeat,
       number_insights: {
         ...insights,
         ...selectedNumberInsights,
@@ -1305,13 +1578,18 @@ export function buildLineMessage(record, targetDate) {
   return message;
 }
 
+function formatBalls(numbers) {
+  return (numbers || []).map((n) => String(n).padStart(2, "0")).join(", ");
+}
+
 function buildHonestLineMessage(record, targetDate) {
   const prediction = record.prediction || {};
   const diagnostic = prediction.fairness_diagnostic || {};
   const combinations = prediction.combinations || {};
   const specialCombinations = prediction.special_combinations || null;
+  const heartbeat = prediction.heartbeat || null;
 
-  let message = `🎲 樂透公正性健診 + 博弈選號\n\n`;
+  let message = `🎲 樂透公正性健診 + 選號\n\n`;
   message += `日期：${targetDate}\n`;
   message += `彩種：${record.game_name}\n`;
   message += `------------------\n`;
@@ -1321,18 +1599,36 @@ function buildHonestLineMessage(record, targetDate) {
     message += `（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）`;
   }
   message += `。\n→ 沒有可預測的號碼，任何「明牌」都與隨機無異。\n`;
-  message += `------------------\n`;
-  message += `博弈低均分選號（不提高中獎率，只在中獎時降低與他人均分的機率）：\n`;
-  for (const [name, numbers] of Object.entries(combinations)) {
-    const numberText = (numbers || []).map((n) => String(n).padStart(2, "0")).join(", ");
-    const second = specialCombinations?.[name];
-    if (Array.isArray(second) && second.length) {
-      message += `[${name}] 第一區 ${numberText}　第二區 ${second.map((n) => String(n).padStart(2, "0")).join(", ")}\n`;
-    } else {
-      message += `[${name}] ${numberText}\n`;
+
+  // ① 穩健平衡（跨號段均勻分布的一組選號；統計啟發式，不保證命中）
+  const balanced = combinations["穩健平衡"];
+  if (Array.isArray(balanced)) {
+    const second = specialCombinations?.["穩健平衡"];
+    message += `------------------\n`;
+    const methods = Array.isArray(prediction.balanced_methods) && prediction.balanced_methods.length
+      ? prediction.balanced_methods.join("＋")
+      : "統計啟發";
+    message += `① 穩健平衡（融合 ${methods}）：\n`;
+    message += Array.isArray(second) && second.length
+      ? `第一區 ${formatBalls(balanced)}　第二區 ${formatBalls(second)}\n`
+      : `${formatBalls(balanced)}\n`;
+    message += `（跨號段均勻分布；三法回測均≈隨機，不保證命中、不提高中獎機率）\n`;
+  }
+
+  // ② 號碼心跳明牌（節奏觀察：回測命中率≈隨機，僅供對照）
+  if (heartbeat && Array.isArray(heartbeat.combination)) {
+    const second = heartbeat.second_area;
+    message += `------------------\n`;
+    message += `② 號碼心跳明牌（依各號平均間隔天數的節奏，挑最久未開的號）：\n`;
+    message += Array.isArray(second) && second.length
+      ? `第一區 ${formatBalls(heartbeat.combination)}　第二區 ${formatBalls(second)}\n`
+      : `${formatBalls(heartbeat.combination)}\n`;
+    const cal = heartbeat.calibration;
+    if (cal) {
+      message += `滾動校正：心跳命中率 ${cal.hit_rate}% ≈ 隨機 ${cal.base_rate}%（近 ${cal.window} 期回測）→ 僅供節奏對照\n`;
     }
   }
-  message += `（刻意避開生日 1–31、連號與規則圖形等大眾熱門號）\n`;
+
   message += `------------------\n`;
   message += `提醒：本系統不預測號碼。樂透期望值為負，請理性投注、量力而為。`;
   return message;

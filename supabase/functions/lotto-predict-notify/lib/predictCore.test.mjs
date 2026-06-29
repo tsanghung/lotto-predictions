@@ -442,17 +442,28 @@ test("honest game-theory engine: fairness diagnostic + low-split combinations + 
     assert.equal(record.prediction.model, "game-theory-v1");
     assert.equal(record.prediction.reasoning_source, "honest_game_theory");
     assert.equal(typeof record.prediction.fairness_diagnostic.uniform_p, "number");
-    const combos = Object.values(record.prediction.combinations);
-    assert.equal(combos.length, 1);                          // 單一明確推薦
-    assert.ok(Object.keys(record.prediction.combinations)[0] === "低均分組合");
-    for (const c of combos) {
-      assert.equal(new Set(c).size, c.length);                // 不重複
-      assert.ok(maxConsecutiveRun(c) < 4);                    // 無長連號
-      assert.ok(c.filter((n) => n > 31).length >= 2, `${gameType} low-split should favor unpopular high numbers: ${c}`);
-    }
+    const combos = record.prediction.combinations;
+    assert.equal(Object.keys(combos).length, 2);             // 兩組：穩健平衡 + 心跳明牌
+    assert.ok("穩健平衡" in combos);
+    assert.ok("心跳明牌" in combos);
+    const maxN = { "539": 39, power: 38 }[gameType];
+    const k = { "539": 5, power: 6 }[gameType];
+    const balanced = combos["穩健平衡"];
+    assert.equal(balanced.length, k);                        // 一組 k 顆
+    assert.equal(new Set(balanced).size, balanced.length);   // 不重複
+    assert.ok(maxConsecutiveRun(balanced) < 4);              // 無長連號
+    assert.ok(balanced.every((n) => n >= 1 && n <= maxN));   // 範圍內
+    // 心跳明牌：依節奏挑號 + 內附 walk-forward 校正回歸
+    const heartbeat = record.prediction.heartbeat;
+    assert.ok(Array.isArray(heartbeat.combination) && heartbeat.combination.length >= 1);
+    assert.deepEqual(combos["心跳明牌"], heartbeat.combination);
+    assert.equal(typeof heartbeat.calibration.hit_rate, "number");
+    assert.equal(typeof heartbeat.calibration.base_rate, "number");
     const message = buildLineMessage(record, "2026-06-30");
     assert.ok(message.includes("公正性健診"));
-    assert.ok(message.includes("不預測號碼"));
+    assert.ok(message.includes("不預測號碼") || message.includes("不預測"));
+    assert.ok(message.includes("穩健平衡"));
+    assert.ok(message.includes("心跳明牌"));
     assert.ok(!message.includes("AI 樂透預測"));
   }
 });
