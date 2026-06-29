@@ -443,13 +443,21 @@ test("honest game-theory engine: fairness diagnostic + low-split combinations + 
     assert.equal(record.prediction.reasoning_source, "honest_game_theory");
     assert.equal(typeof record.prediction.fairness_diagnostic.uniform_p, "number");
     const combos = record.prediction.combinations;
-    assert.equal(Object.keys(combos).length, 2);             // 兩組：低均分 + 心跳明牌
-    assert.ok("低均分組合" in combos);
+    const coverageKeys = Object.keys(combos).filter((key) => key.startsWith("覆蓋#"));
+    assert.equal(coverageKeys.length, 5);                    // 預設 5 組多注覆蓋
+    assert.equal(record.prediction.coverage_lines, 5);
     assert.ok("心跳明牌" in combos);
-    const low = combos["低均分組合"];
-    assert.equal(new Set(low).size, low.length);              // 不重複
-    assert.ok(maxConsecutiveRun(low) < 4);                    // 無長連號
-    assert.ok(low.filter((n) => n > 31).length >= 2, `${gameType} low-split should favor unpopular high numbers: ${low}`);
+    const config = { "539": 39, power: 38 }[gameType];
+    const k = { "539": 5, power: 6 }[gameType];
+    const seenLines = new Set();
+    for (const key of coverageKeys) {
+      const line = combos[key];
+      assert.equal(line.length, k);                          // 每組 k 顆
+      assert.equal(new Set(line).size, line.length);         // 不重複
+      assert.ok(line.every((n) => n >= 1 && n <= config));   // 範圍內
+      seenLines.add(line.join(","));
+    }
+    assert.equal(seenLines.size, coverageKeys.length);       // 各組互不重複
     // 心跳明牌：依節奏挑號 + 內附 walk-forward 校正回歸
     const heartbeat = record.prediction.heartbeat;
     assert.ok(Array.isArray(heartbeat.combination) && heartbeat.combination.length >= 1);
@@ -458,8 +466,8 @@ test("honest game-theory engine: fairness diagnostic + low-split combinations + 
     assert.equal(typeof heartbeat.calibration.base_rate, "number");
     const message = buildLineMessage(record, "2026-06-30");
     assert.ok(message.includes("公正性健診"));
-    assert.ok(message.includes("不預測號碼"));
-    assert.ok(message.includes("低均分組合"));
+    assert.ok(message.includes("不預測號碼") || message.includes("不預測"));
+    assert.ok(message.includes("多注覆蓋"));
     assert.ok(message.includes("心跳明牌"));
     assert.ok(!message.includes("AI 樂透預測"));
   }

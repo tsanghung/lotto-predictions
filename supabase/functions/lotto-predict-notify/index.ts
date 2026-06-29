@@ -402,11 +402,13 @@ async function processGame(
     options.serviceRoleKey,
     gameName,
   );
-  // 誠實博弈版：不呼叫 Gemini 預測號碼；改為公正性健診 + 博弈低均分選號(確定性)。
+  // 誠實版：不預測號碼；公正性健診 + 多注覆蓋（提高中獎機率的唯一方法＝多買不同注）+ 心跳明牌。
+  const coverageLines = Number(Deno.env.get("COVERAGE_LINES") ?? "5") || 5;
   const record: Record<string, unknown> = generateHonestPrediction({
     gameType,
     draws,
     generatedAt: options.generatedAt,
+    coverageLines,
   });
   const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
   if (!drawTargetDate) {
