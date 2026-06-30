@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TMFR6VZLX5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TMFR6VZLX5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>樂透統計名詞解釋：熱號、冷號、遺漏、期望值、卡方、Wilson 信賴區間｜小賽 AI 樂透預測</title>
+    <meta
+      name="description"
+      content="一次查清楚樂透與統計常見名詞：熱號、冷號、遺漏期數、低均分、期望值、卡方檢定、Wilson 信賴區間、賭徒謬誤、walk-forward 回測。"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://lotto.simonsynapse.net/glossary.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="小賽 AI 樂透預測" />
+    <meta property="og:title" content="樂透統計名詞解釋字典" />
+    <meta property="og:description" content="熱號、冷號、遺漏、低均分、期望值、卡方、Wilson 信賴區間，一次查清楚。" />
+    <meta property="og:url" content="https://lotto.simonsynapse.net/glossary.html" />
+    <link rel="stylesheet" href="/styles/article.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand" href="/">小賽 AI 樂透預測</a>
+      <a href="/guides.html">方法與文章</a>
+      <a href="/game-lotto649.html">大樂透</a>
+      <a href="/game-daily539.html">今彩539</a>
+      <a href="/game-superlotto.html">威力彩</a>
+      <a href="/faq.html">常見問題</a>
+      <a href="/about.html">關於</a>
+    </nav>
+
+    <main>
+      <article>
+        <a class="back-link" href="/guides.html">← 返回方法與文章</a>
+        <p class="eyebrow">名詞解釋</p>
+        <h1>樂透統計名詞解釋字典</h1>
+        <p class="lead">
+          看樂透分析常被一堆術語卡住？這裡用最白話的方式，把熱號、冷號、期望值、卡方檢定等名詞一次講清楚。
+          每個詞我們也會老實標註「它真的有用嗎」。
+        </p>
+
+        <dl class="glossary">
+          <dt>熱號（Hot Number）</dt>
+          <dd>
+            近期出現頻率較高的號碼。注意：在公正開獎下，「最近常開」<strong>不代表</strong>未來會繼續開——
+            那只是隨機波動。熱號是一種描述，不是預測。
+          </dd>
+
+          <dt>冷號（Cold Number）</dt>
+          <dd>
+            近期很少或很久沒出現的號碼。常有人相信冷號「該回補了」，但這是
+            <a href="#gambler">賭徒謬誤</a>——球沒有記憶，冷號下期出現的機率和其他號碼一樣。
+          </dd>
+
+          <dt>遺漏期數（Missing / Gap）</dt>
+          <dd>
+            一個號碼距離上次開出已經過了幾期。它是「心跳明牌／節奏觀察」的基礎資料，但回測證實用它選號
+            仍 ≈ 隨機。詳見<a href="/guide-heartbeat.html">心跳明牌</a>。
+          </dd>
+
+          <dt>低均分（Low-split）</dt>
+          <dd>
+            選擇「比較少人會選」的號碼組合（避開生日數字 1～31、避開連號與對稱型態），目的是萬一中了大獎，
+            要和你均分的人比較少。它影響的是<strong>中獎後分多少</strong>，<strong>不影響會不會中</strong>。
+          </dd>
+
+          <dt>期望值（Expected Value, EV）</dt>
+          <dd>
+            平均每注能拿回多少錢。彩券因為要撥付公益金、稅與營運成本，期望值必然<strong>小於票價、為負</strong>。
+            這是「為什麼長期一定虧」的數學原因，與選號方法無關。
+          </dd>
+
+          <dt>卡方檢定（Chi-square Test）</dt>
+          <dd>
+            檢驗「實際出現次數」是否顯著偏離「均勻分布該有的次數」。用來客觀判斷開獎是否公正。做法見
+            <a href="/guide-randomness.html">用卡方檢定驗證隨機性</a>。
+          </dd>
+
+          <dt>p 值（p-value）</dt>
+          <dd>
+            在「假設開獎是隨機的」前提下，看到目前這種（或更極端）偏差的機率。p 值大代表偏差落在隨機正常
+            範圍、沒有異常；p 值很小才值得懷疑。
+          </dd>
+
+          <dt>Wilson 信賴區間</dt>
+          <dd>
+            估計「命中率」這種比例時，比傳統公式更穩健的信賴區間，尤其在樣本不大或比例接近 0/1 時表現更好。
+            我們用它來判斷某方法的命中率是否「顯著」高於隨機基準——結論一致是「否」。
+          </dd>
+
+          <dt id="gambler">賭徒謬誤（Gambler's Fallacy）</dt>
+          <dd>
+            誤以為「獨立事件會自我平衡」——例如「連開幾期大號，接下來該開小號了」「冷號太久沒開，該回補了」。
+            在獨立隨機系統裡，過去完全不影響未來，這種直覺是錯的。
+          </dd>
+
+          <dt>獨立同分布（i.i.d.）</dt>
+          <dd>
+            每期開獎分布相同（均勻）且彼此獨立（沒記憶）。這是公正樂透的數學模型，也是「過去號碼不含未來
+            資訊、無法被預測」的根源。
+          </dd>
+
+          <dt>walk-forward 回測</dt>
+          <dd>
+            逐期向前、每次只用「當下可得」的歷史資料做預測，再和實際開獎比對，避免偷看未來造成的虛假好
+            成績。這是評估選號方法唯一公平的方式。
+          </dd>
+
+          <dt>馬可夫鏈（Markov Chain）</dt>
+          <dd>
+            「下一狀態只取決於目前狀態」的機率模型。我們用它描述每個號碼「開/沒開」的轉移，但回測顯示
+            它的命中率 ≈ 隨機。見<a href="/guide-lstm-markov.html">模型實測</a>。
+          </dd>
+
+          <dt>LSTM（長短期記憶網路）</dt>
+          <dd>
+            一種擅長處理序列的神經網路。理論上能捕捉長期型態，但面對公正樂透這種無結構資料，回測一樣
+            贏不過隨機。
+          </dd>
+
+          <dt>穩健平衡 / 統計啟發</dt>
+          <dd>
+            本網站每期固定產生的一組選號，融合頻率、馬可夫、LSTM 分數並鋪成結構均勻的組合。它改善分布、
+            不改善機率。見<a href="/guide-balanced.html">穩健平衡原理</a>。
+          </dd>
+
+          <dt>心跳明牌 / 節奏觀察</dt>
+          <dd>
+            用每個號碼的平均間隔推估「該出現」的號碼。是一種現象呈現，回測 ≈ 隨機。見
+            <a href="/guide-heartbeat.html">心跳明牌</a>。
+          </dd>
+        </dl>
+
+        <p class="notice">
+          名詞解釋僅供教育參考。樂透為隨機事件，任何方法都不會提高中獎機率，期望值為負。請理性娛樂、量力而為。
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">首頁</a><a href="/guides.html">方法與文章</a><a href="/faq.html">常見問題</a><a href="/about.html">關於</a><a href="/contact.html">聯絡</a><a href="/privacy">隱私權政策</a>
+      <p class="disclaimer">
+        本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+        都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為。未滿 18 歲不得購買彩券。
+        © 2026 小賽 AI 樂透預測 · Simon Wu
+      </p>
+    </footer>
+  </body>
+</html>

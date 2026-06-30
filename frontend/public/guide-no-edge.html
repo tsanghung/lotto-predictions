@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TMFR6VZLX5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TMFR6VZLX5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>為什麼沒有選號法能提高中獎機率（附回測數據）｜小賽 AI 樂透預測</title>
+    <meta
+      name="description"
+      content="冷熱號、遺漏回補、AI 模型真的有用嗎？本文用 walk-forward 無洩漏回測，對照隨機基準 k/N，揭露各種選號法的真實命中率——結論：與隨機無異。"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://lotto.simonsynapse.net/guide-no-edge.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="小賽 AI 樂透預測" />
+    <meta property="og:title" content="為什麼沒有選號法能提高中獎機率（附回測數據）" />
+    <meta property="og:description" content="walk-forward 無洩漏回測，對照隨機基準 k/N，各方法命中率全部 ≈ 隨機。" />
+    <meta property="og:url" content="https://lotto.simonsynapse.net/guide-no-edge.html" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "為什麼沒有選號法能提高中獎機率（附回測數據）",
+        "inLanguage": "zh-Hant-TW",
+        "datePublished": "2026-06-30",
+        "dateModified": "2026-06-30",
+        "author": { "@type": "Person", "name": "Simon Wu" },
+        "publisher": { "@type": "Organization", "name": "小賽 AI 樂透預測" },
+        "mainEntityOfPage": "https://lotto.simonsynapse.net/guide-no-edge.html"
+      }
+    </script>
+    <link rel="stylesheet" href="/styles/article.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand" href="/">小賽 AI 樂透預測</a>
+      <a href="/guides.html">方法與文章</a>
+      <a href="/game-lotto649.html">大樂透</a>
+      <a href="/game-daily539.html">今彩539</a>
+      <a href="/game-superlotto.html">威力彩</a>
+      <a href="/faq.html">常見問題</a>
+      <a href="/about.html">關於</a>
+    </nav>
+
+    <main>
+      <article>
+        <a class="back-link" href="/guides.html">← 返回方法與文章</a>
+        <p class="eyebrow">方法論 · 誠實揭露</p>
+        <h1>為什麼沒有選號法能提高中獎機率</h1>
+        <p class="meta">作者：Simon Wu · 更新：2026-06-30 · 閱讀約 8 分鐘</p>
+        <p class="lead">
+          市面上充斥著冷熱號分析、遺漏回補、形態包牌、AI 預測……每一種都聲稱能提高中獎機率。我們把這些
+          方法用同一套嚴格的回測流程跑過一遍，並和「閉著眼睛亂選」的隨機基準擺在一起比較。這篇文章告訴你
+          數字長什麼樣，以及為什麼結果註定如此。
+        </p>
+
+        <h2>隨機基準：你該打敗的數字</h2>
+        <p>
+          要評斷一個方法「好不好」，必須先知道「亂猜」能猜中多少。如果一個彩種從 N 個號碼裡開出 k 個，
+          那麼你隨便選一個號碼、它剛好是中獎號的機率就是 k/N。這就是每個號碼位置的命中率基準：
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>彩種</th><th>結構</th><th>隨機命中率基準 k/N</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>今彩539</td><td>39 選 5</td><td>5 ÷ 39 ≈ <strong>12.82%</strong></td></tr>
+              <tr><td>大樂透</td><td>49 選 6</td><td>6 ÷ 49 ≈ <strong>12.24%</strong></td></tr>
+              <tr><td>威力彩（第一區）</td><td>38 選 6</td><td>6 ÷ 38 ≈ <strong>15.79%</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          任何選號法若真有本事，它在歷史資料上的「每號命中率」就該<strong>穩定且顯著地高於</strong>這條
+          基準線。否則，它再花俏，也只是隨機的另一種包裝。
+        </p>
+
+        <h2>怎麼測才公平？walk-forward 無洩漏回測</h2>
+        <p>
+          回測最容易作弊的地方，是「偷看未來」。如果你用 2026 年的全部資料去挑號碼，再回頭說「你看我猜中
+          2025 年的開獎」，那是自欺。正確做法是 <strong>walk-forward（逐期向前）</strong>：
+        </p>
+        <ol>
+          <li>站在第 t 期之前，<em>只用</em>第 1 ～ t−1 期的資料訓練／計算方法。</li>
+          <li>產生第 t 期的預測號碼。</li>
+          <li>等第 t 期真正開獎，記錄命中幾個。</li>
+          <li>時間往前推一期，重複上述步驟，跑過數百期。</li>
+        </ol>
+        <p>
+          這樣每一次預測都只用到「當下可得」的資訊，沒有任何未來洩漏。把幾百期的命中數平均起來，才是這個
+          方法的真實表現。
+        </p>
+
+        <h2>回測結果：全部貼著隨機線</h2>
+        <p>
+          以今彩539（隨機基準 12.82%）為例，我們對幾種代表性方法做 walk-forward 回測，每號命中率大致是
+          這個樣子：
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>方法</th><th>每號命中率（回測）</th><th>對照基準 12.82%</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>純隨機基準</td><td>≈ 12.82%</td><td>—</td></tr>
+              <tr><td>頻率統計（選高頻號）</td><td>約 11～13%</td><td>無顯著差異</td></tr>
+              <tr><td>馬可夫鏈</td><td>約 11～13%</td><td>無顯著差異</td></tr>
+              <tr><td>LSTM（時間序列）</td><td>約 12～13%</td><td>無顯著差異</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>
+          這些數字在不同回測窗口會上下小幅跳動，有時某個方法剛好高一點、有時低一點——但<strong>那種起伏
+          本身就是隨機雜訊</strong>，沒有哪個方法能穩定地、顯著地把基準線甩在後面。我們用 Wilson 信賴區間
+          與單尾 p 值去檢定「是否顯著高於 k/N」，答案一致是「否」。
+        </p>
+        <div class="callout">
+          小心「贏家偏誤」：跑十個方法，總有一兩個在某段歷史剛好表現亮眼。如果你只挑出那一個來宣傳，就會
+          得到「這方法超神」的假象。誠實的做法是事先固定方法、固定回測流程，然後接受結果——哪怕結果很無聊。
+        </div>
+
+        <h2>為什麼註定如此？</h2>
+        <p>
+          因為公正的樂透開獎是<a href="/guide-randomness.html">獨立同分布（i.i.d.）</a>的：每期分布相同、
+          彼此獨立。在這種資料裡，過去的號碼不含任何關於未來的資訊量（資訊理論上的互資訊為零）。任何
+          模型——無論是簡單的頻率法還是深度神經網路——都只能學到雜訊，學不到不存在的訊號。這不是工程
+          問題，是數學上的不可能。
+        </p>
+
+        <h2>那「選號」還剩下什麼意義？</h2>
+        <p>
+          一句話：<strong>選號法不改變「會不會中」，只改變「中了之後跟多少人分」。</strong>
+          唯一真正提高中獎機率的方式，是買更多注不同號碼（但花更多錢、期望值仍為負）。如果你避開大家
+          都愛的生日數字（1～31）與熱門型態，萬一中了頭獎，要均分的人會比較少。我們的
+          <a href="/guide-balanced.html">穩健平衡</a>做的就是這件「分布」的事——它讓號碼更均勻，但我們
+          從不假裝它會讓你更容易中。
+        </p>
+
+        <p class="notice">
+          這篇文章的全部重點：誠實。我們的系統照樣每天出號碼，但回測證實所有方法 ≈ 隨機、期望值為負，
+          因此絕不宣稱「保證中獎」「穩賺」或「勝過隨機」。請把樂透當娛樂，不要當投資。
+        </p>
+
+        <p><a href="/guide-lstm-markov.html">下一篇：LSTM 與馬可夫鏈能預測樂透嗎？實測給你看 →</a></p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">首頁</a><a href="/guides.html">方法與文章</a><a href="/faq.html">常見問題</a><a href="/about.html">關於</a><a href="/contact.html">聯絡</a><a href="/privacy">隱私權政策</a>
+      <p class="disclaimer">
+        本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+        都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為。未滿 18 歲不得購買彩券。
+        © 2026 小賽 AI 樂透預測 · Simon Wu
+      </p>
+    </footer>
+  </body>
+</html>

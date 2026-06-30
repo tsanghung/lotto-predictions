@@ -15,7 +15,7 @@
     <title>AI 樂透預測方法 | 小賽 AI 樂透預測</title>
     <meta
       name="description"
-      content="了解小賽 AI 樂透預測如何使用台灣彩券歷史開獎資料、統計特徵、Gemini AI 推理、回測與命中追蹤，產生大樂透、今彩539、威力彩選號參考。"
+      content="了解小賽 AI 樂透預測如何使用台灣彩券歷史開獎資料、統計特徵、LSTM 與馬可夫鏈、回測與命中追蹤，產生大樂透、今彩539、威力彩的穩健平衡與心跳明牌選號參考。"
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <link rel="canonical" href="https://lotto.simonsynapse.net/ai-lottery-guide.html" />
@@ -30,7 +30,7 @@
         "@context": "https://schema.org",
         "@type": "Article",
         "headline": "AI 樂透預測方法",
-        "description": "說明小賽 AI 樂透預測如何使用歷史開獎資料、統計特徵、Gemini AI 推理、回測與命中追蹤。",
+        "description": "說明小賽 AI 樂透預測如何使用歷史開獎資料、統計特徵、LSTM 與馬可夫鏈、回測與命中追蹤。",
         "inLanguage": "zh-Hant-TW",
         "datePublished": "2026-06-25",
         "dateModified": "2026-06-25",
@@ -169,9 +169,12 @@
           <li>歷史回測中的命中率與策略穩定性。</li>
         </ul>
 
-        <h2>4. AI 選號策略</h2>
+        <h2>4. 選號策略：穩健平衡與心跳明牌</h2>
         <p>
-          Gemini AI 會根據系統計算出的統計特徵，產生不同風險偏好的推薦組合。例如「激進包牌」偏向冷門反彈與高波動訊號，「穩健平衡」偏向區間、奇偶與冷熱平衡，「統計趨勢」偏向近期高頻與關聯性較高的號碼。
+          系統每個彩種、每個開獎日固定產生兩組選號參考。「<a href="/guide-balanced.html">穩健平衡</a>」是一種
+          統計啟發式，融合頻率統計、馬可夫鏈與 LSTM 的分數，把號碼跨號段鋪得結構均勻；「<a href="/guide-heartbeat.html">心跳明牌</a>」
+          則是一種節奏觀察，用每個號碼的平均開出間隔挑出「照節奏該出現」的號碼。兩組都做過回測，命中率皆 ≈ 隨機，
+          因此都明確標註不保證命中、不提高中獎機率。
         </p>
 
         <h2>5. 回測與成效追蹤</h2>
@@ -195,6 +198,14 @@
         <p class="notice">
           本網站不鼓勵過度投注。請理性投注、量力而為，並把所有 AI 預測視為娛樂與研究參考。
         </p>
+
+        <h2>延伸閱讀</h2>
+        <ul>
+          <li><a href="/guide-no-edge.html">為什麼沒有選號法能提高中獎機率（附回測數據）</a></li>
+          <li><a href="/guide-randomness.html">樂透是不是隨機？用卡方檢定親手驗證</a></li>
+          <li><a href="/guide-lstm-markov.html">LSTM 與馬可夫鏈能預測樂透嗎？實測給你看</a></li>
+          <li><a href="/guides.html">全部方法與文章</a> · <a href="/faq.html">常見問題</a> · <a href="/about.html">關於</a></li>
+        </ul>
       </article>
     </main>
   </body>
