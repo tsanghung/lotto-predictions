@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TMFR6VZLX5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TMFR6VZLX5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LSTM 與馬可夫鏈能預測樂透嗎？我們實測給你看｜小賽 AI 樂透預測</title>
+    <meta
+      name="description"
+      content="我們真的用 numpy 訓練了 LSTM、建了馬可夫鏈，並做梯度檢查與 walk-forward 回測。本文說明模型怎麼運作、結果如何，以及為什麼 AI 也贏不過隨機。"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://lotto.simonsynapse.net/guide-lstm-markov.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="小賽 AI 樂透預測" />
+    <meta property="og:title" content="LSTM 與馬可夫鏈能預測樂透嗎？我們實測給你看" />
+    <meta property="og:description" content="numpy 手刻 LSTM + 馬可夫鏈 + 嚴格回測，結論：和隨機沒有顯著差異。" />
+    <meta property="og:url" content="https://lotto.simonsynapse.net/guide-lstm-markov.html" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "LSTM 與馬可夫鏈能預測樂透嗎？我們實測給你看",
+        "inLanguage": "zh-Hant-TW",
+        "datePublished": "2026-06-30",
+        "dateModified": "2026-06-30",
+        "author": { "@type": "Person", "name": "Simon Wu" },
+        "publisher": { "@type": "Organization", "name": "小賽 AI 樂透預測" },
+        "mainEntityOfPage": "https://lotto.simonsynapse.net/guide-lstm-markov.html"
+      }
+    </script>
+    <link rel="stylesheet" href="/styles/article.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand" href="/">小賽 AI 樂透預測</a>
+      <a href="/guides.html">方法與文章</a>
+      <a href="/game-lotto649.html">大樂透</a>
+      <a href="/game-daily539.html">今彩539</a>
+      <a href="/game-superlotto.html">威力彩</a>
+      <a href="/faq.html">常見問題</a>
+      <a href="/about.html">關於</a>
+    </nav>
+
+    <main>
+      <article>
+        <a class="back-link" href="/guides.html">← 返回方法與文章</a>
+        <p class="eyebrow">方法論 · 機器學習</p>
+        <h1>LSTM 與馬可夫鏈能預測樂透嗎？</h1>
+        <p class="meta">作者：Simon Wu · 更新：2026-06-30 · 閱讀約 9 分鐘</p>
+        <p class="lead">
+          「用 AI 預測樂透」聽起來很厲害。我們沒有停在嘴上——而是真的用 numpy 從零手刻了一個 LSTM
+          神經網路、建了一階馬可夫鏈，做了梯度檢查確保實作正確，再用嚴格的 walk-forward 回測它們的表現。
+          這篇文章帶你看模型怎麼運作，以及最後誠實的結論。
+        </p>
+
+        <h2>馬可夫鏈：用「狀態轉移」描述每個號碼</h2>
+        <p>
+          馬可夫鏈的核心假設是：下一個狀態只取決於目前狀態。我們把每個號碼看成一個有兩種狀態的小系統——
+          「這期有開（1）」或「沒開（0）」——然後從歷史資料統計它的轉移機率：
+        </p>
+        <ul>
+          <li>P(下期開 | 這期開)：開了之後，下期繼續開的機率。</li>
+          <li>P(下期開 | 這期沒開)：沒開之後，下期開出的機率。</li>
+        </ul>
+        <p>
+          我們用 Laplace 平滑避免某些轉移因為樣本太少而失真，再根據每個號碼「目前的狀態」算出它下期出現的
+          分數，分數高的視為候選。直覺上，這能捕捉「連莊」或「冷回補」之類的型態——如果它們真的存在的話。
+        </p>
+
+        <h2>LSTM：能記住長期型態的神經網路</h2>
+        <p>
+          LSTM（長短期記憶網路）是專門處理序列資料的神經網路，靠「遺忘門、輸入門、輸出門」決定要記住或丟掉
+          哪些歷史資訊，理論上能捕捉比馬可夫鏈更長、更複雜的時間相依。我們的實作細節：
+        </p>
+        <ul>
+          <li>把每期開獎編碼成 multi-hot 向量（開出的號碼為 1），餵進 LSTM。</li>
+          <li>自己實作前向傳遞與 BPTT（透過時間的反向傳播），用 Adam 最佳化器訓練。</li>
+          <li>做 <strong>梯度檢查</strong>：用數值微分驗證解析梯度，相對誤差小於 1e-4 才算實作正確。</li>
+          <li>輸出每個號碼下期出現的機率分數。</li>
+        </ul>
+        <div class="callout">
+          梯度檢查這一步很關鍵——它確保「模型表現不好」不是因為我們寫錯程式，而是真的學不到東西。先排除
+          bug，結論才有意義。
+        </div>
+
+        <h2>怎麼放進線上系統？離線訓練 + 前向推論</h2>
+        <p>
+          線上的 Edge Function 不適合即時訓練神經網路，所以我們採「離線訓練、線上推論」：用腳本離線把各
+          彩種的 LSTM 權重訓練好、匯出成權重檔，線上只做輕量的前向計算得到分數。這也讓整個流程可重現、
+          可定期重訓。
+        </p>
+
+        <h2>回測結果：和隨機沒有顯著差異</h2>
+        <p>
+          重點來了。我們用 walk-forward（每次只用過去資料、不偷看未來）回測這兩個模型，並和隨機基準
+          k/N 比較。以今彩539（基準 12.82%）為例，LSTM 與馬可夫鏈的每號命中率都落在基準附近的雜訊範圍內，
+          <strong>沒有任何一個能穩定、顯著地勝過隨機</strong>。在大樂透與威力彩上，結論相同。
+        </p>
+        <p>
+          換句話說：模型實作是對的（梯度檢查通過）、訓練是收斂的、回測是公平的——而它依然贏不過亂猜。
+        </p>
+
+        <h2>為什麼強大的 AI 也沒用？</h2>
+        <p>
+          因為機器學習的前提是「資料裡有可學習的結構」。LSTM 能在語言、股價節律、感測器訊號裡找到型態，
+          是因為那些資料有時間相依。但公正的樂透開獎是<a href="/guide-randomness.html">獨立同分布</a>的，
+          過去與未來的互資訊為零——裡面<strong>根本沒有結構可學</strong>。再深的網路，面對純雜訊也只能
+          學到雜訊。模型容量大反而更容易「過擬合」歷史的巧合，在新資料上現出原形。
+        </p>
+
+        <h2>那我們為什麼還留著它？</h2>
+        <p>
+          因為這是專案誠實定位的一部分：<strong>預測照做、號碼照出，但準確度由回測數字說了算。</strong>
+          我們把 LSTM 與馬可夫鏈的分數，連同頻率統計，一起<a href="/guide-balanced.html">融進「穩健平衡」</a>
+          的選號裡——不是因為它們能提高中獎機率（不能），而是因為它們提供了一種有條理、可重現的方式去
+          鋪排號碼結構。我們在 UI 與文案上一律標明：三法回測均 ≈ 隨機、不保證命中。
+        </p>
+
+        <p class="notice">
+          想看程式？本專案的 <code>scripts/ml_simulation.py</code>（LSTM + 馬可夫 + 回測）與
+          <code>export_lstm_weights.py</code>（離線訓練匯出權重）就是這篇文章的實作。歡迎自行重現、自行
+          驗證。樂透為隨機事件，AI 不會改變這件事。
+        </p>
+
+        <p><a href="/guide-balanced.html">下一篇：什麼是「穩健平衡」選號？原理與限制 →</a></p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">首頁</a><a href="/guides.html">方法與文章</a><a href="/faq.html">常見問題</a><a href="/about.html">關於</a><a href="/contact.html">聯絡</a><a href="/privacy">隱私權政策</a>
+      <p class="disclaimer">
+        本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+        都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為。未滿 18 歲不得購買彩券。
+        © 2026 小賽 AI 樂透預測 · Simon Wu
+      </p>
+    </footer>
+  </body>
+</html>

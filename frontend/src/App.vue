@@ -338,9 +338,27 @@ const formatDate = (iso) => {
         <p style="font-size:14px;color:#1e293b;margin-top:8px;">
           由 公正性統計檢定 × 博弈論 × Supabase Edge Functions 全自動驅動 · 資料來源：台灣彩券官方網站
         </p>
-        <p style="font-size:14px;color:#334155;margin-top:12px;">
-          <a href="/ai-lottery-guide.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
-            AI 樂透預測方法
+        <p style="font-size:14px;color:#334155;margin-top:12px;line-height:2.2;">
+          <a href="/guides.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            方法與文章
+          </a>
+          <a href="/game-lotto649.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            大樂透
+          </a>
+          <a href="/game-daily539.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            今彩539
+          </a>
+          <a href="/game-superlotto.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            威力彩
+          </a>
+          <a href="/faq.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            常見問題
+          </a>
+          <a href="/about.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            關於
+          </a>
+          <a href="/contact.html" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);margin-right:14px;">
+            聯絡
           </a>
           <a href="/privacy" style="color:#64748b;text-decoration:none;border-bottom:1px solid rgba(100,116,139,0.35);">
             隱私權政策

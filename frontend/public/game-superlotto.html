@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TMFR6VZLX5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TMFR6VZLX5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>威力彩完整解析：雙區玩法、中獎機率與期望值｜小賽 AI 樂透預測</title>
+    <meta
+      name="description"
+      content="威力彩採第一區 38 選 6、第二區 8 選 1 的雙區玩法，頭獎機率約 2208 萬分之 1。本文解析規則、機率計算與為什麼期望值為負。"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://lotto.simonsynapse.net/game-superlotto.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="小賽 AI 樂透預測" />
+    <meta property="og:title" content="威力彩完整解析：雙區玩法、中獎機率與期望值" />
+    <meta property="og:description" content="第一區 38 選 6＋第二區 8 選 1，頭獎機率約 2208 萬分之 1，期望值為負。" />
+    <meta property="og:url" content="https://lotto.simonsynapse.net/game-superlotto.html" />
+    <link rel="stylesheet" href="/styles/article.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand" href="/">小賽 AI 樂透預測</a>
+      <a href="/guides.html">方法與文章</a>
+      <a href="/game-lotto649.html">大樂透</a>
+      <a href="/game-daily539.html">今彩539</a>
+      <a href="/game-superlotto.html">威力彩</a>
+      <a href="/faq.html">常見問題</a>
+      <a href="/about.html">關於</a>
+    </nav>
+
+    <main>
+      <article>
+        <a class="back-link" href="/guides.html">← 返回方法與文章</a>
+        <p class="eyebrow">彩種指南</p>
+        <h1>威力彩完整解析</h1>
+        <p class="meta">更新：2026-06-30 · 閱讀約 6 分鐘</p>
+        <p class="lead">
+          威力彩是台灣頭獎金額最高的彩券，特色是「雙區」玩法：第一區從 38 個號碼選 6 個，第二區再從
+          1～8 選 1 個。兩區的設計讓頭獎機率比大樂透更低，累積獎金也常衝上數億元。
+        </p>
+
+        <h2>基本玩法</h2>
+        <ul>
+          <li>第一區：從 01～38 中選 6 個號碼。</li>
+          <li>第二區：從 01～08 中選 1 個號碼。</li>
+          <li>頭獎需同時對中第一區全部 6 個號碼 + 第二區 1 個號碼。</li>
+          <li>較低獎項依第一區對中數量、是否搭配第二區而定。</li>
+          <li>開獎時間：每週一、週四。每注新台幣 50 元。</li>
+        </ul>
+
+        <h2>頭獎機率怎麼算？</h2>
+        <p>
+          第一區從 38 選 6 的組合數，乘上第二區 8 選 1 的 8 種可能：
+        </p>
+        <p style="text-align:center; font-size:18px; color:#e5eefb;">
+          C(38, 6) × 8 = 2,760,681 × 8 = 22,085,448
+        </p>
+        <p>
+          所以買一注中頭獎的機率約為 <strong>1 / 22,085,448</strong>（約 2208 萬分之 1），是三大彩種中
+          最低的。代價換來的是台灣最高的頭獎金額——這正是「高風險、高（夢想）報酬」的體現。
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>對中</th><th>說明</th><th>機率量級</th></tr></thead>
+            <tbody>
+              <tr><td>第一區 6 號 + 第二區</td><td>頭獎</td><td>約 2208 萬分之 1</td></tr>
+              <tr><td>第一區 6 號</td><td>貳獎</td><td>約數百萬分之 1</td></tr>
+              <tr><td>第一區 5 號 + 第二區</td><td>參獎</td><td>較低機率</td></tr>
+              <tr><td>較少號碼組合</td><td>普獎等</td><td>機率較高、獎金較小</td></tr>
+            </tbody>
+          </table>
+          <p style="font-size:13px;color:#64748b;">各獎項詳細規則與獎金以台灣彩券官方公告為準，本表僅示意量級。</p>
+        </div>
+
+        <h2>第二區是「獨立」的嗎？</h2>
+        <p>
+          是的。第二區的號碼由獨立的程序開出，和第一區無關。這也是為什麼頭獎機率是「第一區組合數 × 8」——
+          兩個獨立事件的機率相乘。從<a href="/guide-randomness.html">隨機性</a>的角度看，兩區都通過均勻性與
+          獨立性檢定，沒有可被利用的型態。
+        </p>
+
+        <h2>期望值同樣為負</h2>
+        <p>
+          威力彩頭獎金額雖高，但攤平到 2208 萬分之 1 的機率上，每注的期望回收仍低於票價；加上發行成本與
+          公益金撥付，長期期望值為負。<strong>選號方法無法改變這個結構</strong>——它取決於遊戲規則，不取決於
+          你選哪些號碼。想了解為什麼，請讀<a href="/guide-no-edge.html">為什麼沒有選號法能提高中獎機率</a>。
+        </p>
+
+        <p class="notice">
+          本頁僅供教育與參考，不構成投注建議。樂透為隨機事件，任何方法都不會提高中獎機率，期望值為負。
+          請理性娛樂、量力而為，未滿 18 歲不得購買彩券。
+        </p>
+
+        <p>
+          延伸閱讀：<a href="/game-lotto649.html">大樂透解析</a> ·
+          <a href="/game-daily539.html">今彩539解析</a> ·
+          <a href="/glossary.html">名詞解釋</a>
+        </p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">首頁</a><a href="/guides.html">方法與文章</a><a href="/faq.html">常見問題</a><a href="/about.html">關於</a><a href="/contact.html">聯絡</a><a href="/privacy">隱私權政策</a>
+      <p class="disclaimer">
+        本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+        都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為。未滿 18 歲不得購買彩券。
+        © 2026 小賽 AI 樂透預測 · Simon Wu
+      </p>
+    </footer>
+  </body>
+</html>

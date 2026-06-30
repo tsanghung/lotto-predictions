@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TMFR6VZLX5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TMFR6VZLX5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>樂透是不是隨機？用卡方檢定親手驗證開獎公正性｜小賽 AI 樂透預測</title>
+    <meta
+      name="description"
+      content="開獎到底公不公正？本文用卡方均勻性檢定與前後期獨立性，把『隨機』變成一個可計算的數字，帶你親手驗證台灣彩券開獎資料。"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://lotto.simonsynapse.net/guide-randomness.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="小賽 AI 樂透預測" />
+    <meta property="og:title" content="樂透是不是隨機？用卡方檢定親手驗證" />
+    <meta property="og:description" content="把『開獎公不公正』變成一個可計算的數字：卡方均勻性與前後期獨立性。" />
+    <meta property="og:url" content="https://lotto.simonsynapse.net/guide-randomness.html" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        "headline": "樂透是不是隨機？用卡方檢定親手驗證開獎公正性",
+        "inLanguage": "zh-Hant-TW",
+        "datePublished": "2026-06-30",
+        "dateModified": "2026-06-30",
+        "author": { "@type": "Person", "name": "Simon Wu" },
+        "publisher": { "@type": "Organization", "name": "小賽 AI 樂透預測" },
+        "mainEntityOfPage": "https://lotto.simonsynapse.net/guide-randomness.html"
+      }
+    </script>
+    <link rel="stylesheet" href="/styles/article.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand" href="/">小賽 AI 樂透預測</a>
+      <a href="/guides.html">方法與文章</a>
+      <a href="/game-lotto649.html">大樂透</a>
+      <a href="/game-daily539.html">今彩539</a>
+      <a href="/game-superlotto.html">威力彩</a>
+      <a href="/faq.html">常見問題</a>
+      <a href="/about.html">關於</a>
+    </nav>
+
+    <main>
+      <article>
+        <a class="back-link" href="/guides.html">← 返回方法與文章</a>
+        <p class="eyebrow">方法論</p>
+        <h1>樂透是不是隨機？用卡方檢定親手驗證</h1>
+        <p class="meta">作者：Simon Wu · 更新：2026-06-30 · 閱讀約 7 分鐘</p>
+        <p class="lead">
+          「開獎到底公不公正？」這是每個彩迷心裡的疑問。好消息是：這個問題不需要靠感覺，它可以被算成一個
+          明確的數字。本文介紹兩種統計工具——卡方均勻性檢定與前後期獨立性——讓你把「隨機」這件抽象的事
+          變成可驗證的結論。
+        </p>
+
+        <h2>先說結論</h2>
+        <p>
+          到目前為止，我們對台灣大樂透、今彩539、威力彩的歷史開獎資料做這些檢定，<strong>都看不出系統性的
+          偏差</strong>：每個號碼出現的頻率落在隨機該有的波動範圍內，這一期的號碼也無法用來預測下一期。
+          簡單說，資料的行為和「公正的隨機抽球機」一致。
+        </p>
+
+        <h2>工具一：卡方均勻性檢定（號碼出不出得均勻？）</h2>
+        <p>
+          如果開獎是公正的，長期下來每個號碼出現的次數應該「差不多」——不是完全一樣（那反而可疑），而是
+          在隨機波動容許的範圍內接近。卡方檢定就是在量化「實際次數」和「理論期望次數」差多遠：
+        </p>
+        <p style="text-align:center; font-size:18px; color:#e5eefb;">
+          χ² = Σ (觀測次數 − 期望次數)² ÷ 期望次數
+        </p>
+        <p>
+          以今彩539 為例，39 個號碼、每期開 5 個，所以每期每個號碼被抽中的期望比例是 5/39。把歷史所有期數
+          套進去，算出每個號碼的「期望出現次數」，再和實際次數比較。χ² 越大，代表偏離均勻越多。把這個值
+          對照卡方分布的臨界值（自由度 = 號碼數 − 1），就能得到一個 <strong>p 值</strong>：
+        </p>
+        <ul>
+          <li><strong>p 值很大（例如 &gt; 0.05）</strong>：偏差落在隨機正常範圍內，沒有證據說開獎不均勻。</li>
+          <li><strong>p 值很小</strong>：偏差大到不像是隨機造成，值得進一步懷疑（但仍需排除資料錯誤等因素）。</li>
+        </ul>
+        <p>
+          關鍵觀念：<strong>就算某些號碼「看起來」開得比較多，也不代表它有偏差</strong>。在隨機系統裡，
+          一定會有些號碼剛好多開、有些少開，這正是隨機的樣子。卡方檢定的價值，就是幫你分辨「這個落差
+          是隨機正常的，還是大到不正常」。
+        </p>
+
+        <h2>工具二：前後期獨立性（過去能不能預測未來？）</h2>
+        <p>
+          均勻只是第一關。一副公正的牌，每張出現次數一樣，但如果有人記牌，順序還是可被預測。樂透也一樣：
+          我們還要檢查「這一期的結果，能不能透露下一期的任何資訊」。
+        </p>
+        <p>
+          做法是把相鄰兩期的開獎結果配對，檢查是否存在統計關聯——例如「這期開了大號，下期是否傾向開小號」、
+          「某兩個號碼是否異常常一起出現」。如果開獎真的每期獨立，這些關聯都應該接近零、落在隨機雜訊內。
+          我們的檢定結果正是如此：<strong>看不到可被利用的前後期關聯</strong>。
+        </p>
+        <div class="callout">
+          這兩關合起來，對應機率論裡「獨立同分布（i.i.d.）」的概念：每期分布相同（均勻）、且彼此獨立
+          （沒記憶）。一個 i.i.d. 的系統，過去不帶任何關於未來的資訊——這就是「樂透無法被預測」的數學根源。
+        </div>
+
+        <h2>為什麼這件事重要？</h2>
+        <p>
+          因為它直接決定了「明牌有沒有可能有用」。如果開獎資料通過了均勻性與獨立性檢定，那麼任何基於
+          歷史號碼的選號法——冷熱號、遺漏回補、型態分析、AI 模型——在數學上就<strong>不可能</strong>從中
+          擠出優勢，因為資料裡根本沒有可學習的結構。這也是我們在
+          <a href="/guide-no-edge.html">回測文章</a>裡實測證實的事：所有方法的命中率都 ≈ 隨機。
+        </p>
+
+        <h2>你可以自己驗證</h2>
+        <p>
+          這不是要你相信我們，而是邀請你親手算。本專案的 <code>scripts/randomness_audit.py</code> 與
+          <code>bias_tests.py</code> 就是做這些檢定的程式；網站首頁的「公正性健診」面板也會即時呈現最新的
+          卡方結果。統計的美就在這裡——它讓你不必相信任何人，只要相信數字。
+        </p>
+
+        <p class="notice">
+          公正性健診是用來客觀標示「開獎可不可預測」的工具，不是選號建議。樂透為隨機事件，任何方法都不會
+          提高中獎機率。請理性娛樂、量力而為。
+        </p>
+
+        <p><a href="/guide-no-edge.html">下一篇：為什麼沒有選號法能提高中獎機率（附回測數據）→</a></p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">首頁</a><a href="/guides.html">方法與文章</a><a href="/faq.html">常見問題</a><a href="/about.html">關於</a><a href="/contact.html">聯絡</a><a href="/privacy">隱私權政策</a>
+      <p class="disclaimer">
+        本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+        都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為。未滿 18 歲不得購買彩券。
+        © 2026 小賽 AI 樂透預測 · Simon Wu
+      </p>
+    </footer>
+  </body>
+</html>

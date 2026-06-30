@@ -16,45 +16,82 @@
     <title>小賽 AI 樂透預測 | 大樂透、今彩539、威力彩統計分析</title>
     <meta
       name="description"
-      content="小賽 AI 樂透預測整合台灣彩券歷史開獎資料、公正性統計檢定、回測與命中追蹤，提供大樂透、今彩539、威力彩的公正性健診與博弈低均分選號（不預測號碼、誠實揭露樂透為隨機事件）。"
+      content="小賽 AI 樂透預測整合台灣彩券歷史開獎資料、公正性統計檢定、回測與命中追蹤，提供大樂透、今彩539、威力彩的公正性健診與兩組選號參考（穩健平衡＝統計啟發、心跳明牌＝節奏觀察）。誠實揭露：各法回測均≈隨機、不保證命中、不提高中獎機率、期望值為負。"
     />
     <meta name="robots" content="index, follow, max-image-preview:large" />
     <meta name="author" content="Simon Wu" />
-    <meta name="keywords" content="樂透統計,大樂透,今彩539,威力彩,台灣彩券,樂透公正性檢定,博弈選號,期望值最佳化,開獎隨機性" />
+    <meta name="keywords" content="樂透統計,大樂透,今彩539,威力彩,台灣彩券,樂透公正性檢定,卡方檢定,LSTM,馬可夫鏈,期望值,開獎隨機性" />
     <link rel="canonical" href="https://lotto.simonsynapse.net/" />
 
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="zh_TW" />
     <meta property="og:site_name" content="小賽 AI 樂透預測" />
     <meta property="og:title" content="小賽 AI 樂透預測 | 大樂透、今彩539、威力彩統計分析" />
-    <meta property="og:description" content="結合歷史開獎統計與公正性檢定，提供大樂透、今彩539、威力彩的公正性健診、博弈低均分選號與命中追蹤——誠實揭露：樂透為隨機事件，無法預測號碼。" />
+    <meta property="og:description" content="結合歷史開獎統計與公正性檢定，提供大樂透、今彩539、威力彩的公正性健診、穩健平衡與心跳明牌選號參考與命中追蹤——誠實揭露：各法回測均≈隨機、不保證命中、不提高中獎機率。" />
     <meta property="og:url" content="https://lotto.simonsynapse.net/" />
     <meta property="og:image" content="https://lotto.simonsynapse.net/favicon.svg" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="小賽 AI 樂透預測" />
-    <meta name="twitter:description" content="樂透公正性健診、統計分析、博弈低均分選號與命中追蹤儀表板（不預測號碼）。" />
+    <meta name="twitter:description" content="樂透公正性健診、統計分析、穩健平衡與心跳明牌選號參考與命中追蹤儀表板（各法回測均≈隨機、不保證命中）。" />
 
     <!-- Google AdSense 自動廣告 -->
     <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-7384783799477371"
       crossorigin="anonymous"></script>
   </head>
   <body>
-    <noscript>
-      <main>
-        <h1>小賽 AI 樂透預測</h1>
-        <p>
-          小賽 AI 樂透預測提供大樂透、今彩539、威力彩的歷史開獎資料整理、統計特徵分析、開獎公正性健診、博弈低均分選號與命中追蹤；誠實揭露樂透為隨機事件，不預測號碼。
+    <!--
+      #app 內含靜態 SEO 後備內容：在 Vue 掛載前（以及對不執行 JS 的爬蟲）即可被讀取，
+      Vue 掛載後會自動以互動儀表板取代。這讓首頁原始 HTML 就有實質、可索引的內容與內部連結。
+    -->
+    <div id="app">
+      <main style="max-width:920px;margin:0 auto;padding:40px 20px;font-family:'Noto Sans TC','Microsoft JhengHei',system-ui,sans-serif;color:#cbd5e1;line-height:1.85;">
+        <h1 style="font-size:32px;color:#e5eefb;">小賽 AI 樂透預測｜大樂透、今彩539、威力彩統計分析</h1>
+        <p style="font-size:18px;color:#dbeafe;">
+          小賽 AI 樂透預測是一個用統計、機率與機器學習分析台灣彩券的研究儀表板。我們整合三大彩種的歷史
+          開獎資料、開獎公正性健診（卡方均勻性檢定與前後期獨立性），並每期產生兩組選號參考——「穩健平衡」
+          （統計啟發式）與「心跳明牌」（節奏觀察），同時逐期追蹤命中率。
         </p>
         <p>
-          本網站內容僅供娛樂與研究參考，不構成任何投注建議。請啟用 JavaScript 以使用完整互動儀表板。
+          我們的核心主張是<strong>誠實</strong>：預測照做、號碼照出，但每個方法的準確度由回測數字說了算。
+          在公正運作的彩券上，我們實測過的所有方法——頻率、冷熱號、遺漏間隔、LSTM、馬可夫鏈——命中率都和
+          純隨機亂猜沒有統計上的顯著差異。因此我們<strong>從不宣稱「保證中獎」「穩賺」或「勝過隨機」</strong>，
+          也明確告訴你：任何選號方法都不會提高中獎機率，購買彩券的長期期望值為負。
         </p>
-        <p>
-          <a href="/ai-lottery-guide.html">閱讀 AI 樂透預測方法</a> ·
-          <a href="/privacy">隱私權政策</a>
+
+        <h2 style="color:#e5eefb;">彩種解析</h2>
+        <ul>
+          <li><a href="/game-lotto649.html">大樂透完整解析</a>：49 選 6 加特別號，頭獎機率約 1398 萬分之 1。</li>
+          <li><a href="/game-daily539.html">今彩539完整解析</a>：39 選 5 每日開獎，頭獎機率約 57 萬分之 1。</li>
+          <li><a href="/game-superlotto.html">威力彩完整解析</a>：第一區 38 選 6＋第二區 8 選 1，頭獎機率約 2208 萬分之 1。</li>
+        </ul>
+
+        <h2 style="color:#e5eefb;">方法論與統計文章</h2>
+        <ul>
+          <li><a href="/guide-randomness.html">樂透是不是隨機？用卡方檢定親手驗證</a></li>
+          <li><a href="/guide-no-edge.html">為什麼沒有選號法能提高中獎機率（附回測數據）</a></li>
+          <li><a href="/guide-lstm-markov.html">LSTM 與馬可夫鏈能預測樂透嗎？實測給你看</a></li>
+          <li><a href="/guide-balanced.html">什麼是「穩健平衡」選號？原理與限制</a></li>
+          <li><a href="/guide-heartbeat.html">「心跳明牌」是什麼？節奏觀察與它的真相</a></li>
+          <li><a href="/ai-lottery-guide.html">AI 樂透預測方法總覽</a></li>
+          <li><a href="/glossary.html">樂透統計名詞解釋字典</a></li>
+        </ul>
+
+        <h2 style="color:#e5eefb;">關於與說明</h2>
+        <ul>
+          <li><a href="/guides.html">全部方法與文章</a></li>
+          <li><a href="/faq.html">常見問題 FAQ</a></li>
+          <li><a href="/about.html">關於小賽 AI 樂透預測</a></li>
+          <li><a href="/contact.html">聯絡我們</a></li>
+          <li><a href="/privacy">隱私權政策</a></li>
+        </ul>
+
+        <p style="margin-top:28px;padding:16px 18px;border:1px solid rgba(251,191,36,0.28);border-radius:12px;background:rgba(251,191,36,0.08);color:#fde68a;">
+          本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+          都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為，未滿 18 歲不得購買彩券。
+          載入完整互動儀表板需啟用 JavaScript。
         </p>
       </main>
-    </noscript>
-    <div id="app"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
