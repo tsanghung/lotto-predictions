@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+  <head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TMFR6VZLX5"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+      gtag('config', 'G-TMFR6VZLX5');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>關於小賽 AI 樂透預測｜我們是誰、為什麼做這個網站</title>
+    <meta
+      name="description"
+      content="小賽 AI 樂透預測是一個用統計、機率與機器學習分析台灣彩券的個人研究專案，主張誠實揭露：樂透為隨機事件，任何選號法都不會提高中獎機率。"
+    />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://lotto.simonsynapse.net/about.html" />
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="zh_TW" />
+    <meta property="og:site_name" content="小賽 AI 樂透預測" />
+    <meta property="og:title" content="關於小賽 AI 樂透預測" />
+    <meta property="og:description" content="一個誠實的樂透統計研究專案：預測照做、號碼照出，但準確度由回測數字說了算。" />
+    <meta property="og:url" content="https://lotto.simonsynapse.net/about.html" />
+    <link rel="stylesheet" href="/styles/article.css" />
+  </head>
+  <body>
+    <nav class="site-nav">
+      <a class="brand" href="/">小賽 AI 樂透預測</a>
+      <a href="/guides.html">方法與文章</a>
+      <a href="/game-lotto649.html">大樂透</a>
+      <a href="/game-daily539.html">今彩539</a>
+      <a href="/game-superlotto.html">威力彩</a>
+      <a href="/faq.html">常見問題</a>
+      <a href="/about.html">關於</a>
+    </nav>
+
+    <main>
+      <article>
+        <p class="eyebrow">關於</p>
+        <h1>關於小賽 AI 樂透預測</h1>
+        <p class="lead">
+          小賽 AI 樂透預測（lotto.simonsynapse.net）是一個由 Simon Wu 維護的個人資料科學專案。
+          我們把台灣彩券——大樂透、今彩539、威力彩——的公開歷史開獎資料，用統計、機率與機器學習的方法
+          攤開來分析，並且堅持一件很多「明牌網站」不願意做的事：<strong>誠實揭露每個方法的真實準確度</strong>。
+        </p>
+
+        <h2>我們的初心</h2>
+        <p>
+          這個專案的出發點，是一個單純的好奇：如果把現代資料科學的工具——時間序列模型、馬可夫鏈、
+          統計檢定——認真套用在樂透開獎資料上，到底能不能看出什麼？我們不迴避「預測」這兩個字，
+          系統每天照樣產生候選號碼；但我們同時用嚴格的回測，把這些方法的命中率量化出來，和「純隨機亂猜」
+          的基準擺在一起比較。
+        </p>
+
+        <h2>我們的結論（到目前為止）</h2>
+        <p>
+          在公正運作的彩券上，我們測過的所有方法——頻率統計、冷熱號、遺漏間隔、LSTM、馬可夫鏈——
+          命中率都和隨機基準沒有統計上的顯著差異。這不是我們做得不夠好，而是數學的必然：在一個每期獨立、
+          均勻隨機的系統裡，過去的號碼不帶任何關於未來的資訊。所以我們<strong>從不宣稱「保證中獎」「穩賺」
+          或「勝過隨機」</strong>。
+        </p>
+
+        <h2>那為什麼還要做？</h2>
+        <ul>
+          <li><strong>它是一個誠實的科普工具。</strong>讓人親眼看到「為什麼明牌沒用」，比口頭勸說更有力。</li>
+          <li><strong>它是一個漂亮的資料儀表板。</strong>把開獎資料、公正性健診、回測成效視覺化，本身就有觀察樂趣。</li>
+          <li><strong>它是一個技術練習場。</strong>從 Edge Function 排程、機器學習推論到前端視覺化，是一套完整的工程實作。</li>
+        </ul>
+
+        <h2>網站提供什麼</h2>
+        <ul>
+          <li>三大彩種的最新開獎資料整理與近期趨勢。</li>
+          <li>開獎公正性健診（卡方均勻性檢定 + 前後期獨立性）。</li>
+          <li>兩組選號參考：「穩健平衡」（統計啟發式）與「心跳明牌」（節奏觀察）——兩者皆不提高中獎機率。</li>
+          <li>每期預測與實際開獎的逐期命中追蹤與校正。</li>
+          <li>完整的方法論文章與名詞解釋。</li>
+        </ul>
+
+        <h2>誠實與責任</h2>
+        <p>
+          我們不販售明牌、不收會員費、不保證任何結果。網站上的選號一律標示為「統計啟發式」或「節奏觀察」，
+          並註明回測 ≈ 隨機、期望值為負。如果你因為這個網站而更理性地看待彩券、甚至少買幾張，那就達到我們
+          的目的了。
+        </p>
+
+        <p class="notice">
+          本網站內容僅供娛樂、教育與資料研究參考，不構成投注建議。請理性娛樂、量力而為，未滿 18 歲不得購買彩券。
+          若你或親友有賭博困擾，台灣可撥打衛福部安心專線 <strong>1925</strong> 尋求協助。
+        </p>
+
+        <p>有任何問題或建議，歡迎透過 <a href="/contact.html">聯絡頁面</a> 與我們聯繫。</p>
+      </article>
+    </main>
+
+    <footer class="site-footer">
+      <a href="/">首頁</a><a href="/guides.html">方法與文章</a><a href="/faq.html">常見問題</a><a href="/about.html">關於</a><a href="/contact.html">聯絡</a><a href="/privacy">隱私權政策</a>
+      <p class="disclaimer">
+        本網站內容僅供娛樂、教育與資料研究參考，不構成任何投注或財務建議。樂透為隨機事件，任何選號方法
+        都不會提高中獎機率；購買彩券長期期望值為負。請理性娛樂、量力而為。未滿 18 歲不得購買彩券。
+        © 2026 小賽 AI 樂透預測 · Simon Wu
+      </p>
+    </footer>
+  </body>
+</html>
