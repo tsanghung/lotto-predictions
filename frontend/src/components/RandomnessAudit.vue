@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { specialAreaLabel } from '../services/gameMeta'
 
 const props = defineProps({
   gameName: { type: String, required: true },
@@ -9,6 +10,9 @@ const props = defineProps({
   hasSpecial: { type: Boolean, default: false },
   accent: { type: String, default: '#2dd4bf' }
 })
+
+// 大樂透=特別號、威力彩=第二區（用於稽核項目命名，避免把特別號誤稱第二區）。
+const specialLabel = specialAreaLabel(props.gameName) || '特別號'
 
 /* ───────────────── 數值工具：卡方 / 常態 p 值（純前端計算） ───────────────── */
 // Lanczos 對數 Gamma
@@ -177,8 +181,8 @@ const result = computed(() => {
       for (let n = 1; n <= N; n++) spChi += (sp[n] - spExp) ** 2 / spExp
       tests.push({
         key: 'special',
-        name: '特別號均勻性（卡方檢定）',
-        desc: '特別號（第二區）是否每個號碼機率相同。',
+        name: `${specialLabel}均勻性（卡方檢定）`,
+        desc: `${specialLabel}是否每個號碼機率相同。`,
         stat: `χ² = ${spChi.toFixed(1)}　df = ${N - 1}`,
         p: chiSqP(spChi, N - 1)
       })

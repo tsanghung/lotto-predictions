@@ -1,11 +1,15 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { specialAreaLabel } from '../services/gameMeta'
 
 const props = defineProps({
   gameName: { type: String, required: true },
   predictionData: { type: Array, default: () => [] },
   accent: { type: String, default: '#2dd4bf' }
 })
+
+// 特殊球正確名稱：大樂透=特別號、威力彩=第二區、今彩539=無。
+const specialLabel = computed(() => specialAreaLabel(props.gameName))
 
 const visibleCount = ref(10)
 
@@ -86,7 +90,7 @@ const hitLabel = (record, strategy, nums) => {
   const secondArea = secondAreaNumbers(record, strategy)
   const firstAreaText = secondArea.length ? `第一區 ${evaluation.hits ?? 0} / ${nums.length}` : `命中 ${evaluation.hits ?? 0} / ${nums.length}`
   if (!secondArea.length) return firstAreaText
-  return `${firstAreaText}，第二區 ${evaluation.special_hits ?? 0} / ${secondArea.length}`
+  return `${firstAreaText}，${specialLabel.value ?? '第二區'} ${evaluation.special_hits ?? 0} / ${secondArea.length}`
 }
 
 const secondAreaSummary = computed(() => {
@@ -199,7 +203,7 @@ const showMore = () => {
             <p style="font-size:12px;font-weight:800;color:#fbbf24;letter-spacing:0.16em;text-transform:uppercase;margin:0 0 4px;">
               Second Area
             </p>
-            <h4 style="font-size:20px;font-weight:900;color:#f8fafc;margin:0;">第二區歷史累積命中率</h4>
+            <h4 style="font-size:20px;font-weight:900;color:#f8fafc;margin:0;">{{ specialLabel ?? '第二區' }}歷史累積命中率</h4>
           </div>
           <div style="text-align:right;">
             <p style="font-size:13px;font-weight:700;color:#94a3b8;margin:0 0 4px;">累積命中</p>
@@ -257,8 +261,8 @@ const showMore = () => {
                 :style="{ width:'40px', height:'40px', borderRadius:'50%', background:`linear-gradient(135deg, ${accent}22, ${accent}44)`, border:`1px solid ${accent}66`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', fontWeight:'900', fontFamily:'monospace', color: accent }">
                 {{ n.toString().padStart(2, '0') }}
               </span>
-              <template v-if="actualSecondAreaNumber(record)">
-                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin-left:4px;">第二區</span>
+              <template v-if="actualSecondAreaNumber(record) && specialLabel">
+                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin-left:4px;">{{ specialLabel }}</span>
                 <span
                   :style="{ width:'40px', height:'40px', borderRadius:'50%', background:'rgba(251,191,36,0.16)', border:'1px solid rgba(251,191,36,0.48)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px', fontWeight:'900', fontFamily:'monospace', color:'#fbbf24' }">
                   {{ actualSecondAreaNumber(record).toString().padStart(2, '0') }}
@@ -289,7 +293,7 @@ const showMore = () => {
                 {{ n.toString().padStart(2, '0') }}
               </span>
               <template v-if="secondAreaNumbers(record, strategy).length">
-                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin-left:6px;">第二區</span>
+                <span style="font-size:13px;font-weight:800;color:#fbbf24;margin-left:6px;">{{ specialLabel ?? '第二區' }}</span>
                 <span v-for="n in secondAreaNumbers(record, strategy)" :key="`special-${strategy}-${n}`"
                   :style="{
                     width:'38px', height:'38px', borderRadius:'50%',

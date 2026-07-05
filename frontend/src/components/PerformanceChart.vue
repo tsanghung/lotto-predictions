@@ -12,6 +12,7 @@ import {
   Legend
 } from 'chart.js'
 import { Line, Bar } from 'vue-chartjs'
+import { specialAreaLabel, predictsSpecialArea } from '../services/gameMeta'
 
 ChartJS.register(
   CategoryScale,
@@ -41,7 +42,11 @@ const gamePerf = computed(() => {
   return props.performanceData.games[props.gameName]
 })
 
-const secondAreaStats = computed(() => gamePerf.value?.second_area || null)
+// 只有真正被預測/評估的第二區（威力彩）才顯示命中率；大樂透的特別號不預測，不顯示。
+const specialLabel = computed(() => specialAreaLabel(props.gameName))
+const secondAreaStats = computed(() =>
+  predictsSpecialArea(props.gameName) ? (gamePerf.value?.second_area || null) : null
+)
 
 const formatRate = (rate) => `${((Number(rate) || 0) * 100).toFixed(1)}%`
 
@@ -151,7 +156,7 @@ const hitMissChartData = computed(() => {
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p class="text-xs font-bold uppercase tracking-[0.18em] text-amber-300/80">Second Area</p>
-          <h4 class="mt-1 text-lg font-black text-slate-100">第二區歷史累積命中率</h4>
+          <h4 class="mt-1 text-lg font-black text-slate-100">{{ specialLabel ?? '第二區' }}歷史累積命中率</h4>
         </div>
         <div class="text-right">
           <p class="text-xs font-semibold text-slate-400">累積命中</p>

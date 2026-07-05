@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { specialAreaLabel } from '../services/gameMeta'
 
 const props = defineProps({
   gameName: { type: String, required: true },
@@ -7,6 +8,9 @@ const props = defineProps({
   maxNumber: { type: Number, default: 49 },
   accent: { type: String, default: '#2dd4bf' }
 })
+
+// 特殊球正確名稱：大樂透=特別號、威力彩=第二區、今彩539=無。
+const specialLabel = computed(() => specialAreaLabel(props.gameName))
 
 // Count frequency of each number across ALL draws (all-time)
 const frequency = computed(() => {
@@ -103,7 +107,13 @@ const avgSum = computed(() => {
 
     <!-- Recent draws -->
     <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:24px;">
-      <h3 style="font-size:24px;font-weight:800;color:#f1f5f9;margin-bottom:18px;">📅 近10期開獎紀錄</h3>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:18px;">
+        <h3 style="font-size:24px;font-weight:800;color:#f1f5f9;">📅 近10期開獎紀錄</h3>
+        <span v-if="specialLabel" style="display:inline-flex;align-items:center;gap:6px;font-size:14px;color:#94a3b8;">
+          <span style="width:16px;height:16px;border-radius:50%;background:rgba(251,191,36,0.16);border:1px solid rgba(251,191,36,0.48);display:inline-block;"></span>
+          {{ specialLabel }}
+        </span>
+      </div>
       <div style="display:flex;flex-direction:column;gap:14px;">
         <div v-for="draw in recentDraws" :key="draw.draw_id"
           style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding-bottom:14px;border-bottom:1px solid rgba(255,255,255,0.04);">
