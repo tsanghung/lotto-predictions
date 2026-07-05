@@ -1,5 +1,65 @@
 @import "tailwindcss";
 
+/* ══════════════════════════════════════════════════════════════════
+   Design tokens — 單一真相來源。改配色/間距只動這裡。
+   per-game accent (--accent / --accent-soft / --accent-glow) 由 App.vue
+   依當前彩種 tab 注入到根容器上（見 App.vue 的 :style 綁定）。
+   ══════════════════════════════════════════════════════════════════ */
+:root {
+  /* 表面與邊框（玻璃深色） */
+  --bg: #080c14;
+  --surface: rgba(255, 255, 255, 0.03);
+  --surface-2: rgba(0, 0, 0, 0.22);
+  --surface-3: rgba(255, 255, 255, 0.05);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-soft: rgba(255, 255, 255, 0.05);
+
+  /* 文字階層 */
+  --text: #f1f5f9;
+  --text-dim: #94a3b8;
+  --text-mute: #64748b;
+  --text-faint: #475569;
+
+  /* 語意色（誠實揭露用：ok=與隨機無異=好事） */
+  --ok: #34d399;
+  --ok-soft: rgba(52, 211, 153, 0.10);
+  --ok-border: rgba(52, 211, 153, 0.28);
+  --warn: #fbbf24;
+  --warn-soft: rgba(251, 191, 36, 0.10);
+  --warn-border: rgba(251, 191, 36, 0.28);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.10);
+  --danger-border: rgba(248, 113, 113, 0.28);
+  --info: #60a5fa;
+
+  /* per-game accent 預設（大樂透青）；App.vue 會覆寫 */
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.10);
+  --accent-glow: rgba(45, 212, 191, 0.35);
+
+  /* 間距 / 圓角 / 陰影 */
+  --space-1: 6px;
+  --space-2: 10px;
+  --space-3: 14px;
+  --space-4: 20px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-sm: 10px;
+  --radius: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 100px;
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  /* 字級（模組化） */
+  --fs-eyebrow: 0.72rem;
+  --fs-sm: 0.82rem;
+  --fs-body: 0.95rem;
+  --fs-lg: 1.1rem;
+  --fs-title: 1.5rem;
+
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+}
+
 /* 均衡易讀的基準字級（17px），略大於預設但不過度 */
 html {
   font-size: 17px;
@@ -7,11 +67,161 @@ html {
 
 /* 基礎深色模式背景與文字設定 */
 body {
-  background-color: #080c14;
+  background-color: var(--bg);
   color: #e2e8f0;
   font-family: 'Inter', 'Noto Sans TC', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: 1.6;
   letter-spacing: 0.01em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   可複用元件 class — 取代散落的 inline style。
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 玻璃卡片 */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  position: relative;
+  overflow: hidden;
+}
+.card-sm {
+  border-radius: var(--radius);
+  padding: var(--space-3);
+}
+
+/* 卡片頂部 accent 漸層線（招牌光暈） */
+.card-glow::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+/* 英文小標（eyebrow） */
+.eyebrow {
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+/* monospace 數據字 */
+.stat {
+  font-family: var(--mono);
+  color: var(--text-dim);
+}
+
+/* 號碼球（--ball-size 可覆寫，預設 32px） */
+.ball {
+  --ball-size: 32px;
+  width: var(--ball-size);
+  height: var(--ball-size);
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+.ball-lg { --ball-size: 44px; font-size: 1.15rem; }
+.ball-accent {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* 標籤徽章 */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: 3px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  background: var(--surface-3);
+  color: var(--text-dim);
+}
+
+/* 誠實免責小字 */
+.disclaimer {
+  font-size: 0.78rem;
+  color: var(--text-faint);
+  line-height: 1.6;
+}
+
+/* 折疊區塊按鈕 */
+.disclosure-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  padding: 0;
+}
+
+/* 錨點導覽列 */
+.anchor-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  padding: 4px;
+  margin-bottom: var(--space-6);
+}
+.anchor-nav a {
+  padding: 7px 16px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-mute);
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s;
+}
+.anchor-nav a:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* 讓錨點跳轉不被固定 header 遮住 */
+[id] { scroll-margin-top: 20px; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes ecg-dash {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (max-width: 768px) {
+  .responsive-grid {
+    grid-template-columns: 1fr !important;
+  }
 }
