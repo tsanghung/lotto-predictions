@@ -174,8 +174,11 @@ const formatDate = (iso) => {
           <a v-for="n in navItems" :key="n.id" :href="`#${n.id}-${activeTab}`">{{ n.label }}</a>
         </nav>
 
-        <!-- 單一區塊模板，依 GAMES 迭代（v-show 切換），消除原本三份重複 -->
-        <div v-for="g in GAMES" :key="g.key" v-show="activeTab === g.key"
+        <!-- 單一區塊模板，依 GAMES 迭代切換，消除原本三份重複。
+             注意：用「template v-for + 子層 v-if」而非「同元素 v-for + v-show」——
+             後者在切換 tab 時 v-show 不會重新反應，會卡在預設彩種（大樂透）。 -->
+        <template v-for="g in GAMES" :key="g.key">
+        <div v-if="activeTab === g.key"
           style="display:flex;flex-direction:column;gap:48px;">
 
           <!-- 誠實揭露帶 -->
@@ -184,7 +187,7 @@ const formatDate = (iso) => {
           <!-- 選號 -->
           <section :id="`pick-${g.key}`">
             <SectionHeader label="Fairness & Strategy" title="公正性健診 + 選號"
-              :desc="`每期公正性統計健診，並提供穩健平衡與心跳明牌兩組${g.special ? '（含第二區）' : ''}選號參考`" :accent="g.accent" />
+              :desc="`每期公正性統計健診，並提供穩健平衡與心跳明牌兩組${g.key === 'power' ? '（含第二區）' : ''}選號參考`" :accent="g.accent" />
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;" class="responsive-grid">
               <PredictionCard :game-name="g.name" :prediction-data="predictions" :history-data="history[g.name]" :accent="g.accent" />
               <StatsPanel :game-name="g.name" :history-data="history[g.name]" :max-number="g.max" :accent="g.accent" />
@@ -233,6 +236,7 @@ const formatDate = (iso) => {
               :max-number="g.max" :balls-per-draw="g.balls" :has-special="g.special" :accent="g.accent" />
           </section>
         </div>
+        </template>
       </div>
 
       <!-- Footer -->
