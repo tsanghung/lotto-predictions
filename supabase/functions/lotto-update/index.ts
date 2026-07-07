@@ -25,8 +25,9 @@ type LottoDraw = {
 type UpdateResult = {
   game: GameType;
   status: "updated" | "unchanged" | "dry_run";
-  selected_draw: LottoDraw;
-  official_draw: LottoDraw;
+  inserted_count: number;
+  inserted_draw_ids: string[];
+  latest_official_draw: LottoDraw | null;
   secondary_draw: LottoDraw | null;
 };
 
@@ -182,24 +183,37 @@ async function fetchText(url: string): Promise<string> {
   return response.text();
 }
 
-async function fetchOfficialLatest(game: GameType, targetDate: string): Promise<LottoDraw> {
-  const month = targetDate.slice(0, 7);
+function monthOf(dateString: string): string {
+  return dateString.slice(0, 7);
+}
+
+// draw_id 為遞增序號（如 115000159）；用數值比較判斷是否比 DB 現有最新期更新。
+function isDrawNewerThanExisting(
+  draw: { draw_id: string },
+  existing: { draw_id: string } | null,
+): boolean {
+  if (!existing) {
+    return true;
+  }
+  return String(draw.draw_id).localeCompare(String(existing.draw_id), undefined, { numeric: true }) > 0;
+}
+
+// 抓取 startMonth..endMonth 區間內的「所有」開獎（不再只取最新一期），
+// 讓漏掉的期數能在後續執行時被補齊（見 updateGame 的 backfill 邏輯）。
+async function fetchOfficialDrawsInRange(
+  game: GameType,
+  startMonth: string,
+  endMonth: string,
+): Promise<LottoDraw[]> {
   const params = new URLSearchParams({
     period: "",
-    month,
-    endMonth: month,
+    month: startMonth,
+    endMonth,
     pageNum: "1",
     pageSize: "200",
   });
   const payload = await fetchJson(`${OFFICIAL_URLS[game]}?${params}`);
-  const draws = parseOfficialPayload(game, payload);
-  const latest = latestByDrawId(draws);
-
-  if (!latest) {
-    throw new Error(`Official API returned no ${game} draws for ${month}`);
-  }
-
-  return latest as LottoDraw;
+  return parseOfficialPayload(game, payload) as LottoDraw[];
 }
 
 async function fetchAuzonetDaily539(): Promise<LottoDraw> {
@@ -513,36 +527,51 @@ async function updateGame(
   },
 ): Promise<UpdateResult> {
   const existing = await fetchExistingLatest(options.supabaseUrl, options.serviceRoleKey, game);
-  const officialDraw = await fetchOfficialLatest(game, options.targetDate);
-  let secondaryDraw: LottoDraw | null = null;
-  let selectedDraw = officialDraw;
 
+  // 從「DB 現有最新期所在月份」抓到「目標月份」——涵蓋任何漏掉的期數（含跨月缺口）。
+  const targetMonth = monthOf(options.targetDate);
+  const startMonth = existing?.draw_date ? monthOf(existing.draw_date) : targetMonth;
+  const officialDraws = await fetchOfficialDrawsInRange(game, startMonth, targetMonth);
+  if (!officialDraws.length) {
+    throw new Error(`Official API returned no ${game} draws for ${startMonth}..${targetMonth}`);
+  }
+  const latestOfficial = latestByDrawId(officialDraws) as LottoDraw;
+
+  // 539 備援：官方尚未公布當期最新開獎時，補抓 auzonet 取較新的一期。
+  let secondaryDraw: LottoDraw | null = null;
+  const candidates: LottoDraw[] = [...officialDraws];
   if (
     game === "539" &&
     needsSecondaryDaily539Check({
-      latestOfficialDate: officialDraw.date,
+      latestOfficialDate: latestOfficial?.date,
       targetDate: options.targetDate,
       taiwanHour: options.taiwanHour,
     })
   ) {
     secondaryDraw = await fetchAuzonetDaily539();
-    selectedDraw = chooseFreshestDraw(officialDraw, secondaryDraw);
+    const freshest = chooseFreshestDraw(latestOfficial, secondaryDraw) as LottoDraw;
+    if (!candidates.some((d) => String(d.draw_id) === String(freshest.draw_id))) {
+      candidates.push(freshest);
+    }
   }
 
-  const row = toLottoDrawRow(game, selectedDraw);
-  const isNew = !existing ||
-    row.draw_date > existing.draw_date ||
-    String(row.draw_id).localeCompare(String(existing.draw_id), undefined, { numeric: true }) > 0;
+  // 核心修正：把「所有比 DB 現有最新期更新的開獎」一次補齊，而不是只插入單一最新期。
+  // 舊版只插最新一期，導致某天漏跑後，缺口永遠補不回來（見 07/01、07/02 事故）。
+  const rows = candidates
+    .filter((draw) => isDrawNewerThanExisting(draw, existing))
+    .map((draw) => toLottoDrawRow(game, draw))
+    .sort((a, b) => String(a.draw_id).localeCompare(String(b.draw_id), undefined, { numeric: true }));
 
-  if (!options.dryRun && isNew) {
-    await upsertRows(options.supabaseUrl, options.serviceRoleKey, "lotto_draws", [row]);
+  if (!options.dryRun && rows.length) {
+    await upsertRows(options.supabaseUrl, options.serviceRoleKey, "lotto_draws", rows);
   }
 
   return {
     game,
-    status: options.dryRun ? "dry_run" : isNew ? "updated" : "unchanged",
-    selected_draw: selectedDraw,
-    official_draw: officialDraw,
+    status: options.dryRun ? "dry_run" : rows.length ? "updated" : "unchanged",
+    inserted_count: rows.length,
+    inserted_draw_ids: rows.map((r) => String(r.draw_id)),
+    latest_official_draw: latestOfficial,
     secondary_draw: secondaryDraw,
   };
 }
