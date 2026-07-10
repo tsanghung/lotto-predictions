@@ -103,7 +103,7 @@ begin
   from public.lotto_agent_states
   where game_name = p_state->>'game_name'
     and is_active
-    and last_learned_draw_id = p_state->>'last_learned_draw_id';
+    and last_learned_draw_id is not distinct from p_state->>'last_learned_draw_id';
 
   if found then
     return activated;
