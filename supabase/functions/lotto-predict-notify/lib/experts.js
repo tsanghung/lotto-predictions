@@ -14,9 +14,22 @@ export const EXPERT_VERSIONS = {
 };
 
 function targetDate(generatedAt) {
-  if (typeof generatedAt !== "string") return null;
-  const match = generatedAt.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match && !Number.isNaN(Date.parse(`${match[1]}T00:00:00Z`)) ? match[1] : null;
+  if (typeof generatedAt !== "string" || !generatedAt.trim()) {
+    throw new TypeError("generatedAt must be a valid ISO date or timestamp");
+  }
+  const value = generatedAt.trim();
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})(?:$|T)/);
+  const timestamp = Date.parse(value);
+  const calendarDate = match ? Date.parse(`${match[1]}T00:00:00Z`) : Number.NaN;
+  if (
+    !match
+    || Number.isNaN(timestamp)
+    || Number.isNaN(calendarDate)
+    || new Date(calendarDate).toISOString().slice(0, 10) !== match[1]
+  ) {
+    throw new TypeError("generatedAt must be a valid ISO date or timestamp");
+  }
+  return match[1];
 }
 
 function chronologicalHistory(draws, generatedAt) {
@@ -27,7 +40,7 @@ function chronologicalHistory(draws, generatedAt) {
   return draws.filter((draw) => {
     if (!draw || typeof draw !== "object") return false;
     if (!cutoff || typeof draw.draw_date !== "string") return true;
-    return draw.draw_date <= cutoff;
+    return draw.draw_date < cutoff;
   });
 }
 
@@ -156,8 +169,33 @@ export function markovScores(draws, maxNumber) {
   return scores;
 }
 
+function isFiniteVector(value, length) {
+  return Array.isArray(value)
+    && value.length === length
+    && value.every((item) => Number.isFinite(item));
+}
+
+function isFiniteMatrix(value, rows, columns) {
+  return Array.isArray(value)
+    && value.length === rows
+    && value.every((row) => isFiniteVector(row, columns));
+}
+
+function hasValidLstmShape(weights) {
+  if (!weights || typeof weights !== "object") return false;
+  const { N, H } = weights;
+  if (!Number.isInteger(N) || N <= 0 || !Number.isInteger(H) || H <= 0) return false;
+  const gateColumns = N + H;
+  return [weights.Wf, weights.Wi, weights.Wg, weights.Wo]
+    .every((matrix) => isFiniteMatrix(matrix, H, gateColumns))
+    && [weights.bf, weights.bi, weights.bg, weights.bo]
+      .every((bias) => isFiniteVector(bias, H))
+    && isFiniteMatrix(weights.Wy, N, H)
+    && isFiniteVector(weights.by, N);
+}
+
 export function lstmScores(weights, draws) {
-  if (!weights) return null;
+  if (!hasValidLstmShape(weights)) return null;
   const { N, H } = weights;
   const sigmoid = (value) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value))));
   const matvec = (matrix, vector) => matrix.map((row) => {
@@ -209,7 +247,13 @@ function rawForecasts({ gameType, draws, generatedAt, config }) {
   const secondary = config.secondaryNumber;
   const secondaryDraws = secondary ? specialDraws(draws, secondary.maxNumber) : [];
   const secondaryRaw = (builder) => secondary ? builder(secondaryDraws, secondary.maxNumber) : null;
-  const mainLstm = lstmScores(ML_WEIGHTS[gameType], draws);
+  const lstmWeights = ML_WEIGHTS[gameType];
+  const mainLstm = lstmScores(lstmWeights, draws);
+  const lstmFallback = mainLstm
+    ? null
+    : lstmWeights
+      ? "uniform-invalid-weights"
+      : "uniform-missing-weights";
   return [
     {
       name: "uniform",
@@ -255,8 +299,9 @@ function rawForecasts({ gameType, draws, generatedAt, config }) {
       specialProbabilities: null,
       featureSummary: {
         historySize: draws.length,
-        staticWeights: Boolean(ML_WEIGHTS[gameType]),
-        hiddenUnits: ML_WEIGHTS[gameType]?.H ?? 0,
+        staticWeights: Boolean(mainLstm),
+        hiddenUnits: mainLstm ? lstmWeights.H : 0,
+        fallback: lstmFallback,
       },
     },
     {

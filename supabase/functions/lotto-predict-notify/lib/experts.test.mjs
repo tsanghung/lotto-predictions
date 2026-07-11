@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildExpertForecasts, EXPERT_VERSIONS } from "./experts.js";
+import { buildExpertForecasts, EXPERT_VERSIONS, lstmScores } from "./experts.js";
 import { GAME_CONFIG } from "./predictCore.js";
+import { ML_WEIGHTS } from "./mlWeights.js";
 
 const NOW = "2026-06-12T10:00:00+08:00";
 
@@ -74,6 +75,25 @@ test("draws after the target date cannot leak into an earlier forecast", () => {
   );
 });
 
+test("a draw on the target date cannot leak into a pre-draw forecast", () => {
+  const known = fixtures["539"];
+  const sameDayDraw = { draw_id: "539-same-day", draw_date: "2026-06-12", numbers: [6, 11, 18, 30, 34] };
+
+  assert.deepEqual(
+    buildExpertForecasts({ gameType: "539", draws: [...known, sameDayDraw], generatedAt: NOW }),
+    buildExpertForecasts({ gameType: "539", draws: known, generatedAt: NOW }),
+  );
+});
+
+test("missing or invalid generatedAt fails fast", () => {
+  for (const generatedAt of [undefined, null, "", "not-a-date", "2026-02-30T10:00:00+08:00"]) {
+    assert.throws(
+      () => buildExpertForecasts({ gameType: "539", draws: fixtures["539"], generatedAt }),
+      /generatedAt/,
+    );
+  }
+});
+
 test("Power Lottery always includes a legal uniform second-area forecast", () => {
   const forecasts = buildExpertForecasts({ gameType: "power", draws: fixtures.power, generatedAt: NOW });
   const uniform = forecasts.find((forecast) => forecast.name === "uniform");
@@ -100,3 +120,33 @@ for (const draws of [[], fixtures["539"].slice(0, 1), fixtures["539"].slice(0, 2
     }
   });
 }
+
+test("LSTM inference rejects malformed matrix shapes without throwing", () => {
+  const malformed = { ...ML_WEIGHTS["539"], Wf: [] };
+
+  assert.doesNotThrow(() => lstmScores(malformed, fixtures["539"]));
+  assert.equal(lstmScores(malformed, fixtures["539"]), null);
+});
+
+test("LSTM inference rejects NaN weights and the registry falls back to uniform", () => {
+  const malformed = {
+    ...ML_WEIGHTS["539"],
+    by: [Number.NaN, ...ML_WEIGHTS["539"].by.slice(1)],
+  };
+
+  assert.equal(lstmScores(malformed, fixtures["539"]), null);
+
+  const original = ML_WEIGHTS["539"];
+  try {
+    ML_WEIGHTS["539"] = malformed;
+    const forecasts = buildExpertForecasts({ gameType: "539", draws: fixtures["539"], generatedAt: NOW });
+    const lstm = forecasts.find((forecast) => forecast.name === "lstm");
+    const uniform = forecasts.find((forecast) => forecast.name === "uniform");
+
+    assert.ok(lstm);
+    assert.deepEqual(lstm.probabilities, uniform.probabilities);
+    assert.equal(lstm.featureSummary.fallback, "uniform-invalid-weights");
+  } finally {
+    ML_WEIGHTS["539"] = original;
+  }
+});
