@@ -44,6 +44,100 @@ function clamp(value, lower, upper) {
   return Math.min(upper, Math.max(lower, value));
 }
 
+function balanceResidual(probabilities, target, adjustableIndices) {
+  for (let iteration = 0; iteration < probabilities.length + 2; iteration += 1) {
+    const total = probabilities.reduce((sum, probability) => sum + probability, 0);
+    const residual = target - total;
+    if (residual === 0) return probabilities;
+
+    const adjustable = adjustableIndices.filter((index) => (
+      residual > 0 ? probabilities[index] < 1 : probabilities[index] > 0
+    ));
+    if (adjustable.length === 0) break;
+
+    const share = residual / adjustable.length;
+    let changed = false;
+    for (const index of adjustable) {
+      const next = clamp(probabilities[index] + share, 0, 1);
+      changed ||= next !== probabilities[index];
+      probabilities[index] = next;
+    }
+    if (!changed) break;
+  }
+
+  let residual = target - probabilities.reduce((sum, probability) => sum + probability, 0);
+  const byCapacity = [...adjustableIndices].sort((left, right) => {
+    const leftCapacity = residual > 0 ? 1 - probabilities[left] : probabilities[left];
+    const rightCapacity = residual > 0 ? 1 - probabilities[right] : probabilities[right];
+    return rightCapacity - leftCapacity;
+  });
+  for (const index of byCapacity) {
+    if (residual === 0) break;
+    const next = clamp(probabilities[index] + residual, 0, 1);
+    if (next === probabilities[index]) continue;
+    probabilities[index] = next;
+    residual = target - probabilities.reduce((sum, probability) => sum + probability, 0);
+  }
+
+  return probabilities;
+}
+
+function projectCappedSimplex(scores, picks) {
+  const ranked = scores
+    .map((score, index) => ({ score, index }))
+    .sort((left, right) => right.score - left.score || left.index - right.index);
+  const tolerance = 1e-12;
+
+  for (let cappedCount = 0; cappedCount <= picks; cappedCount += 1) {
+    const remaining = picks - cappedCount;
+    if (remaining === 0) {
+      const hasValidGap = cappedCount === scores.length
+        || ranked[cappedCount - 1].score - ranked[cappedCount].score >= 1;
+      if (!hasValidGap) continue;
+
+      const projected = Array(scores.length).fill(0);
+      for (let index = 0; index < cappedCount; index += 1) {
+        projected[ranked[index].index] = 1;
+      }
+      return projected;
+    }
+
+    for (let freeCount = remaining + 1; freeCount <= scores.length - cappedCount; freeCount += 1) {
+      const free = ranked.slice(cappedCount, cappedCount + freeCount);
+      const reference = free[0].score;
+      const offsets = free.map(({ score }) => score - reference);
+      if (offsets.some((offset) => !Number.isFinite(offset))) continue;
+
+      const thresholdOffset = offsets.reduce((sum, offset) => sum + offset, 0) / freeCount
+        - remaining / freeCount;
+      const freeProbabilities = offsets.map((offset) => offset - thresholdOffset);
+      if (freeProbabilities.some((probability) => probability < -tolerance || probability > 1 + tolerance)) {
+        continue;
+      }
+
+      const topIsCapped = cappedCount === 0
+        || ranked[cappedCount - 1].score - reference - thresholdOffset >= 1 - tolerance;
+      const firstZero = cappedCount + freeCount;
+      const bottomIsZero = firstZero === scores.length
+        || ranked[firstZero].score - reference - thresholdOffset <= tolerance;
+      if (!topIsCapped || !bottomIsZero) continue;
+
+      const projected = Array(scores.length).fill(0);
+      for (let index = 0; index < cappedCount; index += 1) {
+        projected[ranked[index].index] = 1;
+      }
+      const adjustableIndices = [];
+      free.forEach(({ index }, freeIndex) => {
+        projected[index] = clamp(freeProbabilities[freeIndex], 0, 1);
+        adjustableIndices.push(index);
+      });
+      return balanceResidual(projected, picks, adjustableIndices);
+    }
+  }
+
+  throw new Error("unable to project scores onto the capped simplex");
+}
+
 export function normalizeProbabilityVector(raw, maxNumber, picks) {
   assertPositiveInteger(maxNumber, "maxNumber");
   if (!Number.isInteger(picks) || picks < 0 || picks > maxNumber) {
@@ -61,32 +155,7 @@ export function normalizeProbabilityVector(raw, maxNumber, picks) {
     return Array(maxNumber).fill(1);
   }
 
-  let lower = Math.min(...scores) - 1;
-  let upper = Math.max(...scores);
-  for (let iteration = 0; iteration < 80; iteration += 1) {
-    const threshold = (lower + upper) / 2;
-    const total = scores.reduce((sum, score) => sum + clamp(score - threshold, 0, 1), 0);
-    if (total > picks) {
-      lower = threshold;
-    } else {
-      upper = threshold;
-    }
-  }
-
-  const probabilities = scores.map((score) => clamp(score - ((lower + upper) / 2), 0, 1));
-  let remaining = picks - probabilities.reduce((sum, probability) => sum + probability, 0);
-  for (let index = 0; index < probabilities.length && Math.abs(remaining) > Number.EPSILON; index += 1) {
-    const capacity = remaining > 0 ? 1 - probabilities[index] : probabilities[index];
-    const adjustment = Math.sign(remaining) * Math.min(Math.abs(remaining), capacity);
-    probabilities[index] += adjustment;
-    remaining -= adjustment;
-  }
-
-  return probabilities.map((probability) => {
-    if (Math.abs(probability) < 1e-15) return 0;
-    if (Math.abs(1 - probability) < 1e-15) return 1;
-    return probability;
-  });
+  return projectCappedSimplex(scores, picks);
 }
 
 export function brierScore(probabilities, actualNumbers, maxNumber) {

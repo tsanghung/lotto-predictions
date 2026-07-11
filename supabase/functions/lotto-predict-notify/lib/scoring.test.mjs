@@ -27,6 +27,23 @@ test("returns the lower and upper capped simplex boundaries", () => {
   assert.deepEqual(normalizeProbabilityVector([4, -1, 2], 3, 3), [1, 1, 1]);
 });
 
+test("preserves the pick sum when probabilities are near the caps", () => {
+  const p = normalizeProbabilityVector(
+    [0.5 - 5e-16, 0.5 - 5e-16, 5e-16, 5e-16],
+    4,
+    1,
+  );
+
+  assert.equal(p.reduce((sum, probability) => sum + probability, 0), 1);
+  assert.ok(p.every((probability) => probability >= 0 && probability <= 1));
+});
+
+test("projects large symmetric scores without index bias", () => {
+  const p = normalizeProbabilityVector([1e100, 1e100], 2, 1);
+
+  assert.deepEqual(p, [0.5, 0.5]);
+});
+
 test("rejects malformed normalization inputs", () => {
   assert.throws(() => normalizeProbabilityVector([1, 2], 3, 1), /length/);
   assert.throws(() => normalizeProbabilityVector([1, Number.NaN], 2, 1), /finite/);
