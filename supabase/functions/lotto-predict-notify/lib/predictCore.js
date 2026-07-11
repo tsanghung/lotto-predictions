@@ -2,30 +2,10 @@ import { createHash } from "node:crypto";
 // LSTM 權重（離線訓練，見 scripts/export_lstm_weights.py）。部署時 mlWeights.js 必須
 // 與本檔一起上傳（建議用 supabase functions deploy CLI，逐字節正確）。某彩種無權重時，
 // lstmScores 會回傳 null，融合自動退回「統計啟發 + 馬可夫」。
-import { ML_WEIGHTS } from "./mlWeights.js";
+import { buildExpertForecasts } from "./experts.js";
+import { GAME_CONFIG } from "./gameConfig.js";
 
-export const GAME_CONFIG = {
-  "539": {
-    name: "今彩539",
-    maxNumber: 39,
-    picks: 5,
-  },
-  "649": {
-    name: "大樂透",
-    maxNumber: 49,
-    picks: 6,
-  },
-  "power": {
-    name: "威力彩",
-    maxNumber: 38,
-    picks: 6,
-    secondaryNumber: {
-      label: "第二區",
-      maxNumber: 8,
-      picks: 1,
-    },
-  },
-};
+export { GAME_CONFIG } from "./gameConfig.js";
 
 const STRATEGY_NAMES = ["激進包牌", "穩健平衡", "統計趨勢"];
 
@@ -1313,77 +1293,6 @@ function buildHeartbeat(draws, config, todayMs) {
 // ── 穩健平衡的方法論融合：統計啟發(頻率) + 馬可夫鏈 + LSTM ───────────────────
 // 三法都不提高中獎機率(回測≈隨機)；融合只改變「同一號段裡挑哪個號」，維持穩健平衡的
 // 跨號段均勻結構。各方法分數正規化到 [0,1] 後等權相加。
-function markovScores(draws, N) {
-  // 一階二態(在/不在)轉移，Laplace 平滑：P(下一期出現 | 本期狀態)。
-  const trans = Array.from({ length: N + 1 }, () => [[1, 1], [1, 1]]);
-  let prev = null;
-  for (const draw of draws) {
-    const cur = new Array(N + 1).fill(0);
-    for (const x of draw.numbers || []) {
-      if (Number.isInteger(x) && x >= 1 && x <= N) cur[x] = 1;
-    }
-    if (prev) {
-      for (let n = 1; n <= N; n += 1) trans[n][prev[n]][cur[n]] += 1;
-    }
-    prev = cur;
-  }
-  const scores = new Array(N).fill(0);
-  if (!prev) return scores;
-  for (let n = 1; n <= N; n += 1) {
-    const s = prev[n];
-    scores[n - 1] = trans[n][s][1] / (trans[n][s][0] + trans[n][s][1]);
-  }
-  return scores;
-}
-
-function lstmScores(weights, draws) {
-  // 用離線訓練好的權重做前向推論，輸出下一期各號碼出現機率；無權重則回傳 null。
-  if (!weights) return null;
-  const N = weights.N;
-  const H = weights.H;
-  const sig = (x) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, x))));
-  const matvec = (W, z) => {
-    const r = new Array(W.length);
-    for (let i = 0; i < W.length; i += 1) {
-      const row = W[i];
-      let acc = 0;
-      for (let j = 0; j < z.length; j += 1) acc += row[j] * z[j];
-      r[i] = acc;
-    }
-    return r;
-  };
-  let h = new Array(H).fill(0);
-  let c = new Array(H).fill(0);
-  const z = new Array(N + H).fill(0);
-  for (const draw of draws) {
-    for (let j = 0; j < N; j += 1) z[j] = 0;
-    for (const v of draw.numbers || []) {
-      if (Number.isInteger(v) && v >= 1 && v <= N) z[v - 1] = 1;
-    }
-    for (let j = 0; j < H; j += 1) z[N + j] = h[j];
-    const f = matvec(weights.Wf, z);
-    const i = matvec(weights.Wi, z);
-    const g = matvec(weights.Wg, z);
-    const o = matvec(weights.Wo, z);
-    const nh = new Array(H);
-    const nc = new Array(H);
-    for (let k = 0; k < H; k += 1) {
-      const ff = sig(f[k] + weights.bf[k]);
-      const ii = sig(i[k] + weights.bi[k]);
-      const gg = Math.tanh(g[k] + weights.bg[k]);
-      const oo = sig(o[k] + weights.bo[k]);
-      nc[k] = ff * c[k] + ii * gg;
-      nh[k] = oo * Math.tanh(nc[k]);
-    }
-    h = nh;
-    c = nc;
-  }
-  const y = matvec(weights.Wy, h);
-  const out = new Array(N);
-  for (let n = 0; n < N; n += 1) out[n] = sig(y[n] + weights.by[n]);
-  return out;
-}
-
 function minMaxNormalize(values) {
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -1451,8 +1360,10 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
   const N = config.maxNumber;
   const stats = numberStats(recentDraws, N);
   const freqScore = stats.map((item) => item.frequency);
-  const markov = markovScores(draws, N);
-  const lstm = lstmScores(ML_WEIGHTS[gameType], draws);
+  const expertForecasts = buildExpertForecasts({ gameType, draws, generatedAt });
+  const markov = expertForecasts.find((forecast) => forecast.name === "markov")?.probabilities;
+  const lstmForecast = expertForecasts.find((forecast) => forecast.name === "lstm");
+  const lstm = lstmForecast?.featureSummary.staticWeights ? lstmForecast.probabilities : null;
   const balancedMethods = ["統計啟發(頻率)", "馬可夫鏈"];
   if (lstm) balancedMethods.push("LSTM");
   const blended = blendScores([
