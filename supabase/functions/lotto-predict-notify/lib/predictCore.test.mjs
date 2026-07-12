@@ -8,6 +8,7 @@ import {
   buildGeminiDecisionPayload,
   buildLineMessage,
   dueGamesForDate,
+  generateAdaptivePrediction,
   generateHonestPrediction,
   generatePrediction,
   notificationSentBeforeRelease,
@@ -31,6 +32,14 @@ const powerDraws = [
   { draw_id: "115000041", draw_date: "2026-05-21", numbers: [2, 6, 13, 19, 28, 36], special_number: 7 },
   { draw_id: "115000042", draw_date: "2026-05-25", numbers: [3, 9, 16, 21, 33, 35], special_number: 8 },
   { draw_id: "115000043", draw_date: "2026-05-28", numbers: [1, 2, 24, 31, 34, 38], special_number: 3 },
+];
+
+const lotto649Draws = [
+  { draw_id: "115000031", draw_date: "2026-06-02", numbers: [3, 12, 19, 24, 37, 45] },
+  { draw_id: "115000032", draw_date: "2026-06-05", numbers: [7, 14, 22, 31, 38, 46] },
+  { draw_id: "115000033", draw_date: "2026-06-09", numbers: [5, 16, 21, 33, 40, 47] },
+  { draw_id: "115000034", draw_date: "2026-06-12", numbers: [8, 11, 25, 29, 41, 49] },
+  { draw_id: "115000035", draw_date: "2026-06-16", numbers: [4, 13, 18, 27, 35, 44] },
 ];
 
 test("generates three deterministic Daily539 prediction combinations", () => {
@@ -465,6 +474,83 @@ test("honest game-theory engine: fairness diagnostic + low-split combinations + 
     assert.ok(message.includes("穩健平衡"));
     assert.ok(message.includes("心跳明牌"));
     assert.ok(!message.includes("AI 樂透預測"));
+  }
+});
+
+test("generateAdaptivePrediction stores two groups, baseline state, and forecast evidence", () => {
+  const result = generateAdaptivePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    targetDrawDate: "2026-07-10",
+    dataStatus: "fresh",
+  });
+
+  assert.equal(result.record.prediction.model, "lai-v2");
+  assert.deepEqual(Object.keys(result.record.prediction.combinations), ["機率主攻", "覆蓋探索"]);
+  assert.equal(result.record.prediction.agent_status, "baseline");
+  assert.equal(result.record.prediction.agent_state_version, 0);
+  assert.ok(result.record.prediction.expert_weights.uniform > 0);
+  assert.equal(result.record.prediction.evidence.target_draw_date, "2026-07-10");
+  assert.equal(result.record.prediction.evidence.model_version, "lai-v2");
+  assert.equal(result.record.prediction.evidence.state_status, "baseline");
+  assert.equal(result.record.prediction.evidence.data_status, "fresh");
+  assert.equal(Object.hasOwn(result.record.prediction, "forecasts"), false);
+  assert.ok(Array.isArray(result.forecasts));
+  assert.ok(result.forecasts.length >= 2);
+  for (const forecast of result.forecasts) {
+    assert.equal(forecast.evidence.target_draw_date, "2026-07-10");
+    assert.equal(forecast.evidence.model_version, "lai-v2");
+    assert.equal(forecast.evidence.state_status, "baseline");
+    assert.equal(forecast.evidence.data_status, "fresh");
+  }
+});
+
+test("generateAdaptivePrediction emits exactly two legal Lotto649 groups", () => {
+  const result = generateAdaptivePrediction({
+    gameType: "649",
+    draws: lotto649Draws,
+    generatedAt: "2026-07-14T10:00:00+08:00",
+    targetDrawDate: "2026-07-14",
+    dataStatus: "fresh",
+  });
+
+  const combinations = result.record.prediction.combinations;
+  assert.deepEqual(Object.keys(combinations), ["機率主攻", "覆蓋探索"]);
+  assert.equal(Object.hasOwn(result.record.prediction, "special_combinations"), false);
+  assert.notDeepEqual(combinations["機率主攻"], combinations["覆蓋探索"]);
+  for (const numbers of Object.values(combinations)) {
+    assert.equal(numbers.length, 6);
+    assert.equal(new Set(numbers).size, 6);
+    assert.deepEqual(numbers, [...numbers].sort((a, b) => a - b));
+    assert.ok(numbers.every((number) => number >= 1 && number <= 49));
+  }
+});
+
+test("generateAdaptivePrediction keeps Power Lottery first and second areas in two independent groups", () => {
+  const result = generateAdaptivePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-07-13T10:00:00+08:00",
+    targetDrawDate: "2026-07-13",
+    dataStatus: "stale",
+  });
+
+  const combinations = result.record.prediction.combinations;
+  const special = result.record.prediction.special_combinations;
+  assert.deepEqual(Object.keys(combinations), ["機率主攻", "覆蓋探索"]);
+  assert.deepEqual(Object.keys(special), ["機率主攻", "覆蓋探索"]);
+  assert.notDeepEqual(combinations["機率主攻"], combinations["覆蓋探索"]);
+  assert.notDeepEqual(special["機率主攻"], special["覆蓋探索"]);
+  for (const numbers of Object.values(combinations)) {
+    assert.equal(numbers.length, 6);
+    assert.equal(new Set(numbers).size, 6);
+    assert.deepEqual(numbers, [...numbers].sort((a, b) => a - b));
+    assert.ok(numbers.every((number) => number >= 1 && number <= 38));
+  }
+  for (const numbers of Object.values(special)) {
+    assert.equal(numbers.length, 1);
+    assert.ok(numbers.every((number) => number >= 1 && number <= 8));
   }
 });
 

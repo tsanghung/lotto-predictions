@@ -2,8 +2,11 @@ import { createHash } from "node:crypto";
 // LSTM 權重（離線訓練，見 scripts/export_lstm_weights.py）。部署時 mlWeights.js 必須
 // 與本檔一起上傳（建議用 supabase functions deploy CLI，逐字節正確）。某彩種無權重時，
 // lstmScores 會回傳 null，融合自動退回「統計啟發 + 馬可夫」。
+import { createBaselineState } from "./agentState.js";
+import { aggregateForecasts } from "./ensemble.js";
 import { buildExpertForecasts } from "./experts.js";
 import { GAME_CONFIG } from "./gameConfig.js";
+import { optimizePowerGroups, optimizeTwoGroups } from "./optimizer.js";
 
 export { GAME_CONFIG } from "./gameConfig.js";
 
@@ -1428,6 +1431,99 @@ export function generateHonestPrediction({ gameType, draws, generatedAt }) {
       strategies: {},
       attribution_report: null,
     },
+  };
+}
+
+export function generateAdaptivePrediction({
+  gameType,
+  draws,
+  generatedAt,
+  targetDrawDate,
+  agentState = null,
+  dataStatus = "unknown",
+}) {
+  const config = GAME_CONFIG[gameType];
+  if (!config) {
+    throw new Error(`Unsupported game type: ${gameType}`);
+  }
+  if (!Array.isArray(draws) || draws.length < 3) {
+    throw new Error(`${config.name} requires at least 3 historical draws`);
+  }
+
+  const modelVersion = "lai-v2";
+  const forecasts = buildExpertForecasts({ gameType, draws, generatedAt });
+  const effectiveState = agentState ?? createBaselineState({
+    gameName: config.name,
+    expertNames: forecasts.map((forecast) => forecast.name),
+  });
+  const aggregated = aggregateForecasts({
+    forecasts,
+    activeState: effectiveState,
+    config,
+  });
+  const seed = `${config.name}|${targetDrawDate}|${modelVersion}|state-${effectiveState.state_version}`;
+  const optimized = config.secondaryNumber
+    ? optimizePowerGroups({
+        mainProbabilities: aggregated.probabilities,
+        specialProbabilities: aggregated.specialProbabilities,
+        config,
+        seed,
+      })
+    : optimizeTwoGroups({
+        probabilities: aggregated.probabilities,
+        config,
+        seed,
+      });
+
+  const publicEvidence = {
+    target_draw_date: targetDrawDate,
+    model_version: modelVersion,
+    state_status: effectiveState.status,
+    state_version: effectiveState.state_version,
+    data_status: dataStatus,
+    proven_above_random: effectiveState.status === "champion",
+  };
+
+  return {
+    record: {
+      timestamp: generatedAt,
+      game_name: config.name,
+      is_offline: false,
+      prediction: {
+        model: modelVersion,
+        engine: "lai-adaptive-ensemble",
+        reasoning_source: "lai_quantitative",
+        agent_status: effectiveState.status,
+        agent_state_version: effectiveState.state_version,
+        expert_weights: effectiveState.expert_weights,
+        evidence: publicEvidence,
+        combinations: {
+          "機率主攻": optimized.groupA,
+          "覆蓋探索": optimized.groupB,
+        },
+        ...(config.secondaryNumber
+          ? {
+              special_combinations: {
+                "機率主攻": optimized.specialGroupA,
+                "覆蓋探索": optimized.specialGroupB,
+              },
+              special_group_metrics: optimized.specialMetrics,
+            }
+          : {}),
+        group_metrics: optimized.metrics,
+      },
+      is_evaluated: false,
+      evaluation: {
+        draw_id: null,
+        actual_numbers: [],
+        strategies: {},
+      },
+    },
+    forecasts: forecasts.map((forecast) => ({
+      ...forecast,
+      active_weight: effectiveState.expert_weights?.[forecast.name] ?? 0,
+      evidence: { ...publicEvidence },
+    })),
   };
 }
 
