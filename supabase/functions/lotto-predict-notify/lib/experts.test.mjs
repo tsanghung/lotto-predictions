@@ -150,3 +150,36 @@ test("LSTM inference rejects NaN weights and the registry falls back to uniform"
     ML_WEIGHTS["539"] = original;
   }
 });
+
+test("the registry rejects internally valid LSTM weights for the wrong game dimension", () => {
+  const wrongGameWeights = {
+    N: 1,
+    H: 1,
+    Wf: [[0, 0]],
+    Wi: [[0, 0]],
+    Wg: [[0, 0]],
+    Wo: [[0, 0]],
+    bf: [0],
+    bi: [0],
+    bg: [0],
+    bo: [0],
+    Wy: [[0]],
+    by: [0],
+  };
+  const original = ML_WEIGHTS["539"];
+
+  try {
+    ML_WEIGHTS["539"] = wrongGameWeights;
+    let forecasts;
+    assert.doesNotThrow(() => {
+      forecasts = buildExpertForecasts({ gameType: "539", draws: fixtures["539"], generatedAt: NOW });
+    });
+    const lstm = forecasts.find((forecast) => forecast.name === "lstm");
+    const uniform = forecasts.find((forecast) => forecast.name === "uniform");
+
+    assert.deepEqual(lstm.probabilities, uniform.probabilities);
+    assert.equal(lstm.featureSummary.fallback, "uniform-invalid-weights");
+  } finally {
+    ML_WEIGHTS["539"] = original;
+  }
+});

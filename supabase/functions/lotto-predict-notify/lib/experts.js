@@ -181,10 +181,11 @@ function isFiniteMatrix(value, rows, columns) {
     && value.every((row) => isFiniteVector(row, columns));
 }
 
-function hasValidLstmShape(weights) {
+function hasValidLstmShape(weights, expectedNumberCount = null) {
   if (!weights || typeof weights !== "object") return false;
   const { N, H } = weights;
   if (!Number.isInteger(N) || N <= 0 || !Number.isInteger(H) || H <= 0) return false;
+  if (expectedNumberCount !== null && N !== expectedNumberCount) return false;
   const gateColumns = N + H;
   return [weights.Wf, weights.Wi, weights.Wg, weights.Wo]
     .every((matrix) => isFiniteMatrix(matrix, H, gateColumns))
@@ -194,8 +195,8 @@ function hasValidLstmShape(weights) {
     && isFiniteVector(weights.by, N);
 }
 
-export function lstmScores(weights, draws) {
-  if (!hasValidLstmShape(weights)) return null;
+export function lstmScores(weights, draws, expectedNumberCount = null) {
+  if (!hasValidLstmShape(weights, expectedNumberCount)) return null;
   const { N, H } = weights;
   const sigmoid = (value) => 1 / (1 + Math.exp(-Math.max(-30, Math.min(30, value))));
   const matvec = (matrix, vector) => matrix.map((row) => {
@@ -248,7 +249,7 @@ function rawForecasts({ gameType, draws, generatedAt, config }) {
   const secondaryDraws = secondary ? specialDraws(draws, secondary.maxNumber) : [];
   const secondaryRaw = (builder) => secondary ? builder(secondaryDraws, secondary.maxNumber) : null;
   const lstmWeights = ML_WEIGHTS[gameType];
-  const mainLstm = lstmScores(lstmWeights, draws);
+  const mainLstm = lstmScores(lstmWeights, draws, config.maxNumber);
   const lstmFallback = mainLstm
     ? null
     : lstmWeights
