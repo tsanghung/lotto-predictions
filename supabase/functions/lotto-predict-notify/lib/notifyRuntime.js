@@ -2,6 +2,10 @@ export function parseBooleanEnvFlag(value) {
   return String(value ?? "").trim().toLowerCase() === "true";
 }
 
+function cloneJsonReady(value) {
+  return value == null ? value : JSON.parse(JSON.stringify(value));
+}
+
 export function resolveLaiExecution({
   dryRun,
   requestedEngine,
@@ -45,8 +49,8 @@ export function buildForecastRows({
     forecast_mode: forecastMode,
     probabilities: forecast.probabilities,
     special_probabilities: forecast.specialProbabilities ?? null,
-    final_groups: forecast.final_groups ?? {},
-    feature_summary: forecast.featureSummary ?? {},
+    final_groups: cloneJsonReady(forecast.final_groups) ?? {},
+    feature_summary: cloneJsonReady(forecast.featureSummary) ?? {},
     agent_state_version: forecast.evidence?.state_version ?? null,
     data_status: forecast.evidence?.data_status ?? "unknown",
     generated_at: generatedAt,

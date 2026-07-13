@@ -160,6 +160,44 @@ test("builds forecast rows for every expert and the ensemble with unique conflic
   assert.deepEqual(ensemble.final_groups.special_combinations, lai.record.prediction.special_combinations);
 });
 
+test("buildForecastRows isolates persistence-row mutations from forecasts, record, and LINE output", () => {
+  const lai = generateAdaptivePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-07-13T10:00:00+08:00",
+    targetDrawDate: "2026-07-13",
+    dataStatus: "fresh",
+  });
+  const originalLine = buildLineMessage(lai.record, "2026-07-13");
+  const originalMainNumber = lai.record.prediction.combinations["機率主攻"][0];
+  const ensembleForecast = lai.forecasts.find((forecast) => forecast.name === "ensemble");
+  const lstmForecast = lai.forecasts.find((forecast) => forecast.name === "lstm");
+  const originalFallback = lstmForecast?.featureSummary?.specialAreaFallback;
+
+  const rows = buildForecastRows({
+    predictionSourceKey: sourceKey(GAME_CONFIG.power.name, "2026-07-13"),
+    gameName: GAME_CONFIG.power.name,
+    targetDrawDate: "2026-07-13",
+    generatedAt: "2026-07-13T10:00:00+08:00",
+    forecastMode: "production",
+    forecasts: lai.forecasts,
+  });
+
+  const ensembleRow = rows.find((row) => row.model_name === "ensemble");
+  const lstmRow = rows.find((row) => row.model_name === "lstm");
+
+  ensembleRow.final_groups.combinations["機率主攻"][0] = 99;
+  ensembleRow.final_groups.special_combinations["機率主攻"][0] = 8;
+  lstmRow.feature_summary.specialAreaFallback = "mutated";
+
+  assert.equal(ensembleRow.final_groups.combinations["機率主攻"][0], 99);
+  assert.equal(lstmRow.feature_summary.specialAreaFallback, "mutated");
+  assert.equal(lai.record.prediction.combinations["機率主攻"][0], originalMainNumber);
+  assert.equal(ensembleForecast.final_groups.combinations["機率主攻"][0], originalMainNumber);
+  assert.equal(lstmForecast?.featureSummary?.specialAreaFallback, originalFallback);
+  assert.equal(buildLineMessage(lai.record, "2026-07-13"), originalLine);
+});
+
 test("fails fast when the active LAI agent state query fails", async () => {
   await assert.rejects(
     executePredictionFlow({

@@ -603,7 +603,7 @@ test("generateAdaptivePrediction falls back to deterministic uniform Power speci
   );
 });
 
-test("builds LAI LINE message with exactly two groups, state evidence, and no guaranteed-hit claim", () => {
+test("builds LAI LINE message with explicit evidence status, exactly two groups, and no guaranteed-hit claim", () => {
   const result = generateAdaptivePrediction({
     gameType: "539",
     draws: dailyDraws,
@@ -616,11 +616,13 @@ test("builds LAI LINE message with exactly two groups, state evidence, and no gu
 
   assert.match(message, /LAI v2/);
   assert.match(message, /agent_status:\s*baseline/);
+  assert.match(message, /state_status:\s*baseline/);
+  assert.match(message, /data_status:\s*fresh/);
   assert.match(message, /proven_above_random:\s*no/);
   assert.match(message, /union_size:\s*\d+/);
   assert.match(message, /overlap_count:\s*\d+/);
   assert.equal((message.match(/^\[/gm) || []).length, 2);
-  assert.match(message, /不保證命中/);
+  assert.match(message, /提醒：本訊息僅提供量化分組、狀態與覆蓋資訊，不保證命中。/);
 });
 
 test("builds Power LAI LINE message with first and second areas for both groups", () => {
