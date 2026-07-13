@@ -7,8 +7,10 @@ import { aggregateForecasts } from "./ensemble.js";
 import { buildExpertForecasts } from "./experts.js";
 import { GAME_CONFIG } from "./gameConfig.js";
 import { optimizePowerGroups, optimizeTwoGroups } from "./optimizer.js";
+import { normalizeProbabilityVector } from "./scoring.js";
 
 export { GAME_CONFIG } from "./gameConfig.js";
+const POWER_SPECIAL_FALLBACK = "deterministic_uniform_no_active_expert";
 
 const STRATEGY_NAMES = ["激進包牌", "穩健平衡", "統計趨勢"];
 
@@ -1461,11 +1463,21 @@ export function generateAdaptivePrediction({
     activeState: effectiveState,
     config,
   });
+  const powerSpecialFallback = config.secondaryNumber && !Array.isArray(aggregated.specialProbabilities)
+    ? POWER_SPECIAL_FALLBACK
+    : null;
+  const specialProbabilities = powerSpecialFallback
+    ? normalizeProbabilityVector(
+        Array(config.secondaryNumber.maxNumber).fill(1),
+        config.secondaryNumber.maxNumber,
+        config.secondaryNumber.picks,
+      )
+    : aggregated.specialProbabilities;
   const seed = `${config.name}|${targetDrawDate}|${modelVersion}|state-${effectiveState.state_version}`;
   const optimized = config.secondaryNumber
     ? optimizePowerGroups({
         mainProbabilities: aggregated.probabilities,
-        specialProbabilities: aggregated.specialProbabilities,
+        specialProbabilities,
         config,
         seed,
       })
@@ -1482,6 +1494,7 @@ export function generateAdaptivePrediction({
     state_version: effectiveState.state_version,
     data_status: dataStatus,
     proven_above_random: effectiveState.status === "champion",
+    ...(powerSpecialFallback ? { special_area_fallback: powerSpecialFallback } : {}),
   };
 
   return {
@@ -1519,11 +1532,22 @@ export function generateAdaptivePrediction({
         strategies: {},
       },
     },
-    forecasts: forecasts.map((forecast) => ({
-      ...forecast,
-      active_weight: effectiveState.expert_weights?.[forecast.name] ?? 0,
-      evidence: { ...publicEvidence },
-    })),
+    forecasts: forecasts.map((forecast) => {
+      const activeWeight = effectiveState.expert_weights?.[forecast.name] ?? 0;
+      return {
+        ...forecast,
+        featureSummary: powerSpecialFallback
+          && activeWeight > 0
+          && !Array.isArray(forecast.specialProbabilities)
+          ? {
+              ...forecast.featureSummary,
+              specialAreaFallback: powerSpecialFallback,
+            }
+          : forecast.featureSummary,
+        active_weight: activeWeight,
+        evidence: { ...publicEvidence },
+      };
+    }),
   };
 }
 

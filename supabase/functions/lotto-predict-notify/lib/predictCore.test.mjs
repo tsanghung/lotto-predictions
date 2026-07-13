@@ -554,6 +554,51 @@ test("generateAdaptivePrediction keeps Power Lottery first and second areas in t
   }
 });
 
+test("generateAdaptivePrediction falls back to deterministic uniform Power special groups when only lstm is active", () => {
+  const result = generateAdaptivePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-07-13T10:00:00+08:00",
+    targetDrawDate: "2026-07-13",
+    agentState: {
+      status: "champion",
+      state_version: 7,
+      expert_weights: { lstm: 1 },
+    },
+    dataStatus: "stale",
+  });
+
+  const special = result.record.prediction.special_combinations;
+  const repeat = generateAdaptivePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-07-13T10:00:00+08:00",
+    targetDrawDate: "2026-07-13",
+    agentState: {
+      status: "champion",
+      state_version: 7,
+      expert_weights: { lstm: 1 },
+    },
+    dataStatus: "stale",
+  });
+  assert.equal(Object.keys(special).length, 2);
+  assert.deepEqual(Object.keys(special), Object.keys(result.record.prediction.combinations));
+  assert.equal(result.record.prediction.evidence.special_area_fallback, "deterministic_uniform_no_active_expert");
+  assert.deepEqual(repeat.record.prediction.special_combinations, special);
+  const specialGroups = Object.values(special);
+  assert.notDeepEqual(specialGroups[0], specialGroups[1]);
+  for (const numbers of specialGroups) {
+    assert.equal(numbers.length, 1);
+    assert.ok(numbers.every((number) => number >= 1 && number <= 8));
+  }
+
+  const lstmForecast = result.forecasts.find((forecast) => forecast.name === "lstm");
+  assert.equal(
+    lstmForecast?.featureSummary?.specialAreaFallback,
+    "deterministic_uniform_no_active_expert",
+  );
+});
+
 test("statistical strategies avoid 4+ consecutive runs; balanced strategy spreads across the range", () => {
   const cases = [
     ["539", dailyDraws, 39],
