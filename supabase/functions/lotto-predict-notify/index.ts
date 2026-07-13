@@ -1,6 +1,7 @@
 import {
   buildLineMessage,
   dueGamesForDate,
+  generateAdaptivePrediction,
   generateHonestPrediction,
   GAME_CONFIG,
   notificationSentBeforeRelease,
@@ -8,6 +9,11 @@ import {
   notificationKey,
   sourceKey,
 } from "./lib/predictCore.js";
+import {
+  executePredictionFlow,
+  parseBooleanEnvFlag,
+  resolveLaiExecution,
+} from "./lib/notifyRuntime.js";
 
 type GameType = "539" | "649" | "power";
 
@@ -222,6 +228,83 @@ async function fetchRecentAsiLearningRecords(
   return await response.json() as Record<string, unknown>[];
 }
 
+async function fetchActiveAgentState(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+): Promise<Record<string, unknown> | null> {
+  const params = new URLSearchParams({
+    select: "*",
+    game_name: `eq.${gameName}`,
+    is_active: "eq.true",
+    limit: "1",
+  });
+  const response = await supabaseRequest(
+    supabaseUrl,
+    serviceRoleKey,
+    `lotto_agent_states?${params}`,
+  );
+  if (!response.ok) {
+    throw new Error(`Agent state query failed: ${response.status} ${await response.text()}`);
+  }
+  const rows = await response.json() as Record<string, unknown>[];
+  return rows[0] ?? null;
+}
+
+async function persistForecastRows(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  rows: Record<string, unknown>[],
+): Promise<void> {
+  if (!rows.length) {
+    return;
+  }
+  const response = await supabaseRequest(
+    supabaseUrl,
+    serviceRoleKey,
+    "lotto_model_forecasts?on_conflict=game_name,target_draw_date,model_name,model_version,forecast_mode",
+    {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(rows),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Supabase forecast upsert failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+function buildPredictionRow(
+  record: Record<string, unknown>,
+  gameName: string,
+  generatedAt: string,
+  targetDrawDate: string,
+  learningRecords: Record<string, unknown>[],
+): Record<string, unknown> {
+  const asiLearningContext = {
+    version: "asi_learning_context_v1",
+    records_used: learningRecords.length,
+    latest_target_draw_date: learningRecords[0]?.target_draw_date || null,
+  };
+  return {
+    source_key: sourceKey(gameName, targetDrawDate),
+    game_name: gameName,
+    predicted_at: generatedAt,
+    target_draw_date: targetDrawDate,
+    prediction: record.prediction,
+    model_name: (record.prediction as Record<string, unknown> | undefined)?.model ?? null,
+    reasoning_source: (record.prediction as Record<string, unknown> | undefined)?.reasoning_source ?? null,
+    asi_learning_context: asiLearningContext,
+    is_evaluated: false,
+    evaluation: record.evaluation,
+    raw: {
+      ...record,
+      target_draw_date: targetDrawDate,
+      asi_learning_context: asiLearningContext,
+    },
+  };
+}
+
 async function upsertPrediction(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -393,6 +476,9 @@ async function processGame(
     targetDate: string;
     generatedAt: string;
     dryRun: boolean;
+    requestedEngine: string | null;
+    laiEnabled: boolean;
+    shadowEnabled: boolean;
   },
 ) {
   const draws = await fetchDraws(options.supabaseUrl, options.serviceRoleKey, gameType);
@@ -402,100 +488,52 @@ async function processGame(
     options.serviceRoleKey,
     gameName,
   );
-  // 誠實版：不預測號碼；公正性健診 + 穩健平衡（每彩種一組）+ 心跳明牌（固定一組）。
-  const record: Record<string, unknown> = generateHonestPrediction({
+  const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
+  return await executePredictionFlow({
     gameType,
     draws,
+    gameName,
+    targetDate: options.targetDate,
+    drawTargetDate,
     generatedAt: options.generatedAt,
+    dryRun: options.dryRun,
+    requestedEngine: options.requestedEngine,
+    laiEnabled: options.laiEnabled,
+    shadowEnabled: options.shadowEnabled,
+  }, {
+    notificationKey,
+    sourceKey,
+    fetchActiveAgentState: (requestedGameName: string) =>
+      fetchActiveAgentState(options.supabaseUrl, options.serviceRoleKey, requestedGameName),
+    generateAdaptivePrediction,
+    persistForecastRows: (rows: Record<string, unknown>[]) =>
+      persistForecastRows(options.supabaseUrl, options.serviceRoleKey, rows),
+    generateHonestPrediction,
+    buildLineMessage,
+    buildPredictionRow: (
+      record: Record<string, unknown>,
+      requestedGameName: string,
+      generatedAt: string,
+      targetDrawDate: string,
+    ) => buildPredictionRow(record, requestedGameName, generatedAt, targetDrawDate, learningRecords),
+    upsertPrediction: (row: Record<string, unknown>) =>
+      upsertPrediction(options.supabaseUrl, options.serviceRoleKey, row),
+    reserveNotification: (key: string, payload: Record<string, unknown>) =>
+      reserveNotification(options.supabaseUrl, options.serviceRoleKey, {
+        notification_key: key,
+        game_name: gameName,
+        target_date: drawTargetDate,
+        notification_type: "prediction",
+        status: "reserved",
+        payload,
+      }),
+    sendLineMessage,
+    markNotificationSent: (
+      key: string,
+      status: "sent" | "failed" | "dry_run",
+      responseBody: unknown,
+    ) => markNotificationSent(options.supabaseUrl, options.serviceRoleKey, key, status, responseBody),
   });
-  const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
-  if (!drawTargetDate) {
-    return {
-      game: gameType,
-      status: "skipped_not_draw_date",
-      target_date: options.targetDate,
-    };
-  }
-  const key = notificationKey(gameName, drawTargetDate, "prediction");
-  const message = buildLineMessage(record, drawTargetDate);
-  const predictionSourceKey = sourceKey(gameName, drawTargetDate);
-
-  const predictionRow = {
-    source_key: predictionSourceKey,
-    game_name: gameName,
-    predicted_at: options.generatedAt,
-    target_draw_date: drawTargetDate,
-    prediction: record.prediction,
-    model_name: (record.prediction as Record<string, unknown> | undefined)?.model ?? null,
-    reasoning_source: (record.prediction as Record<string, unknown> | undefined)?.reasoning_source ?? null,
-    asi_learning_context: {
-      version: "asi_learning_context_v1",
-      records_used: learningRecords.length,
-      latest_target_draw_date: learningRecords[0]?.target_draw_date || null,
-    },
-    is_evaluated: false,
-    evaluation: record.evaluation,
-    raw: {
-      ...record,
-      target_draw_date: drawTargetDate,
-      asi_learning_context: {
-        version: "asi_learning_context_v1",
-        records_used: learningRecords.length,
-        latest_target_draw_date: learningRecords[0]?.target_draw_date || null,
-      },
-    },
-  };
-
-  if (options.dryRun) {
-    return {
-      game: gameType,
-      status: "dry_run",
-      notification_key: key,
-      target_date: drawTargetDate,
-      prediction: record.prediction,
-      message,
-    };
-  }
-
-  const reserved = await reserveNotification(options.supabaseUrl, options.serviceRoleKey, {
-    notification_key: key,
-    game_name: gameName,
-    target_date: drawTargetDate,
-    notification_type: "prediction",
-    status: "reserved",
-    payload: { prediction_source_key: predictionSourceKey },
-  });
-
-  if (!reserved) {
-    return {
-      game: gameType,
-      status: "skipped_duplicate",
-      notification_key: key,
-      target_date: drawTargetDate,
-    };
-  }
-
-  await upsertPrediction(options.supabaseUrl, options.serviceRoleKey, predictionRow);
-
-  try {
-    const lineResponse = await sendLineMessage(message);
-    await markNotificationSent(options.supabaseUrl, options.serviceRoleKey, key, "sent", lineResponse);
-    return {
-      game: gameType,
-      status: "sent",
-      notification_key: key,
-      target_date: drawTargetDate,
-    };
-  } catch (error) {
-    await markNotificationSent(
-      options.supabaseUrl,
-      options.serviceRoleKey,
-      key,
-      "failed",
-      error instanceof Error ? error.message : String(error),
-    );
-    throw error;
-  }
 }
 
 async function handleRequest(request: Request): Promise<Response> {
@@ -511,6 +549,19 @@ async function handleRequest(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const requestedGame = url.searchParams.get("game") ?? "due";
     const dryRun = url.searchParams.get("dry_run") === "1";
+    const requestedEngine = url.searchParams.get("engine");
+    const laiEnabled = parseBooleanEnvFlag(Deno.env.get("LAI_V2_ENABLED"));
+    const shadowEnabled = parseBooleanEnvFlag(Deno.env.get("LAI_V2_SHADOW_ENABLED"));
+    try {
+      resolveLaiExecution({ dryRun, requestedEngine, laiEnabled, shadowEnabled });
+    } catch (error) {
+      return failFast(
+        400,
+        "Invalid engine parameter",
+        error instanceof Error ? error.message : error,
+        "Use engine=lai-v2 only with dry_run=1.",
+      );
+    }
     const now = taipeiNow();
     const targetDate = url.searchParams.get("target_date") ?? now.date;
     const generatedAt = url.searchParams.get("generated_at") ?? now.timestamp;
@@ -537,6 +588,9 @@ async function handleRequest(request: Request): Promise<Response> {
         targetDate,
         generatedAt,
         dryRun,
+        requestedEngine,
+        laiEnabled,
+        shadowEnabled,
       }));
     }
 
