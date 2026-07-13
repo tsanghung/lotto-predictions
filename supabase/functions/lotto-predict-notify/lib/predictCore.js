@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-// LSTM 權重（離線訓練，見 scripts/export_lstm_weights.py）。部署時 mlWeights.js 必須
-// 與本檔一起上傳（建議用 supabase functions deploy CLI，逐字節正確）。某彩種無權重時，
-// lstmScores 會回傳 null，融合自動退回「統計啟發 + 馬可夫」。
+﻿import { createHash } from "node:crypto";
+// LSTM 甈?嚗蝺?蝺湛?閬?scripts/export_lstm_weights.py嚗蝵脫? mlWeights.js 敹?
+// ?瑼?韏瑚??喉?撱箄降??supabase functions deploy CLI嚗?蝭甇?Ⅱ嚗?敶拍車?⊥???嚗?
+// lstmScores ????null嚗????絞閮???+ 擐砍憭怒?
 import { createBaselineState } from "./agentState.js";
 import { aggregateForecasts } from "./ensemble.js";
 import { buildExpertForecasts } from "./experts.js";
@@ -116,7 +116,7 @@ function numberStats(draws, maxNumber) {
 }
 
 function recentPeriodFor(gameType, drawCount) {
-  // 誠實版：三個彩種一律以「全歷史」資料做分析（不再 539 用近 300、大樂透/威力彩用近 100）。
+  // 隤祕??銝蔗蝔桐?敺誑?甇瑕??????嚗???539 ?刻? 300?之璅?憡?敶拍餈?100嚗?
   return drawCount;
 }
 
@@ -577,10 +577,10 @@ function averageSum(draws) {
 }
 
 function balancedCandidates(stats, config) {
-  // 「穩健平衡」應跨號段均勻分布，而非全擠在中位數附近（舊版排序「離中心最近」會
-  // 直接吐出 22,23,24,25,26,27 這種中央連號團）。改為把 1..maxNumber 切成 picks 個
-  // 連續號段，每段挑一個代表號（近期最熱，平手取靠近段中心者），確保橫跨全範圍、
-  // 結構真正平衡，且不會形成長連號。
+  // ?帘?亙像銵～?頝刻?畾萄??餃?撣????冽??其葉雿??嚗???摨銝剖??餈?
+  // ?湔? 22,23,24,25,26,27 ?車銝剖亢???????箸? 1..maxNumber ?? picks ??
+  // ????挾嚗?畾菜?銝?誨銵刻?嚗????梧?撟單???餈挾銝剖???嚗Ⅱ靽帖頝典蝭???
+  // 蝯??迤撟唾﹛嚗?銝?敶Ｘ??琿????
   const { maxNumber, picks } = config;
   const byNumber = new Map(stats.map((item) => [item.number, item]));
   const bandSize = maxNumber / picks;
@@ -606,7 +606,7 @@ function balancedCandidates(stats, config) {
       chosen.add(best.number);
     }
   }
-  // 備援池：剩餘號碼按近期頻率排序，供 uniqueTake 在邊界情況補足。
+  // ?瘙??拚??Ⅳ?????摨?靘?uniqueTake ?券???瘜?頞喋?
   const rest = [...stats]
     .filter((item) => !chosen.has(item.number))
     .sort((left, right) => right.frequency - left.frequency || left.number - right.number)
@@ -638,14 +638,14 @@ function indexInsideLongRun(sorted) {
   for (let index = 1; index < sorted.length; index += 1) {
     run = sorted[index] === sorted[index - 1] + 1 ? run + 1 : 1;
     if (run >= 4) {
-      return index; // 第 4 個連續號；移除它即可把連號段打斷成 <= 3
+      return index; // 蝚?4 ?????蝘駁摰?舀????畾菜??瑟? <= 3
     }
   }
   return -1;
 }
 
-// 確保任何策略組合都不含 4 個（含）以上的連續整數（與舊版 Python 採樣器一致）。
-// 作法：移除連號段中的第 4 個號，改從候選池補入一個不會重新形成長連號的號碼。
+// 蝣箔?隞颱?蝑蝯??賭???4 ???恬?隞乩?????湔嚗??? Python ?⊥見?其??湛???
+// 雿?嚗宏?日??畾萎葉?洵 4 ??嚗敺瘙??乩??????啣耦??????蝣潦?
 function breakConsecutiveRuns(numbers, candidates, config) {
   let combo = normalizeNumbers(numbers);
   const fallback = [...candidates, ...Array.from({ length: config.maxNumber }, (_, i) => i + 1)];
@@ -1074,7 +1074,7 @@ export function generatePrediction({ gameType, draws, generatedAt }) {
   };
 }
 
-// ── 誠實博弈版引擎：公正性健診 + 博弈低均分選號 ─────────────────────────────
+// ?? 隤祕???????祆迤?批閮?+ ??雿?????????????????????????????????
 function gammaln(x) {
   const c = [76.18009172947146, -86.50532032941677, 24.01409824083091,
     -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
@@ -1154,10 +1154,10 @@ export function fairnessDiagnostic(draws, config) {
   };
 }
 
-// ── 號碼心跳 / 節奏推算 ──────────────────────────────────────────────────
-// 依各號碼「平均間隔(天)」的節奏，挑出 overdue 比值(已隔天數 / 自身平均間隔)最高、
-// 最「久未開」的號碼。⚠ 公正抽獎是無記憶過程，回測命中率與隨機無異——此為節奏觀察，
-// 不提高中獎機率。內附 walk-forward 校正回歸：逐期用新開獎結果重算並追蹤命中率。
+// ?? ?Ⅳ敹歲 / 蝭憟蝞???????????????????????????????????????????????????
+// 靘??Ⅳ?像????憭???蝭憟?? overdue 瘥?撌脤?憭拇 / ?芾澈撟喳???)?擃?
+// ????芷????Ⅳ?? ?祆迤?賜??舐閮??嚗?皜砍銝剔??璈?售迨?箇?憟?撖?
+// 銝?擃葉?????walk-forward ?⊥迤?飛嚗??冽??蝯???銝西蕭頩文銝剔???
 const HEARTBEAT_NAME = "心跳明牌";
 const erfc = (x) => 1 - erfApprox(x);
 
@@ -1235,7 +1235,7 @@ function heartbeatPicks(draws, maxNumber, k, todayMs, kind = "main") {
   return heartbeatRank(state, todayMs, k);
 }
 
-// walk-forward：只用過去資料預測下一期，累積命中率對隨機基準 k/N 做校正回歸。
+// walk-forward嚗?券??餉???皜砌?銝??蝝舐??賭葉???冽??箸? k/N ?甇??甇詻?
 function heartbeatCalibration(draws, maxNumber, k, window = 1500) {
   const seq = numberSequence(draws, "main", maxNumber);
   const T = seq.length;
@@ -1295,9 +1295,9 @@ function buildHeartbeat(draws, config, todayMs) {
   };
 }
 
-// ── 穩健平衡的方法論融合：統計啟發(頻率) + 馬可夫鏈 + LSTM ───────────────────
-// 三法都不提高中獎機率(回測≈隨機)；融合只改變「同一號段裡挑哪個號」，維持穩健平衡的
-// 跨號段均勻結構。各方法分數正規化到 [0,1] 後等權相加。
+// ?? 蝛拙撟唾﹛?瘜???嚗絞閮????餌?) + 擐砍憭恍? + LSTM ???????????????????
+// 銝??賭???銝剔?璈?(?葫?璈?嚗???寡???銝?挾鋆⊥??芸???蝬剜?蝛拙撟唾﹛??
+// 頝刻?畾萄??餌?瑽??寞??甇??? [0,1] 敺?甈??
 function minMaxNormalize(values) {
   const min = Math.min(...values);
   const max = Math.max(...values);
@@ -1316,7 +1316,7 @@ function blendScores(parts, N) {
 }
 
 function balancedCandidatesByScore(score, config) {
-  // 與 balancedCandidates 相同的「跨號段均勻」結構，但每段以融合分數(而非純頻率)挑代表號。
+  // ??balancedCandidates ?詨??楊?挾???瑽?雿?畾萎誑???(??蝝???誨銵刻???
   const { maxNumber, picks } = config;
   const bandSize = maxNumber / picks;
   const primary = [];
@@ -1496,6 +1496,51 @@ export function generateAdaptivePrediction({
     proven_above_random: effectiveState.status === "champion",
     ...(powerSpecialFallback ? { special_area_fallback: powerSpecialFallback } : {}),
   };
+  const canonicalGroups = {
+    "機率主攻": optimized.groupA,
+    "覆蓋探索": optimized.groupB,
+  };
+  const canonicalSpecialGroups = config.secondaryNumber
+    ? {
+        "機率主攻": optimized.specialGroupA,
+        "覆蓋探索": optimized.specialGroupB,
+      }
+    : null;
+  const finalGroups = {
+    combinations: canonicalGroups,
+    ...(canonicalSpecialGroups ? { special_combinations: canonicalSpecialGroups } : {}),
+  };
+  const persistedForecasts = forecasts.map((forecast) => {
+    const activeWeight = effectiveState.expert_weights?.[forecast.name] ?? 0;
+    return {
+      ...forecast,
+      featureSummary: powerSpecialFallback
+        && activeWeight > 0
+        && !Array.isArray(forecast.specialProbabilities)
+        ? {
+            ...forecast.featureSummary,
+            specialAreaFallback: powerSpecialFallback,
+          }
+        : forecast.featureSummary,
+      active_weight: activeWeight,
+      evidence: { ...publicEvidence },
+    };
+  });
+  persistedForecasts.push({
+    name: "ensemble",
+    version: modelVersion,
+    probabilities: aggregated.probabilities,
+    specialProbabilities: Array.isArray(specialProbabilities) ? specialProbabilities : null,
+    featureSummary: {
+      groupMetrics: optimized.metrics,
+      ...(config.secondaryNumber ? { specialGroupMetrics: optimized.specialMetrics } : {}),
+      expertWeights: aggregated.expertWeights,
+      specialExpertWeights: aggregated.specialExpertWeights,
+    },
+    active_weight: 1,
+    final_groups: finalGroups,
+    evidence: { ...publicEvidence },
+  });
 
   return {
     record: {
@@ -1510,16 +1555,10 @@ export function generateAdaptivePrediction({
         agent_state_version: effectiveState.state_version,
         expert_weights: effectiveState.expert_weights,
         evidence: publicEvidence,
-        combinations: {
-          "機率主攻": optimized.groupA,
-          "覆蓋探索": optimized.groupB,
-        },
-        ...(config.secondaryNumber
+        combinations: canonicalGroups,
+        ...(canonicalSpecialGroups
           ? {
-              special_combinations: {
-                "機率主攻": optimized.specialGroupA,
-                "覆蓋探索": optimized.specialGroupB,
-              },
+              special_combinations: canonicalSpecialGroups,
               special_group_metrics: optimized.specialMetrics,
             }
           : {}),
@@ -1532,26 +1571,14 @@ export function generateAdaptivePrediction({
         strategies: {},
       },
     },
-    forecasts: forecasts.map((forecast) => {
-      const activeWeight = effectiveState.expert_weights?.[forecast.name] ?? 0;
-      return {
-        ...forecast,
-        featureSummary: powerSpecialFallback
-          && activeWeight > 0
-          && !Array.isArray(forecast.specialProbabilities)
-          ? {
-              ...forecast.featureSummary,
-              specialAreaFallback: powerSpecialFallback,
-            }
-          : forecast.featureSummary,
-        active_weight: activeWeight,
-        evidence: { ...publicEvidence },
-      };
-    }),
+    forecasts: persistedForecasts,
   };
 }
 
 export function buildLineMessage(record, targetDate) {
+  if (record.prediction?.model === "lai-v2") {
+    return buildLaiLineMessage(record, targetDate);
+  }
   if (record.prediction?.model === "game-theory-v1" || record.prediction?.fairness_diagnostic) {
     return buildHonestLineMessage(record, targetDate);
   }
@@ -1564,11 +1591,11 @@ export function buildLineMessage(record, targetDate) {
     : "";
   const overdueText = Array.isArray(insights.top_overdue) ? formatOverdue(insights.top_overdue, 5) : "";
   const pairText = Array.isArray(insights.top_pairs) ? formatPairs(insights.top_pairs, 5) : "";
-  let message = `AI 樂透預測\n\n`;
+  let message = "AI 樂透預測\n\n";
   message += `日期：${targetDate}\n`;
   message += `彩種：${record.game_name}\n`;
   message += `------------------\n`;
-  message += `統計洞察：\n`;
+  message += "統計洞察：\n";
   if (insights.recent_periods) {
     message += `近 ${insights.recent_periods} 期最熱：${hotText}\n`;
     message += `近 ${insights.recent_periods} 期最冷：${coldText}\n`;
@@ -1589,7 +1616,7 @@ export function buildLineMessage(record, targetDate) {
     message += `玄學輔助：${record.prediction.metaphysics_note}\n`;
   }
   message += `------------------\n`;
-  message += `推薦組合：\n`;
+  message += "推薦組合：\n";
 
   for (const [strategy, numbers] of Object.entries(combinations)) {
     const numberText = numbers.map((number) => String(number).padStart(2, "0")).join(", ");
@@ -1605,12 +1632,44 @@ export function buildLineMessage(record, targetDate) {
   }
 
   message += `------------------\n`;
-  message += `提醒：樂透屬隨機事件，請理性投注。`;
+  message += "提醒：樂透屬隨機事件，請理性投注。";
   return message;
 }
 
 function formatBalls(numbers) {
   return (numbers || []).map((n) => String(n).padStart(2, "0")).join(", ");
+}
+
+function buildLaiLineMessage(record, targetDate) {
+  const prediction = record.prediction || {};
+  const groups = prediction.combinations || {};
+  const specialGroups = prediction.special_combinations || {};
+  const metrics = prediction.group_metrics || {};
+  const evidence = prediction.evidence || {};
+
+  let message = "LAI v2\n\n";
+  message += `日期：${targetDate}\n`;
+  message += `彩種：${record.game_name}\n`;
+  message += `agent_status: ${prediction.agent_status || evidence.state_status || "unknown"}\n`;
+  message += `proven_above_random: ${evidence.proven_above_random ? "yes" : "no"}\n`;
+  message += `union_size: ${metrics.union_size ?? 0}\n`;
+  message += `overlap_count: ${metrics.overlap_count ?? 0}\n`;
+  message += "------------------\n";
+
+  for (const [label, numbers] of Object.entries(groups)) {
+    message += `[${label}]\n`;
+    const specialArea = specialGroups[label] || [];
+    if (Array.isArray(specialArea) && specialArea.length) {
+      message += `第一區（area_1）：${formatBalls(numbers)}\n`;
+      message += `第二區（area_2）：${formatBalls(specialArea)}\n\n`;
+    } else {
+      message += `${formatBalls(numbers)}\n\n`;
+    }
+  }
+
+  message += "------------------\n";
+  message += "提醒：本訊息僅提供量化分組、狀態與覆蓋資訊，不保證命中。";
+  return message;
 }
 
 function buildHonestLineMessage(record, targetDate) {
@@ -1620,16 +1679,16 @@ function buildHonestLineMessage(record, targetDate) {
   const specialCombinations = prediction.special_combinations || null;
   const heartbeat = prediction.heartbeat || null;
 
-  let message = `🎲 樂透公正性健診 + 選號\n\n`;
+  let message = "🎲 樂透公正性健診 + 選號\n\n";
   message += `日期：${targetDate}\n`;
   message += `彩種：${record.game_name}\n`;
   message += `------------------\n`;
   message += `公正性健診：${diagnostic.passed ? "✅ 通過" : "⚠ 異常待查"}\n`;
-  message += `本期開獎在統計上與「真隨機」無法區分`;
+  message += "本期開獎在統計上與「真隨機」無法區分";
   if (diagnostic.uniform_p !== undefined) {
     message += `（號碼均勻性 p=${diagnostic.uniform_p}、前後期獨立性 p=${diagnostic.serial_p}）`;
   }
-  message += `。\n→ 沒有可預測的號碼，任何「明牌」都與隨機無異。\n`;
+  message += "。\n→ 沒有可預測的號碼，任何「明牌」都與隨機無異。\n";
 
   // ① 穩健平衡（跨號段均勻分布的一組選號；統計啟發式，不保證命中）
   const balanced = combinations["穩健平衡"];
@@ -1643,14 +1702,14 @@ function buildHonestLineMessage(record, targetDate) {
     message += Array.isArray(second) && second.length
       ? `第一區 ${formatBalls(balanced)}　第二區 ${formatBalls(second)}\n`
       : `${formatBalls(balanced)}\n`;
-    message += `（跨號段均勻分布；三法回測均≈隨機，不保證命中、不提高中獎機率）\n`;
+    message += "（跨號段均勻分布；三法回測均≈隨機，不保證命中、不提高中獎機率）\n";
   }
 
   // ② 號碼心跳明牌（節奏觀察：回測命中率≈隨機，僅供對照）
   if (heartbeat && Array.isArray(heartbeat.combination)) {
     const second = heartbeat.second_area;
     message += `------------------\n`;
-    message += `② 號碼心跳明牌（依各號平均間隔天數的節奏，挑最久未開的號）：\n`;
+    message += "② 號碼心跳明牌（依各號平均間隔天數的節奏，挑最久未開的號）：\n";
     message += Array.isArray(second) && second.length
       ? `第一區 ${formatBalls(heartbeat.combination)}　第二區 ${formatBalls(second)}\n`
       : `${formatBalls(heartbeat.combination)}\n`;
@@ -1661,6 +1720,6 @@ function buildHonestLineMessage(record, targetDate) {
   }
 
   message += `------------------\n`;
-  message += `提醒：本系統不預測號碼。樂透期望值為負，請理性投注、量力而為。`;
+  message += "提醒：本系統不預測號碼。樂透期望值為負，請理性投注、量力而為。";
   return message;
 }

@@ -498,12 +498,16 @@ test("generateAdaptivePrediction stores two groups, baseline state, and forecast
   assert.equal(Object.hasOwn(result.record.prediction, "forecasts"), false);
   assert.ok(Array.isArray(result.forecasts));
   assert.ok(result.forecasts.length >= 2);
+  assert.ok(result.forecasts.some((forecast) => forecast.name === "ensemble"));
   for (const forecast of result.forecasts) {
     assert.equal(forecast.evidence.target_draw_date, "2026-07-10");
     assert.equal(forecast.evidence.model_version, "lai-v2");
     assert.equal(forecast.evidence.state_status, "baseline");
     assert.equal(forecast.evidence.data_status, "fresh");
   }
+
+  const ensemble = result.forecasts.find((forecast) => forecast.name === "ensemble");
+  assert.deepEqual(ensemble.final_groups.combinations, result.record.prediction.combinations);
 });
 
 test("generateAdaptivePrediction emits exactly two legal Lotto649 groups", () => {
@@ -597,6 +601,57 @@ test("generateAdaptivePrediction falls back to deterministic uniform Power speci
     lstmForecast?.featureSummary?.specialAreaFallback,
     "deterministic_uniform_no_active_expert",
   );
+});
+
+test("builds LAI LINE message with exactly two groups, state evidence, and no guaranteed-hit claim", () => {
+  const result = generateAdaptivePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    targetDrawDate: "2026-07-10",
+    dataStatus: "fresh",
+  });
+
+  const message = buildLineMessage(result.record, "2026-07-10");
+
+  assert.match(message, /LAI v2/);
+  assert.match(message, /agent_status:\s*baseline/);
+  assert.match(message, /proven_above_random:\s*no/);
+  assert.match(message, /union_size:\s*\d+/);
+  assert.match(message, /overlap_count:\s*\d+/);
+  assert.equal((message.match(/^\[/gm) || []).length, 2);
+  assert.match(message, /不保證命中/);
+});
+
+test("builds Power LAI LINE message with first and second areas for both groups", () => {
+  const result = generateAdaptivePrediction({
+    gameType: "power",
+    draws: powerDraws,
+    generatedAt: "2026-07-13T10:00:00+08:00",
+    targetDrawDate: "2026-07-13",
+    agentState: {
+      status: "champion",
+      state_version: 9,
+      expert_weights: {
+        uniform: 0.3,
+        bayesian_frequency: 0.1,
+        multi_window: 0.1,
+        hazard: 0.1,
+        cooccurrence: 0.1,
+        markov: 0.1,
+        lstm: 0.1,
+        structure: 0.1,
+      },
+    },
+    dataStatus: "fresh",
+  });
+
+  const message = buildLineMessage(result.record, "2026-07-13");
+
+  assert.match(message, /agent_status:\s*champion/);
+  assert.match(message, /proven_above_random:\s*yes/);
+  assert.equal((message.match(/area_1/g) || []).length, 2);
+  assert.equal((message.match(/area_2/g) || []).length, 2);
 });
 
 test("statistical strategies avoid 4+ consecutive runs; balanced strategy spreads across the range", () => {
