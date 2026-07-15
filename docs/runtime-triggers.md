@@ -53,6 +53,115 @@ select public.invoke_lotto_predict_notify();
 6. 透過 `notification_logs` 保證同一遊戲與日期只推送一次。
 7. 發送 LINE。
 
+## LAI v2 walk-forward 初始化（僅限人工執行）
+
+'lotto-train-agent' 只處理已建立的 'lotto_training_runs'，每次最多前進一個 chunk。這個 Function 不加入每日排程，也不會直接寫入或啟用 production 'lotto_agent_states'。
+
+### 1. 部署 Function
+
+先在本機工作階段設定環境變數，不要把真實 project ref 或 service-role key 寫進 repo：
+
+~~~powershell
+$env:SUPABASE_PROJECT_REF = "<PROJECT_REF>"
+$env:SUPABASE_URL = "https://<PROJECT_REF>.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY = "<SERVICE_ROLE_KEY>"
+
+npx --yes supabase functions deploy lotto-train-agent --project-ref $env:SUPABASE_PROJECT_REF --use-api
+~~~
+
+'SUPABASE_SERVICE_ROLE_KEY' 只能存在本機環境變數或 Supabase secret。禁止提交到 Git、文件範例、前端環境變數或 Cloudflare Pages。
+
+### 2. 為 3 個彩種建立 run
+
+下列指令會分別查詢「今彩 539」、「大樂透」與「威力彩」當下的精確資料筆數，再以該筆數建立 'range_end'。不可共用 fixture 數量或手動猜測筆數。
+
+~~~powershell
+$headers = @{
+  apikey = $env:SUPABASE_SERVICE_ROLE_KEY
+  Authorization = "Bearer $($env:SUPABASE_SERVICE_ROLE_KEY)"
+  "Content-Type" = "application/json"
+}
+$countHeaders = $headers.Clone()
+$countHeaders.Prefer = "count=exact"
+$createHeaders = $headers.Clone()
+$createHeaders.Prefer = "return=representation"
+
+$gameNames = @("今彩539", "大樂透", "威力彩")
+$runs = @($gameNames | ForEach-Object {
+  $gameName = $_
+  $encodedGameName = [uri]::EscapeDataString($gameName)
+  $countUri = "$env:SUPABASE_URL/rest/v1/lotto_draws?game_name=eq.$encodedGameName&select=draw_id&limit=1"
+  $countResponse = Invoke-WebRequest -Method Get -Uri $countUri -Headers $countHeaders
+  $contentRange = [string]$countResponse.Headers["Content-Range"]
+  if ($contentRange -notmatch '/(\d+)$') {
+    throw "Cannot read exact draw count for $gameName."
+  }
+  $drawCount = [int]$Matches[1]
+  if ($drawCount -le 0) {
+    throw "No historical draws found for $gameName."
+  }
+
+  $runBody = @{
+    game_name = $gameName
+    run_type = "walk_forward_initialization"
+    algorithm_version = "lai-v2"
+    status = "queued"
+    range_start = 0
+    range_end = $drawCount
+    checkpoint_cursor = 0
+    summary = @{}
+  } | ConvertTo-Json -Depth 6
+
+  $created = Invoke-RestMethod -Method Post -Uri "$env:SUPABASE_URL/rest/v1/lotto_training_runs?select=id,game_name,status,range_end,checkpoint_cursor" -Headers $createHeaders -Body $runBody
+  $created[0]
+})
+$runs | Format-Table id, game_name, status, range_end, checkpoint_cursor
+~~~
+
+### 3. 逐 chunk 執行單一 run
+
+把上一段產生的 UUID 填入 '$runId'。每次呼叫最多處理 25 期；Function 僅接受整數 'chunk_size' 1 至 100。
+
+~~~powershell
+$runId = "<TRAINING_RUN_UUID>"
+$encodedRunId = [uri]::EscapeDataString($runId)
+$previousCursor = -1
+
+while ($true) {
+  $inspectUri = "$env:SUPABASE_URL/rest/v1/lotto_training_runs?id=eq.$encodedRunId&select=*"
+  $run = @(Invoke-RestMethod -Method Get -Uri $inspectUri -Headers $headers)[0]
+  if (-not $run) { throw "Training run not found: $runId" }
+  if ($run.status -eq "completed") { break }
+  if ($run.status -eq "failed") { throw "Training failed: $($run.error_text)" }
+  if ([int]$run.checkpoint_cursor -le $previousCursor) {
+    throw "Checkpoint did not progress; stop instead of retrying blindly."
+  }
+
+  $previousCursor = [int]$run.checkpoint_cursor
+  $invokeBody = @{ run_id = $runId; chunk_size = 25 } | ConvertTo-Json -Compress
+  $progress = Invoke-RestMethod -Method Post -Uri "$env:SUPABASE_URL/functions/v1/lotto-train-agent" -Headers $headers -Body $invokeBody
+
+  if ($progress.status -ne "completed" -and [int]$progress.checkpoint_cursor -le $previousCursor) {
+    throw "Function returned a non-progressing checkpoint."
+  }
+  $progress | Format-List status, run_id, checkpoint_cursor, range_end
+}
+~~~
+
+對 '$runs' 中的 3 個 run 分別執行，不要建立自動連續重訓排程。
+
+### 4. 檢查 checkpoint 與完成條件
+
+~~~powershell
+$runId = "<TRAINING_RUN_UUID>"
+$encodedRunId = [uri]::EscapeDataString($runId)
+$fields = "id,game_name,status,range_start,range_end,checkpoint_cursor,summary,error_text,started_at,completed_at"
+Invoke-RestMethod -Method Get -Uri "$env:SUPABASE_URL/rest/v1/lotto_training_runs?id=eq.$encodedRunId&select=$fields" -Headers $headers
+~~~
+
+只有同時符合 'status = completed' 與 'checkpoint_cursor = range_end' 的 run，才可進入後續人工驗證與 candidate state 匯入流程。'queued'、'running'、'failed' 或 cursor 未到終點的 run，一律不得作為 production state 種子。
+
+
 ## GitHub Actions 邊界
 
 正式 runtime workflows 已從 `.github/workflows` 移除，避免混用 GitHub、Supabase 與 Cloudflare 造成觸發來源不明。
