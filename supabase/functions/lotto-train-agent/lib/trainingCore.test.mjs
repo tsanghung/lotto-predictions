@@ -1,14 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
-
 import {
   createInitialTrainingState,
   executeTrainingRun,
   isServiceRoleRequest,
+  scoreTrainingForecast,
   validateTrainingRequest,
   walkForwardChunk,
 } from "./trainingCore.js";
+import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
+import { scoreModelForecast } from "../../lotto-update/lib/lottoCore.js";
 
 function dailyDraws(count = 10) {
   return Array.from({ length: count }, (_, index) => ({
@@ -136,8 +137,9 @@ test("executeTrainingRun claims, loads, advances, and saves one checkpoint", asy
       calls.push(["claimRun", value.id, lease.token]);
       return { ...structuredClone(value), status: "running", summary: { ...value.summary, lease }, updated_at: "claimed" };
     },
-    async fetchDraws(gameName, rangeEnd) {
-      calls.push(["fetchDraws", gameName, rangeEnd]);
+    async ensureSnapshot(value) { calls.push(["ensureSnapshot", value.id]); return value.range_end; },
+    async fetchDraws(runId, rangeEnd) {
+      calls.push(["fetchDraws", runId, rangeEnd]);
       return dailyDraws(rangeEnd);
     },
     async saveCheckpoint(value, checkpoint) {
@@ -152,10 +154,11 @@ test("executeTrainingRun claims, loads, advances, and saves one checkpoint", asy
   });
   assert.deepEqual(calls, [
     ["fetchRun", "run-1"], ["claimRun", "run-1", "lease-1"],
-    ["fetchDraws", "\u4eca\u5f69539", 6], ["saveCheckpoint", "run-1", 4, "running"],
+    ["ensureSnapshot", "run-1"], ["fetchDraws", "run-1", 6],
+    ["saveCheckpoint", "run-1", 4, "running"],
   ]);
   assert.equal(result.checkpoint_cursor, 4);
-  assert.equal(result.summary.state.metrics.sample_count, 2);
+  assert.equal(result.summary.state.metrics.evaluated_draws, 2);
   assert.equal("lease" in result.summary, false);
 });
 
@@ -195,6 +198,7 @@ test("executeTrainingRun marks incomplete draw ranges failed", async () => {
   const repository = {
     async fetchRun() { return run; },
     async claimRun(value, lease) { return { ...value, summary: { ...value.summary, lease } }; },
+    async ensureSnapshot(value) { return value.range_end; },
     async fetchDraws() { return dailyDraws(2); },
     async markFailed(value, update) { failure = [value.id, update]; },
   };
@@ -215,6 +219,7 @@ test("the final chunk persists completed status at range_end", async () => {
   const repository = {
     async fetchRun() { return run; },
     async claimRun(value, lease) { return { ...value, summary: { ...value.summary, lease } }; },
+    async ensureSnapshot(value) { return value.range_end; },
     async fetchDraws() { return dailyDraws(4); },
     async saveCheckpoint(value, checkpoint) { return { ...value, ...checkpoint }; },
     async markFailed() { assert.fail("completed chunk must not fail"); },
@@ -228,15 +233,104 @@ test("the final chunk persists completed status at range_end", async () => {
   assert.equal(result.completed_at, "2026-07-15T02:00:00.000Z");
 });
 
+test("a frozen snapshot keeps checkpoint continuation stable after live backfill", async () => {
+  const snapshot = dailyDraws(6);
+  const liveRows = [...snapshot];
+  const run = {
+    id: "frozen", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 6,
+    checkpoint_cursor: 0, summary: { state: createInitialTrainingState("539") }, updated_at: "v1",
+  };
+  const repository = {
+    current: structuredClone(run),
+    async fetchRun() { return structuredClone(this.current); },
+    async claimRun(value, lease) {
+      this.current = { ...value, status: "running", summary: { ...value.summary, lease }, updated_at: `${value.updated_at}-claimed` };
+      return structuredClone(this.current);
+    },
+    async ensureSnapshot() { return snapshot.length; },
+    async fetchDraws() { return structuredClone(snapshot); },
+    async saveCheckpoint(value, checkpoint) {
+      this.current = { ...value, ...checkpoint, updated_at: `${value.updated_at}-saved` };
+      return structuredClone(this.current);
+    },
+    async markFailed() { assert.fail("snapshot continuation must not fail"); },
+  };
+  const first = await executeTrainingRun({ input: { run_id: "frozen", chunk_size: 3 }, repository });
+  liveRows.unshift({ ...snapshot[0], draw_id: "backfill", draw_date: "2025-12-31" });
+  const second = await executeTrainingRun({ input: { run_id: "frozen", chunk_size: 3 }, repository });
+  const combined = walkForwardChunk({
+    gameType: "539", draws: snapshot, cursor: 0, chunkSize: 6,
+    state: createInitialTrainingState("539"),
+  });
+  assert.equal(first.checkpoint_cursor, 3);
+  assert.equal(second.checkpoint_cursor, 6);
+  assert.deepEqual(second.summary.state, combined.state);
+  assert.equal(second.summary.snapshot.draw_count, 6);
+});
 
-test("Edge Function source wires POST auth, persistence, and no scheduler", async () => {
-  const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
-  assert.match(source, /request\.method !== "POST"/);
-  assert.match(source, /isServiceRoleRequest/);
-  assert.match(source, /executeTrainingRun/);
-  assert.match(source, /lotto_training_runs/);
-  assert.match(source, /order=draw_date\.asc%2Cdraw_id\.asc/);
-  assert.match(source, /updated_at=eq/);
-  assert.doesNotMatch(source, /lotto_agent_states/);
-  assert.doesNotMatch(source, /cron|schedule/i);
+test("a lost checkpoint CAS never reports a successful training step", async () => {
+  let failureAttempted = false;
+  const run = {
+    id: "lost-save", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 3,
+    checkpoint_cursor: 1, summary: { state: createInitialTrainingState("539") }, updated_at: "v1",
+  };
+  const repository = {
+    async fetchRun() { return run; },
+    async claimRun(value, lease) { return { ...value, status: "running", summary: { ...value.summary, lease } }; },
+    async ensureSnapshot() { return 3; },
+    async fetchDraws() { return dailyDraws(3); },
+    async saveCheckpoint() { return null; },
+    async markFailed() { failureAttempted = true; return null; },
+  };
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "lost-save", chunk_size: 1 }, repository }),
+    /lost its concurrency lease/,
+  );
+  assert.equal(failureAttempted, true);
+});
+
+
+test("training state is directly compatible with production Hedge fields", () => {
+  const result = walkForwardChunk({
+    gameType: "539", draws: dailyDraws(4), cursor: 2, chunkSize: 2,
+    state: createInitialTrainingState("539"),
+  });
+  assert.equal(result.state.metrics.evaluated_draws, 2);
+  assert.equal(result.state.learning_config.gamma, 0.1);
+  assert.equal("sample_count" in result.state.metrics, false);
+  assert.equal("hedge_gamma" in result.state.learning_config, false);
+});
+
+test("Power training and production use the same combined Brier loss", () => {
+  const target = powerDraws(1)[0];
+  const probabilities = Array(38).fill(6 / 38);
+  const specialProbabilities = Array(8).fill(1 / 8);
+  const training = scoreTrainingForecast({ probabilities, specialProbabilities }, target, GAME_CONFIG.power);
+  const production = scoreModelForecast({
+    forecast: {
+      id: "forecast-1",
+      game_name: "\u5a01\u529b\u5f69",
+      model_name: "uniform",
+      probabilities,
+      special_probabilities: specialProbabilities,
+      final_groups: {},
+    },
+    draw: target,
+    config: GAME_CONFIG.power,
+  });
+  assert.equal(training.combined_brier, production.metrics.combined_brier);
+});
+
+test("checkpoint keeps a bounded recent score window for promotion metrics", () => {
+  const draws = dailyDraws(10);
+  const initial = createInitialTrainingState("539");
+  initial.metrics.recent_model_scores = Array.from({ length: 499 }, (_, index) => ({
+    draw_id: `old-${index}`,
+    draw_date: "2025-01-01",
+    models: {},
+  }));
+  const result = walkForwardChunk({ gameType: "539", draws, cursor: 8, chunkSize: 2, state: initial });
+  assert.equal(result.state.metrics.recent_model_scores.length, 500);
+  assert.equal(result.state.metrics.recent_model_scores.at(-1).draw_id, draws[9].draw_id);
+  assert.equal(result.state.metrics.recent_model_scores[0].draw_id, "old-1");
 });

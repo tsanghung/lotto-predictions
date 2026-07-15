@@ -5,8 +5,11 @@ import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
 import {
   brierScore,
   brierSkillScore,
+  combinedAreaBrier,
   logLoss,
 } from "../../lotto-predict-notify/lib/scoring.js";
+
+const RECENT_SCORE_LIMIT = 500;
 
 const GAME_TYPES_BY_NAME = Object.fromEntries(
   Object.entries(GAME_CONFIG).map(([gameType, config]) => [config.name, gameType]),
@@ -92,9 +95,9 @@ function assertState(state, gameType) {
   }
   const total = entries.reduce((sum, [, weight]) => sum + weight, 0);
   if (!(total > 0)) throw new RangeError("state.expert_weights must have positive total weight");
-  const sampleCount = state.metrics?.sample_count;
-  if (!Number.isInteger(sampleCount) || sampleCount < 0) {
-    throw new RangeError("state.metrics.sample_count must be a non-negative integer");
+  const evaluatedDraws = state.metrics?.evaluated_draws;
+  if (!Number.isInteger(evaluatedDraws) || evaluatedDraws < 0) {
+    throw new RangeError("state.metrics.evaluated_draws must be a non-negative integer");
   }
 }
 
@@ -114,20 +117,21 @@ export function createInitialTrainingState(gameType) {
     expertNames: Object.keys(EXPERT_VERSIONS),
     learningConfig: {
       algorithm_version: "lai-v2",
-      hedge_gamma: 0.1,
+      gamma: 0.1,
       evaluation: "prequential_walk_forward",
     },
   });
   return {
     ...state,
     metrics: {
-      sample_count: 0,
+      evaluated_draws: 0,
+      recent_model_scores: [],
       ...emptyMetricMaps(),
     },
   };
 }
 
-function scoreForecast(forecast, target, config) {
+export function scoreTrainingForecast(forecast, target, config) {
   const mainBrier = brierScore(forecast.probabilities, target.numbers, config.maxNumber);
   const mainLogLoss = logLoss(forecast.probabilities, target.numbers, config.maxNumber);
   const metrics = {
@@ -149,14 +153,14 @@ function scoreForecast(forecast, target, config) {
       specialNumbers,
       config.secondaryNumber.maxNumber,
     );
-    metrics.combined_brier = (metrics.main_brier + metrics.special_brier) / 2;
+    metrics.combined_brier = combinedAreaBrier(metrics.main_brier, metrics.special_brier);
   }
   return metrics;
 }
 
 function scoreForecasts(forecasts, target, config, weights) {
   const byName = Object.fromEntries(
-    forecasts.map((forecast) => [forecast.name, scoreForecast(forecast, target, config)]),
+    forecasts.map((forecast) => [forecast.name, scoreTrainingForecast(forecast, target, config)]),
   );
   const baseline = byName.uniform;
   if (!baseline) throw new Error("uniform forecast is required for walk-forward scoring");
@@ -189,8 +193,25 @@ function incrementMetricMap(target, name, value) {
 }
 
 function nextTrainingState(state, scores, target) {
+  const recentModelScores = [
+    ...(Array.isArray(state.metrics.recent_model_scores)
+      ? state.metrics.recent_model_scores
+      : []),
+    {
+      draw_id: String(target.draw_id),
+      draw_date: target.draw_date,
+      models: Object.fromEntries(Object.entries(scores).map(([name, score]) => [name, {
+        brier: score.main_brier,
+        combined_brier: score.combined_brier,
+        special_brier: score.special_brier,
+        brier_skill_score: score.brier_skill,
+      }])),
+    },
+  ].slice(-RECENT_SCORE_LIMIT);
   const metrics = {
-    sample_count: state.metrics.sample_count + 1,
+    ...(state.metrics || {}),
+    evaluated_draws: state.metrics.evaluated_draws + 1,
+    recent_model_scores: recentModelScores,
     cumulative_main_brier: { ...(state.metrics.cumulative_main_brier || {}) },
     cumulative_special_brier: { ...(state.metrics.cumulative_special_brier || {}) },
     cumulative_combined_brier: { ...(state.metrics.cumulative_combined_brier || {}) },
@@ -209,9 +230,9 @@ function nextTrainingState(state, scores, target) {
   const expertWeights = updateHedgeWeights({
     weights: state.expert_weights,
     losses,
-    sampleCount: metrics.sample_count,
+    sampleCount: metrics.evaluated_draws,
     baselineName: "uniform",
-    gamma: state.learning_config?.hedge_gamma ?? 0.1,
+    gamma: state.learning_config?.gamma ?? 0.1,
   });
 
   return {
@@ -308,12 +329,17 @@ function assertTrainingRun(run) {
   }
 }
 
-function checkpointSummary(run, result, startedCursor) {
+function checkpointSummary(run, result, startedCursor, snapshotCount, snapshotCreatedAt) {
   const summary = { ...(run.summary || {}) };
   delete summary.lease;
   return {
     ...summary,
     state: result.state,
+    snapshot: {
+      frozen: true,
+      draw_count: snapshotCount,
+      created_at: summary.snapshot?.created_at || snapshotCreatedAt,
+    },
     last_chunk: {
       from_cursor: startedCursor,
       to_cursor: result.nextCursor,
@@ -346,7 +372,14 @@ export async function executeTrainingRun({
 
   try {
     const gameType = GAME_TYPES_BY_NAME[claimed.game_name];
-    const draws = await repository.fetchDraws(claimed.game_name, claimed.range_end);
+    if (typeof repository.ensureSnapshot !== "function") {
+      throw new TypeError("repository.ensureSnapshot is required");
+    }
+    const snapshotCount = await repository.ensureSnapshot(claimed);
+    if (snapshotCount !== claimed.range_end) {
+      throw new Error("Training draw snapshot is incomplete; checkpoint cannot progress");
+    }
+    const draws = await repository.fetchDraws(claimed.id, claimed.range_end);
     if (!Array.isArray(draws) || draws.length < claimed.range_end) {
       throw new Error("Training draw range is incomplete; checkpoint cannot progress");
     }
@@ -367,7 +400,7 @@ export async function executeTrainingRun({
     const completed = result.nextCursor >= claimed.range_end;
     const checkpoint = {
       checkpoint_cursor: result.nextCursor,
-      summary: checkpointSummary(claimed, result, cursor),
+      summary: checkpointSummary(claimed, result, cursor, snapshotCount, claimedAt),
       status: completed ? "completed" : "running",
       error_text: null,
       completed_at: completed ? now() : null,

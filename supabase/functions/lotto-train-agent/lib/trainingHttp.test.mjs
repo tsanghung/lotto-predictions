@@ -1,0 +1,134 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  createTrainingHandler,
+  makeTrainingRepository,
+} from "./trainingHttp.js";
+
+const SECRET = "server-side-secret";
+const ENV = {
+  SUPABASE_URL: "https://project.supabase.co",
+  SUPABASE_SERVICE_ROLE_KEY: SECRET,
+};
+
+function request(body, headers = {}, method = "POST") {
+  return new Request("https://example.test/lotto-train-agent", {
+    method,
+    headers: { "content-type": "application/json", ...headers },
+    body: method === "POST" ? body : undefined,
+  });
+}
+
+async function json(response) {
+  return JSON.parse(await response.text());
+}
+
+test("handler rejects public requests before executing training", async () => {
+  let executed = false;
+  const handler = createTrainingHandler({
+    getEnv: (name) => ENV[name],
+    executeRun: async () => { executed = true; },
+  });
+  const response = await handler(request('{"run_id":"x","chunk_size":1}'));
+  assert.equal(response.status, 401);
+  assert.equal(executed, false);
+});
+
+test("handler rejects malformed JSON and unsupported methods", async () => {
+  const handler = createTrainingHandler({ getEnv: (name) => ENV[name] });
+  const headers = { apikey: SECRET, authorization: `Bearer ${SECRET}` };
+  assert.equal((await handler(request("{", headers))).status, 400);
+  assert.equal((await handler(request(null, headers, "GET"))).status, 405);
+});
+
+test("handler injects an authenticated repository and returns checkpoint status", async () => {
+  let captured;
+  const handler = createTrainingHandler({
+    getEnv: (name) => ENV[name],
+    fetchFn: async () => assert.fail("repository must stay lazy in this test"),
+    executeRun: async (value) => {
+      captured = value;
+      return { id: "run-1", status: "running", checkpoint_cursor: 25, range_end: 100, summary: {} };
+    },
+  });
+  const response = await handler(request('{"run_id":"run-1","chunk_size":25}', {
+    apikey: SECRET,
+    authorization: `Bearer ${SECRET}`,
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(captured.input, { run_id: "run-1", chunk_size: 25 });
+  assert.equal(typeof captured.repository.fetchRun, "function");
+  assert.equal((await json(response)).checkpoint_cursor, 25);
+});
+
+test("repository rejects an active lease without issuing a PATCH", async () => {
+  let fetched = false;
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL,
+    serviceKey: SECRET,
+    fetchFn: async () => { fetched = true; return new Response("[]"); },
+    now: () => new Date("2026-07-15T10:05:00Z"),
+  });
+  await assert.rejects(repository.claimRun({
+    id: "run-1",
+    status: "running",
+    summary: { lease: { claimed_at: "2026-07-15T10:00:00Z" } },
+  }, { token: "new", claimed_at: "2026-07-15T10:05:00Z" }), /active processing lease/);
+  assert.equal(fetched, false);
+});
+
+test("repository CAS returns null when another invocation wins the claim", async () => {
+  let url;
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL,
+    serviceKey: SECRET,
+    fetchFn: async (value) => { url = String(value); return new Response("[]", { status: 200 }); },
+    now: () => new Date("2026-07-15T11:00:00Z"),
+  });
+  const result = await repository.claimRun({
+    id: "run-1", status: "queued", summary: {}, updated_at: "2026-07-15T09:00:00Z",
+  }, { token: "claim", claimed_at: "2026-07-15T11:00:00Z" });
+  assert.equal(result, null);
+  assert.match(url, /updated_at=eq\.2026-07-15T09%3A00%3A00Z/);
+});
+
+test("repository initializes and reads the immutable draw snapshot in pages", async () => {
+  const urls = [];
+  const draw = (index) => ({
+    draw_id: String(index), draw_date: "2026-01-01", numbers: [1, 2, 3, 4, 5], special_number: null,
+  });
+  const fetchFn = async (value) => {
+    const url = String(value);
+    urls.push(url);
+    if (url.includes("/rpc/initialize_lotto_training_snapshot")) {
+      return new Response("1001", { status: 200 });
+    }
+    if (url.includes("offset=0")) {
+      return new Response(JSON.stringify(Array.from({ length: 1000 }, (_, index) => draw(index))), { status: 200 });
+    }
+    if (url.includes("offset=1000")) {
+      return new Response(JSON.stringify([draw(1000)]), { status: 200 });
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  };
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL, serviceKey: SECRET, fetchFn,
+  });
+  assert.equal(await repository.ensureSnapshot({ id: "run-1" }), 1001);
+  assert.equal((await repository.fetchDraws("run-1", 1001)).length, 1001);
+  assert.ok(urls.every((url) => !url.includes("/lotto_draws?")));
+  assert.ok(urls.some((url) => url.includes("order=sequence_no.asc")));
+});
+
+test("handler maps lease conflicts to 409 and does not claim completion", async () => {
+  const handler = createTrainingHandler({
+    getEnv: (name) => ENV[name],
+    executeRun: async () => { throw new Error("Training run has an active processing lease"); },
+  });
+  const response = await handler(request('{"run_id":"run-1","chunk_size":1}', {
+    apikey: SECRET,
+  }));
+  assert.equal(response.status, 409);
+  assert.match((await json(response)).root_cause, /active processing lease/);
+});

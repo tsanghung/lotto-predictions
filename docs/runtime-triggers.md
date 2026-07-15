@@ -66,14 +66,17 @@ $env:SUPABASE_PROJECT_REF = "<PROJECT_REF>"
 $env:SUPABASE_URL = "https://<PROJECT_REF>.supabase.co"
 $env:SUPABASE_SERVICE_ROLE_KEY = "<SERVICE_ROLE_KEY>"
 
-npx --yes supabase functions deploy lotto-train-agent --project-ref $env:SUPABASE_PROJECT_REF --use-api
+npx --yes supabase db push --project-ref $env:SUPABASE_PROJECT_REF
+npx --yes supabase functions deploy lotto-train-agent --project-ref $env:SUPABASE_PROJECT_REF --use-api --no-verify-jwt
 ~~~
 
-'SUPABASE_SERVICE_ROLE_KEY' 只能存在本機環境變數或 Supabase secret。禁止提交到 Git、文件範例、前端環境變數或 Cloudflare Pages。
+'lotto-train-agent' 會在 handler 內比對完整 service secret，因此使用新的 'sb_secret_...' key 時必須以 '--no-verify-jwt' 部署，避免 gateway 在 handler 前把非 JWT key 拒絕。舊版 service-role JWT 也走同一套 handler 驗證。若要輪替或並存多把 server key，將 JSON object 存入 Edge Function secret 'LOTTO_SERVICE_SECRET_KEYS'；不要使用保留的 'SUPABASE_' 前綴建立自訂 secret。
+
+'SUPABASE_SERVICE_ROLE_KEY' 與 'LOTTO_SERVICE_SECRET_KEYS' 只能存在本機環境變數或 Supabase secret。禁止提交到 Git、文件範例、前端環境變數或 Cloudflare Pages。'--no-verify-jwt' 不代表公開存取；未帶入完全相符 server secret 的請求仍會由 Function 回傳 401。
 
 ### 2. 為 3 個彩種建立 run
 
-下列指令會分別查詢「今彩 539」、「大樂透」與「威力彩」當下的精確資料筆數，再以該筆數建立 'range_end'。不可共用 fixture 數量或手動猜測筆數。
+下列指令會分別查詢「今彩 539」、「大樂透」與「威力彩」當下的精確資料筆數，再以該筆數建立 'range_end'。第一次執行 chunk 時，資料庫會把這些期數複製到 'lotto_training_draw_snapshots'；後續 chunk 只讀取該 immutable snapshot，因此歷史補登不會改變既有 run 的 cursor 語意。不可共用 fixture 數量或手動猜測筆數。
 
 ~~~powershell
 $headers = @{
@@ -157,9 +160,10 @@ $runId = "<TRAINING_RUN_UUID>"
 $encodedRunId = [uri]::EscapeDataString($runId)
 $fields = "id,game_name,status,range_start,range_end,checkpoint_cursor,summary,error_text,started_at,completed_at"
 Invoke-RestMethod -Method Get -Uri "$env:SUPABASE_URL/rest/v1/lotto_training_runs?id=eq.$encodedRunId&select=$fields" -Headers $headers
+Invoke-RestMethod -Method Get -Uri "$env:SUPABASE_URL/rest/v1/lotto_training_draw_snapshots?run_id=eq.$encodedRunId&select=sequence_no,draw_id,draw_date&order=sequence_no.asc" -Headers $headers
 ~~~
 
-只有同時符合 'status = completed' 與 'checkpoint_cursor = range_end' 的 run，才可進入後續人工驗證與 candidate state 匯入流程。'queued'、'running'、'failed' 或 cursor 未到終點的 run，一律不得作為 production state 種子。
+只有同時符合 'status = completed'、'checkpoint_cursor = range_end'、'summary.snapshot.frozen = true'，且 snapshot 筆數等於 'range_end' 的 run，才可進入後續人工驗證與 candidate state 匯入流程。'queued'、'running'、'failed' 或 cursor 未到終點的 run，一律不得作為 production state 種子。
 
 
 ## GitHub Actions 邊界

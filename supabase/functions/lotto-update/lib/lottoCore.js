@@ -7,6 +7,7 @@ import { updateHedgeWeights } from "../../lotto-predict-notify/lib/ensemble.js";
 import {
   brierScore,
   brierSkillScore,
+  combinedAreaBrier,
   coverageMetrics,
   logLoss,
 } from "../../lotto-predict-notify/lib/scoring.js";
@@ -470,6 +471,11 @@ export function scoreModelForecast({ forecast, draw, config }) {
       };
   }
 
+  metrics.combined_brier = combinedAreaBrier(
+    metrics.brier,
+    Number.isFinite(metrics.special_area?.brier) ? metrics.special_area.brier : null,
+  );
+
   return {
     forecast_id: String(forecast?.id),
     game_name: forecast?.game_name,
@@ -543,16 +549,19 @@ function pairedCandidateSamples(scores, candidateName, baselineName) {
     .map((candidate) => ({ candidate, baseline: baselineByDraw.get(String(candidate.draw_id)) }))
     .filter(({ candidate, baseline }) => (
       baseline &&
-      Number.isFinite(candidate?.metrics?.brier) &&
-      Number.isFinite(baseline?.metrics?.brier) &&
-      baseline.metrics.brier > 0
+      Number.isFinite(candidate?.metrics?.combined_brier ?? candidate?.metrics?.brier) &&
+      Number.isFinite(baseline?.metrics?.combined_brier ?? baseline?.metrics?.brier) &&
+      (baseline.metrics.combined_brier ?? baseline.metrics.brier) > 0
     ))
     .sort((left, right) => compareScoreDraw(left.candidate, right.candidate));
 }
 
 function metricsForCandidate(samples, candidateModel, picks) {
   const skillValues = samples.map(({ candidate, baseline }) =>
-    1 - (candidate.metrics.brier / baseline.metrics.brier));
+    1 - (
+      (candidate.metrics.combined_brier ?? candidate.metrics.brier) /
+      (baseline.metrics.combined_brier ?? baseline.metrics.brier)
+    ));
   const recent100 = skillValues.slice(-100);
   const recent500 = skillValues.slice(-500);
   const inference = deterministicInference(recent500);
@@ -578,6 +587,21 @@ function metricsForCandidate(samples, candidateModel, picks) {
       ? mean(coverageDeltas)
       : null,
   };
+}
+
+function scoreHistoryFromTrainingState(activeState) {
+  const recent = activeState?.metrics?.recent_model_scores;
+  if (!Array.isArray(recent)) return [];
+  return recent.flatMap((entry) => Object.entries(entry?.models || {}).map(([modelName, score]) => ({
+    model_name: modelName,
+    draw_id: String(entry.draw_id),
+    draw_date: entry.draw_date,
+    metrics: {
+      brier: score?.brier,
+      combined_brier: score?.combined_brier ?? score?.brier,
+      coverage: null,
+    },
+  })));
 }
 
 export function buildCandidatePromotionDecision({
@@ -652,8 +676,9 @@ export function buildNextAgentState({
 
   const evaluatedDraws = Number(activeState?.metrics?.evaluated_draws || 0) + 1;
   const losses = Object.fromEntries((scoredForecasts || [])
-    .filter((score) => typeof score?.model_name === "string" && Number.isFinite(score?.metrics?.brier))
-    .map((score) => [score.model_name, score.metrics.brier]));
+    .map((score) => [score, score?.metrics?.combined_brier ?? score?.metrics?.brier])
+    .filter(([score, loss]) => typeof score?.model_name === "string" && Number.isFinite(loss))
+    .map(([score, loss]) => [score.model_name, loss]));
   const gamma = Number.isFinite(activeState?.learning_config?.gamma)
     ? activeState.learning_config.gamma
     : 0.1;
@@ -931,7 +956,7 @@ export async function runPostDrawLearning({
       ? await deps.fetchScoreHistory(prediction.game_name, draw)
       : [];
     const promotionDecision = buildCandidatePromotionDecision({
-      scoreHistory,
+      scoreHistory: [...scoreHistoryFromTrainingState(activeState), ...scoreHistory],
       currentScores: scoredForecasts,
       candidateNames: Object.keys(activeState.expert_weights || {}),
       baselineName: "uniform",

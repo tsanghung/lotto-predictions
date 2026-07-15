@@ -187,6 +187,17 @@ export function brierSkillScore(modelScore, baselineScore) {
   return baselineScore > 0 ? 1 - modelScore / baselineScore : 0;
 }
 
+export function combinedAreaBrier(mainBrier, specialBrier = null) {
+  if (!Number.isFinite(mainBrier) || mainBrier < 0) {
+    throw new RangeError("mainBrier must be a finite non-negative number");
+  }
+  if (specialBrier == null) return mainBrier;
+  if (!Number.isFinite(specialBrier) || specialBrier < 0) {
+    throw new RangeError("specialBrier must be null or a finite non-negative number");
+  }
+  return (mainBrier + specialBrier) / 2;
+}
+
 export function coverageMetrics(groupA, groupB, actualNumbers) {
   const setA = toNumberSet(groupA, "groupA");
   const setB = toNumberSet(groupB, "groupB");
