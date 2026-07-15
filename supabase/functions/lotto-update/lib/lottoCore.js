@@ -753,6 +753,50 @@ async function fetchExactDrawCheckpoint(deps, gameName, draw) {
   return stateMatchesDrawCheckpoint(checkpoint, gameName, draw) ? checkpoint : null;
 }
 
+async function claimOrderedAgentLearning(deps, prediction, draw) {
+  if (typeof deps.claimAgentLearning !== "function") {
+    throw new Error("LAI ordered learning requires claimAgentLearning");
+  }
+  const claim = await deps.claimAgentLearning({
+    game_name: prediction.game_name,
+    draw_id: String(draw.draw_id),
+    draw_date: draw.draw_date ?? draw.date,
+    source_key: prediction.source_key,
+  });
+  const status = claim?.status;
+  if (status === "claimed") {
+    if (typeof claim.claim_token !== "string" || !claim.claim_token) {
+      throw new Error("LAI ordered learning claim is missing claim_token");
+    }
+    return claim;
+  }
+  if (["already_learned", "deferred_earlier_draw", "in_progress", "not_eligible"].includes(status)) {
+    return claim;
+  }
+  throw new Error(`LAI ordered learning returned invalid status: ${String(status)}`);
+}
+
+async function recoverStaleAgentLearning(deps, prediction, draw) {
+  if (typeof deps.recoverAgentLearningOrder !== "function") {
+    throw new Error("LAI stale learning gap requires recoverAgentLearningOrder");
+  }
+  const recovery = await deps.recoverAgentLearningOrder({
+    game_name: prediction.game_name,
+    draw_id: String(draw.draw_id),
+    draw_date: draw.draw_date ?? draw.date,
+  });
+  const allowedStatuses = [
+    "rewound",
+    "already_learned",
+    "deferred_earlier_draw",
+    "not_needed",
+    "not_eligible",
+  ];
+  if (!allowedStatuses.includes(recovery?.status)) {
+    throw new Error(`LAI learning order recovery returned invalid status: ${String(recovery?.status)}`);
+  }
+  return recovery;
+}
 export async function runPostDrawLearning({
   prediction,
   draw,
@@ -784,6 +828,86 @@ export async function runPostDrawLearning({
         .map((forecast) => forecast.model_name),
   });
 
+  const initialCheckpointStatus = compareDrawCheckpoint(activeState, draw);
+  if (initialCheckpointStatus === "already_learned") {
+    await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+    return { learning_status: "already_learned" };
+  }
+  if (initialCheckpointStatus === "stale_draw") {
+    const historicalCheckpoint = await fetchExactDrawCheckpoint(
+      deps,
+      prediction.game_name,
+      draw,
+    );
+    if (historicalCheckpoint) {
+      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+      return { learning_status: "already_learned" };
+    }
+
+    const recovery = await recoverStaleAgentLearning(deps, prediction, draw);
+    if (recovery.status === "already_learned") {
+      const recoveredCheckpoint = await fetchExactDrawCheckpoint(
+        deps,
+        prediction.game_name,
+        draw,
+      );
+      if (!recoveredCheckpoint) {
+        throw new Error(`LAI recovery reported learned without checkpoint for ${prediction.game_name} draw ${draw.draw_id}`);
+      }
+      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+      return { learning_status: "already_learned" };
+    }
+    if (recovery.status === "deferred_earlier_draw") {
+      return {
+        learning_status: "deferred_earlier_draw",
+        blocking_draw_id: recovery.blocking_draw_id ?? null,
+      };
+    }
+    if (recovery.status !== "rewound") {
+      throw new Error(
+        `LAI stale learning gap was not recoverable: ${recovery.status} for ${prediction.game_name} draw ${draw.draw_id}`,
+      );
+    }
+
+    activeState = await deps.fetchActiveState(prediction.game_name) ?? createBaselineState({
+      gameName: prediction.game_name,
+      expertNames: forecastsFallbackExpertNames.length
+        ? forecastsFallbackExpertNames
+        : forecasts
+          .filter((forecast) => forecast.model_name !== "ensemble")
+          .map((forecast) => forecast.model_name),
+    });
+    const recoveredStatus = compareDrawCheckpoint(activeState, draw);
+    if (recoveredStatus === "already_learned") {
+      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+      return { learning_status: "already_learned" };
+    }
+    if (recoveredStatus !== "new_draw") {
+      throw new Error(
+        `LAI learning order recovery did not rewind before ${prediction.game_name} draw ${draw.draw_id}`,
+      );
+    }
+  }
+  const claim = await claimOrderedAgentLearning(deps, prediction, draw);
+  if (claim.status === "already_learned") {
+    const historicalCheckpoint = await fetchExactDrawCheckpoint(
+      deps,
+      prediction.game_name,
+      draw,
+    );
+    if (!historicalCheckpoint) {
+      throw new Error(`LAI claim reported learned without checkpoint for ${prediction.game_name} draw ${draw.draw_id}`);
+    }
+    await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+    return { learning_status: "already_learned" };
+  }
+  if (claim.status !== "claimed") {
+    return {
+      learning_status: claim.status,
+      blocking_draw_id: claim.blocking_draw_id ?? null,
+    };
+  }
+
   for (let attempt = 1; attempt <= MAX_AGENT_ACTIVATION_ATTEMPTS; attempt += 1) {
     const checkpointStatus = compareDrawCheckpoint(activeState, draw);
     if (checkpointStatus === "already_learned") {
@@ -800,7 +924,7 @@ export async function runPostDrawLearning({
         await deps.markPredictionEvaluated(prediction.source_key, evaluation);
         return { learning_status: "already_learned" };
       }
-      return { learning_status: "stale_draw" };
+      return { learning_status: "deferred_learning_order" };
     }
 
     const scoreHistory = deps.fetchScoreHistory
@@ -821,9 +945,14 @@ export async function runPostDrawLearning({
       promotionDecision,
     });
     const scoreRows = scoreRowsWithWeights(scoredForecasts, activeState, nextState);
+    const claimedNextState = {
+      ...nextState,
+      learning_claim_token: claim.claim_token,
+      prediction_source_key: prediction.source_key,
+    };
 
     await deps.upsertModelScores(scoreRows);
-    const activatedState = await deps.activateAgentState(nextState);
+    const activatedState = await deps.activateAgentState(claimedNextState);
     if (stateMatchesExpectedCheckpoint(activatedState, nextState)) {
       await deps.markPredictionEvaluated(prediction.source_key, evaluation);
       return {

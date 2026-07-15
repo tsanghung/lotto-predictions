@@ -1042,3 +1042,42 @@ test("builds Power Lottery second-area cumulative hit rates", () => {
     },
   });
 });
+
+test("index claims ordered LAI work and only publishes completed learning", () => {
+  const claimSource = updateIndexSourceBetween(
+    "async function claimAgentLearning",
+    "async function fetchUnscoredModelForecasts",
+  );
+  assert.match(claimSource, /rpc\/claim_next_lai_learning/);
+  assert.match(claimSource, /p_game_name/);
+  assert.match(claimSource, /p_draw_id/);
+  assert.match(claimSource, /p_draw_date/);
+  assert.match(claimSource, /p_source_key/);
+  assert.match(claimSource, /claim_token/);
+
+  const evaluationSource = updateIndexSourceBetween(
+    "async function evaluateReadyPredictions",
+    "async function updateGame",
+  );
+  assert.match(evaluationSource, /claimAgentLearning:[^]*claimAgentLearning\s*\(/);
+  assert.match(evaluationSource, /learning_status/);
+  assert.match(evaluationSource, /\["learned",\s*"already_learned"\]/);
+  assert.match(evaluationSource, /continue/);
+});
+
+test("index wires the bounded stale-order recovery RPC", () => {
+  const recoverySource = updateIndexSourceBetween(
+    "async function recoverAgentLearningOrder",
+    "async function claimAgentLearning",
+  );
+  assert.match(recoverySource, /rpc\/recover_lai_learning_order/);
+  assert.match(recoverySource, /p_game_name/);
+  assert.match(recoverySource, /p_draw_id/);
+  assert.match(recoverySource, /p_draw_date/);
+
+  const evaluationSource = updateIndexSourceBetween(
+    "async function evaluateReadyPredictions",
+    "async function updateGame",
+  );
+  assert.match(evaluationSource, /recoverAgentLearningOrder:[^]*recoverAgentLearningOrder\s*\(/);
+});

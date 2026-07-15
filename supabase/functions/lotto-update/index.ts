@@ -89,9 +89,34 @@ type AgentStatePayload = {
   learning_config: Record<string, unknown>;
   metrics: Record<string, unknown>;
   last_learned_draw_id: string | null;
+  learning_claim_token?: string;
+  prediction_source_key?: string;
   last_learned_draw_date: string | null;
 };
 
+
+type LearningClaimRequest = {
+  game_name: string;
+  draw_id: string;
+  draw_date: string;
+  source_key: string;
+};
+
+type LearningClaimResult = {
+  status: "claimed" | "already_learned" | "deferred_earlier_draw" | "in_progress" | "not_eligible";
+  draw_id?: string;
+  claim_token: string | null;
+  blocking_draw_id?: string;
+  blocking_draw_date?: string;
+  lease_expires_at?: string;
+};
+type LearningRecoveryResult = {
+  status: "rewound" | "already_learned" | "deferred_earlier_draw" | "not_needed" | "not_eligible";
+  draw_id?: string;
+  blocking_draw_id?: string;
+  replay_from_date?: string;
+  replay_through_date?: string;
+};
 type EnsembleScoreRow = {
   draw_id: string;
   draw_date: string;
@@ -483,6 +508,77 @@ async function fetchAgentStateCheckpoint(
   return rows[0] ?? null;
 }
 
+async function recoverAgentLearningOrder(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  request: Omit<LearningClaimRequest, "source_key">,
+): Promise<LearningRecoveryResult> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/recover_lai_learning_order`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceRoleKey),
+    body: JSON.stringify({
+      p_game_name: request.game_name,
+      p_draw_id: request.draw_id,
+      p_draw_date: request.draw_date,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase learning order recovery failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = await response.json() as LearningRecoveryResult | LearningRecoveryResult[];
+  const recovery = Array.isArray(payload) ? payload[0] : payload;
+  const allowedStatuses = new Set([
+    "rewound",
+    "already_learned",
+    "deferred_earlier_draw",
+    "not_needed",
+    "not_eligible",
+  ]);
+  if (!recovery || !allowedStatuses.has(recovery.status)) {
+    throw new Error("Supabase learning order recovery returned an invalid status");
+  }
+  return recovery;
+}
+async function claimAgentLearning(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  request: LearningClaimRequest,
+): Promise<LearningClaimResult> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/claim_next_lai_learning`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceRoleKey),
+    body: JSON.stringify({
+      p_game_name: request.game_name,
+      p_draw_id: request.draw_id,
+      p_draw_date: request.draw_date,
+      p_source_key: request.source_key,
+      p_lease_seconds: 120,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase ordered learning claim failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = await response.json() as LearningClaimResult | LearningClaimResult[];
+  const claim = Array.isArray(payload) ? payload[0] : payload;
+  const allowedStatuses = new Set([
+    "claimed",
+    "already_learned",
+    "deferred_earlier_draw",
+    "in_progress",
+    "not_eligible",
+  ]);
+  if (!claim || !allowedStatuses.has(claim.status)) {
+    throw new Error("Supabase ordered learning claim returned an invalid status");
+  }
+  if (claim.status === "claimed" && !claim.claim_token) {
+    throw new Error("Supabase ordered learning claim returned no claim_token");
+  }
+  return claim;
+}
 async function fetchUnscoredModelForecasts(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -793,7 +889,7 @@ async function evaluateReadyPredictions(
     }
 
     const evaluation = evaluatePredictionRecord(prediction, draw);
-    await runPostDrawLearning({
+    const learningResult = await runPostDrawLearning({
       prediction,
       draw,
       evaluation,
@@ -817,6 +913,17 @@ async function evaluateReadyPredictions(
             gameName,
             drawId,
           ),
+        recoverAgentLearningOrder: (request: Omit<LearningClaimRequest, "source_key">) =>
+          recoverAgentLearningOrder(
+            supabaseUrl,
+            serviceRoleKey,
+            request,
+          ),
+        claimAgentLearning: (request: LearningClaimRequest) => claimAgentLearning(
+          supabaseUrl,
+          serviceRoleKey,
+          request,
+        ),
         fetchScoreHistory: () => fetchModelScoreHistory(
           supabaseUrl,
           serviceRoleKey,
@@ -837,6 +944,10 @@ async function evaluateReadyPredictions(
           markPredictionEvaluated(supabaseUrl, serviceRoleKey, sourceKey, result),
       },
     });
+
+    if (!["learned", "already_learned"].includes(learningResult.learning_status)) {
+      continue;
+    }
 
     const asiLearningRecord = buildAsiLearningRecord(prediction, draw, evaluation);
     await upsertAsiLearningRecord(supabaseUrl, serviceRoleKey, asiLearningRecord);
