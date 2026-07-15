@@ -447,7 +447,7 @@ async function markNotificationSent(
   }
 }
 
-async function sendLineMessage(message: string): Promise<unknown> {
+async function sendLineMessage(message: string, retryKey: string): Promise<unknown> {
   const accessToken = requireEnv("LINE_CHANNEL_ACCESS_TOKEN");
   const userId = requireEnv("LINE_USER_ID");
   const response = await fetch("https://api.line.me/v2/bot/message/push", {
@@ -455,6 +455,7 @@ async function sendLineMessage(message: string): Promise<unknown> {
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${accessToken}`,
+      "X-Line-Retry-Key": retryKey,
     },
     body: JSON.stringify({
       to: userId,
@@ -462,8 +463,21 @@ async function sendLineMessage(message: string): Promise<unknown> {
     }),
   });
   const text = await response.text();
+  const acceptedRequestId = response.headers.get("x-line-accepted-request-id");
   if (!response.ok) {
-    throw new Error(`LINE push failed: ${response.status} ${text}`);
+    const error = new Error(`LINE push failed: ${response.status} ${text}`);
+    if (response.status === 409 && acceptedRequestId) {
+      Object.assign(error, {
+        status: response.status,
+        acceptedRequestId,
+        response: {
+          status: response.status,
+          body: text,
+          accepted_request_id: acceptedRequestId,
+        },
+      });
+    }
+    throw error;
   }
   return { status: response.status, body: text };
 }

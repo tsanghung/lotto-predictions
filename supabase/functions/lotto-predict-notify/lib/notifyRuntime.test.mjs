@@ -453,3 +453,123 @@ test("duplicate reservation does not re-send the LINE message and keeps notifica
   assert.equal(result.notification_key, notificationKey(GAME_CONFIG["539"].name, "2026-07-10", "prediction"));
   assert.equal(calls.some(([name]) => name === "sendLineMessage"), false);
 });
+
+test("passes a stable UUID retry key derived from the notification key to LINE", async () => {
+  const retryKeys = [];
+  const options = {
+    gameType: "539",
+    draws: dailyDraws,
+    gameName: GAME_CONFIG["539"].name,
+    targetDate: "2026-07-10",
+    drawTargetDate: "2026-07-10",
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    dryRun: false,
+    requestedEngine: null,
+    laiEnabled: false,
+    shadowEnabled: false,
+  };
+  const deps = {
+    notificationKey,
+    sourceKey,
+    generateHonestPrediction,
+    buildLineMessage,
+    buildPredictionRow: makePredictionRow,
+    upsertPrediction: async () => {},
+    reserveNotification: async () => true,
+    sendLineMessage: async (_message, retryKey) => {
+      retryKeys.push(retryKey);
+      return { status: 200 };
+    },
+    markNotificationSent: async () => {},
+  };
+
+  await executePredictionFlow(options, deps);
+  await executePredictionFlow(options, deps);
+
+  assert.match(retryKeys[0], /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  assert.equal(retryKeys[0], retryKeys[1]);
+});
+
+test("accepted LINE retry responses are marked sent instead of failed", async () => {
+  const marks = [];
+  const acceptedError = Object.assign(new Error("LINE push failed: 409"), {
+    status: 409,
+    acceptedRequestId: "accepted-request-id",
+    response: {
+      status: 409,
+      accepted_request_id: "accepted-request-id",
+    },
+  });
+
+  const result = await executePredictionFlow({
+    gameType: "539",
+    draws: dailyDraws,
+    gameName: GAME_CONFIG["539"].name,
+    targetDate: "2026-07-10",
+    drawTargetDate: "2026-07-10",
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    dryRun: false,
+    requestedEngine: null,
+    laiEnabled: false,
+    shadowEnabled: false,
+  }, {
+    notificationKey,
+    sourceKey,
+    generateHonestPrediction,
+    buildLineMessage,
+    buildPredictionRow: makePredictionRow,
+    upsertPrediction: async () => {},
+    reserveNotification: async () => true,
+    sendLineMessage: async () => {
+      throw acceptedError;
+    },
+    markNotificationSent: async (...args) => {
+      marks.push(args);
+    },
+  });
+
+  assert.equal(result.status, "sent");
+  assert.equal(marks.length, 1);
+  assert.equal(marks[0][1], "sent");
+  assert.deepEqual(marks[0][2], acceptedError.response);
+});
+
+test("a LINE 409 without an accepted request id fails fast", async () => {
+  const marks = [];
+  const conflictError = Object.assign(new Error("LINE push failed: 409"), {
+    status: 409,
+    acceptedRequestId: null,
+  });
+
+  await assert.rejects(
+    executePredictionFlow({
+      gameType: "539",
+      draws: dailyDraws,
+      gameName: GAME_CONFIG["539"].name,
+      targetDate: "2026-07-10",
+      drawTargetDate: "2026-07-10",
+      generatedAt: "2026-07-10T10:00:00+08:00",
+      dryRun: false,
+      requestedEngine: null,
+      laiEnabled: false,
+      shadowEnabled: false,
+    }, {
+      notificationKey,
+      sourceKey,
+      generateHonestPrediction,
+      buildLineMessage,
+      buildPredictionRow: makePredictionRow,
+      upsertPrediction: async () => {},
+      reserveNotification: async () => true,
+      sendLineMessage: async () => {
+        throw conflictError;
+      },
+      markNotificationSent: async (...args) => {
+        marks.push(args);
+      },
+    }),
+    /LINE push failed: 409/,
+  );
+
+  assert.equal(marks[0][1], "failed");
+});

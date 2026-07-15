@@ -6,6 +6,31 @@ function cloneJsonReady(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+const LINE_RETRY_NAMESPACE = Uint8Array.from([
+  0x6b, 0xa7, 0xb8, 0x10, 0x9d, 0xad, 0x11, 0xd1,
+  0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8,
+]);
+
+function formatUuid(bytes) {
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+export async function buildLineRetryKey(notificationKey) {
+  const nameBytes = new TextEncoder().encode(String(notificationKey));
+  const input = new Uint8Array(LINE_RETRY_NAMESPACE.length + nameBytes.length);
+  input.set(LINE_RETRY_NAMESPACE);
+  input.set(nameBytes, LINE_RETRY_NAMESPACE.length);
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-1", input));
+  digest[6] = (digest[6] & 0x0f) | 0x50;
+  digest[8] = (digest[8] & 0x3f) | 0x80;
+  return formatUuid(digest.slice(0, 16));
+}
+
+function isAcceptedLineRetryError(error) {
+  return error && error.status === 409 && typeof error.acceptedRequestId === "string" && error.acceptedRequestId.length > 0;
+}
+
 export function resolveLaiExecution({
   dryRun,
   requestedEngine,
@@ -157,7 +182,8 @@ export async function executePredictionFlow(options, deps) {
   }
 
   try {
-    const lineResponse = await deps.sendLineMessage(message);
+    const retryKey = await buildLineRetryKey(key);
+    const lineResponse = await deps.sendLineMessage(message, retryKey);
     await deps.markNotificationSent(key, "sent", lineResponse);
     return {
       game: gameType,
@@ -167,6 +193,19 @@ export async function executePredictionFlow(options, deps) {
       prediction: selectedRecord.prediction,
     };
   } catch (error) {
+    if (isAcceptedLineRetryError(error)) {
+      await deps.markNotificationSent(key, "sent", error.response ?? {
+        status: error.status,
+        accepted_request_id: error.acceptedRequestId,
+      });
+      return {
+        game: gameType,
+        status: "sent",
+        notification_key: key,
+        target_date: drawTargetDate,
+        prediction: selectedRecord.prediction,
+      };
+    }
     await deps.markNotificationSent(
       key,
       "failed",
