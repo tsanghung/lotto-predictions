@@ -29,10 +29,16 @@ create table if not exists public.lotto_learning_recoveries (
   replay_from_date date not null,
   replay_through_date date not null,
   removed_checkpoints jsonb not null default '[]'::jsonb,
+  removed_scores jsonb not null default '[]'::jsonb,
+  requeued_predictions jsonb not null default '[]'::jsonb,
   removed_score_count integer not null default 0,
   requeued_prediction_count integer not null default 0,
   created_at timestamptz not null default now()
 );
+
+alter table public.lotto_learning_recoveries
+  add column if not exists removed_scores jsonb not null default '[]'::jsonb,
+  add column if not exists requeued_predictions jsonb not null default '[]'::jsonb;
 
 alter table public.lotto_learning_recoveries enable row level security;
 create or replace function public.claim_next_lai_learning(
@@ -217,6 +223,8 @@ declare
   earliest record;
   replay_through date;
   removed_checkpoints jsonb := '[]'::jsonb;
+  removed_score_rows jsonb := '[]'::jsonb;
+  requeued_prediction_rows jsonb := '[]'::jsonb;
   removed_scores integer := 0;
   requeued_predictions integer := 0;
 begin
@@ -294,28 +302,38 @@ begin
     max(last_learned_draw_date),
     coalesce(
       jsonb_agg(
-        jsonb_build_object(
-          'draw_id', last_learned_draw_id,
-          'draw_date', last_learned_draw_date,
-          'state_version', state_version
-        ) order by last_learned_draw_date, state_version
+        to_jsonb(states) order by last_learned_draw_date, state_version
       ),
       '[]'::jsonb
     )
   into replay_through, removed_checkpoints
-  from public.lotto_agent_states
-  where game_name = p_game_name
-    and last_learned_draw_date >= p_draw_date;
+  from public.lotto_agent_states as states
+  where states.game_name = p_game_name
+    and states.last_learned_draw_date >= p_draw_date;
 
   if replay_through is null then
     return jsonb_build_object('status', 'not_needed', 'draw_id', p_draw_id);
   end if;
 
+  select coalesce(jsonb_agg(to_jsonb(predictions) order by predicted_at, source_key), '[]'::jsonb)
+  into requeued_prediction_rows
+  from public.prediction_records as predictions
+  where predictions.game_name = p_game_name
+    and predictions.target_draw_date between p_draw_date and replay_through
+    and predictions.prediction->>'model' = 'lai-v2';
+
   update public.prediction_records
   set is_evaluated = false, evaluation = null
   where game_name = p_game_name
-    and target_draw_date between p_draw_date and replay_through;
+    and target_draw_date between p_draw_date and replay_through
+    and prediction->>'model' = 'lai-v2';
   get diagnostics requeued_predictions = row_count;
+
+  select coalesce(jsonb_agg(to_jsonb(scores) order by draw_date, draw_id, model_name), '[]'::jsonb)
+  into removed_score_rows
+  from public.lotto_model_scores as scores
+  where scores.game_name = p_game_name
+    and scores.draw_date between p_draw_date and replay_through;
 
   delete from public.lotto_model_scores
   where game_name = p_game_name
@@ -342,10 +360,12 @@ begin
 
   insert into public.lotto_learning_recoveries (
     game_name, requested_draw_id, replay_from_date, replay_through_date,
-    removed_checkpoints, removed_score_count, requeued_prediction_count
+    removed_checkpoints, removed_scores, requeued_predictions,
+    removed_score_count, requeued_prediction_count
   ) values (
     p_game_name, p_draw_id, p_draw_date, replay_through,
-    removed_checkpoints, removed_scores, requeued_predictions
+    removed_checkpoints, removed_score_rows, requeued_prediction_rows,
+    removed_scores, requeued_predictions
   );
 
   return jsonb_build_object(
@@ -374,14 +394,16 @@ declare
   incoming_draw_date date := nullif(p_state->>'last_learned_draw_date', '')::date;
   incoming_state_version bigint := nullif(p_state->>'state_version', '')::bigint;
   incoming_claim_token uuid := nullif(p_state->>'learning_claim_token', '')::uuid;
+  incoming_source_key text := nullif(p_state->>'prediction_source_key', '');
   completed_claims integer := 0;
 begin
   if incoming_game_name is null
     or incoming_draw_id is null
     or incoming_draw_date is null
     or incoming_state_version is null
-    or incoming_claim_token is null then
-    raise exception 'activate_lotto_agent_state requires game, draw checkpoint, date, state version, and learning_claim_token';
+    or incoming_claim_token is null
+    or incoming_source_key is null then
+    raise exception 'activate_lotto_agent_state requires game, draw checkpoint, date, state version, claim, and source key';
   end if;
 
   perform pg_advisory_xact_lock(hashtextextended(incoming_game_name, 0));
@@ -419,6 +441,7 @@ begin
   if not found
     or learning_claim.status <> 'claimed'
     or learning_claim.claim_token <> incoming_claim_token
+    or learning_claim.prediction_source_key <> incoming_source_key
     or learning_claim.lease_expires_at <= now() then
     raise exception 'activate_lotto_agent_state requires a live ordered learning claim';
   end if;

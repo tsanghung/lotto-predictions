@@ -53,6 +53,7 @@ test("activation RPC requires the live claim and durably completes it with the d
   assert.ok(stateInsertAt > claimLockAt, "state activation must follow claim verification");
   assert.ok(learnedAt > stateInsertAt, "claim must become learned after state checkpoint insertion");
   assert.match(source, /get diagnostics completed_claims = row_count/);
+  assert.match(source, /learning_claim\.prediction_source_key\s*<>\s*incoming_source_key/is);
 });
 
 test("recovery RPC transactionally rewinds derived work and records an audit event", async () => {
@@ -73,4 +74,15 @@ test("recovery RPC transactionally rewinds derived work and records an audit eve
   assert.ok(reactivateAt > stateDeleteAt, "the predecessor state must be reactivated");
   assert.ok(auditAt > reactivateAt, "the rebase must be durably audited");
   assert.match(source, /create table if not exists public\.lotto_learning_recoveries/is);
+  assert.match(source, /prediction->>'model'\s*=\s*'lai-v2'/is);
+  assert.match(source, /removed_scores\s+jsonb/is);
+  assert.match(source, /requeued_predictions\s+jsonb/is);
+  assert.ok(
+    source.indexOf("into removed_score_rows", lockAt) < scoreDeleteAt,
+    "score payloads must be audited before deletion",
+  );
+  assert.ok(
+    source.indexOf("into requeued_prediction_rows", lockAt) < resetAt,
+    "prediction evaluations must be audited before requeue",
+  );
 });
