@@ -1,3 +1,12 @@
+import { evaluatePromotion } from "../../lotto-predict-notify/lib/agentState.js";
+import { updateHedgeWeights } from "../../lotto-predict-notify/lib/ensemble.js";
+import {
+  brierScore,
+  brierSkillScore,
+  coverageMetrics,
+  logLoss,
+} from "../../lotto-predict-notify/lib/scoring.js";
+
 export const GAME_NAMES = {
   "539": "今彩539",
   "649": "大樂透",
@@ -405,6 +414,116 @@ export function evaluatePredictionRecord(record, draw) {
   };
 }
 
+function forecastGroups(finalGroups, key) {
+  const groups = finalGroups?.[key];
+  if (!groups || typeof groups !== "object") {
+    return [[], []];
+  }
+
+  const values = Object.values(groups).filter(Array.isArray);
+  return [
+    groups["機率主攻"] ?? values[0] ?? [],
+    groups["覆蓋探索"] ?? values[1] ?? [],
+  ];
+}
+
+function areaScore({ probabilities, actualNumbers, maxNumber, picks, groups }) {
+  const baseline = Array(maxNumber).fill(picks / maxNumber);
+  const brier = brierScore(probabilities, actualNumbers, maxNumber);
+
+  return {
+    brier,
+    log_loss: logLoss(probabilities, actualNumbers, maxNumber),
+    brier_skill_score: brierSkillScore(
+      brier,
+      brierScore(baseline, actualNumbers, maxNumber),
+    ),
+    coverage: coverageMetrics(groups[0], groups[1], actualNumbers),
+  };
+}
+
+export function scoreModelForecast({ forecast, draw, config }) {
+  const metrics = areaScore({
+    probabilities: forecast?.probabilities,
+    actualNumbers: draw?.numbers || [],
+    maxNumber: config?.maxNumber,
+    picks: config?.picks,
+    groups: forecastGroups(forecast?.final_groups, "combinations"),
+  });
+
+  if (config?.secondaryNumber && Array.isArray(forecast?.special_probabilities)) {
+    metrics.special_area = areaScore({
+      probabilities: forecast.special_probabilities,
+      actualNumbers: [draw?.special_number],
+      maxNumber: config.secondaryNumber.maxNumber,
+      picks: config.secondaryNumber.picks,
+      groups: forecastGroups(forecast?.final_groups, "special_combinations"),
+    });
+  }
+
+  return {
+    forecast_id: String(forecast?.id),
+    game_name: forecast?.game_name,
+    model_name: forecast?.model_name,
+    draw_id: String(draw?.draw_id),
+    draw_date: draw?.draw_date ?? draw?.date,
+    metrics,
+    evaluator_version: "lai-v2-post-draw-v1",
+  };
+}
+
+function bestScoredModel(scoredForecasts, eligibleNames) {
+  return (scoredForecasts || [])
+    .filter((score) => eligibleNames.has(score?.model_name) && Number.isFinite(score?.metrics?.brier))
+    .sort((left, right) => (
+      left.metrics.brier - right.metrics.brier ||
+      String(left.model_name).localeCompare(String(right.model_name))
+    ))[0]?.model_name ?? null;
+}
+
+export function buildNextAgentState({ activeState, scoredForecasts, draw, promotionMetrics = {} }) {
+  if (String(activeState?.last_learned_draw_id) === String(draw?.draw_id)) {
+    return { status: "already_learned" };
+  }
+
+  const evaluatedDraws = Number(activeState?.metrics?.evaluated_draws || 0) + 1;
+  const losses = Object.fromEntries((scoredForecasts || [])
+    .filter((score) => typeof score?.model_name === "string" && Number.isFinite(score?.metrics?.brier))
+    .map((score) => [score.model_name, score.metrics.brier]));
+  const gamma = Number.isFinite(activeState?.learning_config?.gamma)
+    ? activeState.learning_config.gamma
+    : 0.1;
+  const expertWeights = updateHedgeWeights({
+    weights: activeState?.expert_weights,
+    losses,
+    sampleCount: evaluatedDraws,
+    baselineName: "uniform",
+    gamma,
+  });
+  const promotion = evaluatePromotion(promotionMetrics);
+  const eligibleNames = new Set(Object.keys(expertWeights));
+  const promotedModel = promotion.promoted
+    ? bestScoredModel(scoredForecasts, eligibleNames)
+    : null;
+
+  return {
+    game_name: activeState?.game_name,
+    state_version: Number(activeState?.state_version) + 1,
+    status: promotion.promoted ? "champion" : activeState?.status,
+    champion_model: promotedModel ?? activeState?.champion_model,
+    expert_weights: expertWeights,
+    learning_config: structuredClone(activeState?.learning_config || {}),
+    metrics: {
+      ...(activeState?.metrics || {}),
+      ...promotionMetrics,
+      evaluated_draws: evaluatedDraws,
+      promotion,
+    },
+    last_learned_draw_id: String(draw?.draw_id),
+    last_learned_draw_date: draw?.draw_date ?? draw?.date,
+  };
+}
+
 export function buildAsiLearningRecord(record, draw, evaluation) {
   const prediction = record?.prediction || {};
   const learningReport = evaluation?.learning_report || {};
@@ -482,7 +601,11 @@ function latestEvaluatedByTargetDate(records) {
   );
 }
 
-export function buildPerformanceSnapshot(records, generatedAt = new Date().toISOString()) {
+export function buildPerformanceSnapshot(
+  records,
+  generatedAt = new Date().toISOString(),
+  laiByGame = {},
+) {
   const performance = {
     last_updated: generatedAt,
     games: {},
@@ -565,7 +688,7 @@ export function buildPerformanceSnapshot(records, generatedAt = new Date().toISO
     gamePerf.trend.push(trendData);
   }
 
-  for (const gamePerf of Object.values(performance.games)) {
+  for (const [gameName, gamePerf] of Object.entries(performance.games)) {
     for (const stats of Object.values(gamePerf.strategies)) {
       const total = stats.total_hits + stats.total_misses;
       stats.win_rate = total > 0 ? Number((stats.total_hits / total).toFixed(4)) : 0;
@@ -577,6 +700,26 @@ export function buildPerformanceSnapshot(records, generatedAt = new Date().toISO
         const strategyTotal = stats.total_hits + stats.total_misses;
         stats.hit_rate = strategyTotal > 0 ? Number((stats.total_hits / strategyTotal).toFixed(4)) : 0;
       }
+    }
+
+    const lai = laiByGame?.[gameName];
+    if (lai) {
+      const actualNumberCount = Number(lai.actualNumberCount || 0);
+      const evaluatedDraws = Number(lai.evaluatedDraws || 0);
+      gamePerf.lai = {
+        brier_skill_score: lai.latestMetrics?.brier_skill_score,
+        union_coverage_rate: actualNumberCount > 0
+          ? Number(lai.unionHits || 0) / actualNumberCount
+          : 0,
+        average_group_a_hits: evaluatedDraws > 0
+          ? Number(lai.groupAHits || 0) / evaluatedDraws
+          : 0,
+        average_group_b_hits: evaluatedDraws > 0
+          ? Number(lai.groupBHits || 0) / evaluatedDraws
+          : 0,
+        champion_model: lai.latestState?.champion_model ?? null,
+        agent_status: lai.latestState?.status ?? null,
+      };
     }
   }
 
