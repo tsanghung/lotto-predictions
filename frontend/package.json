@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "node --test src/services/*.test.mjs",
     "build": "vite build",
     "build:cloudflare": "vite build --base=/",
     "preview": "vite preview"
