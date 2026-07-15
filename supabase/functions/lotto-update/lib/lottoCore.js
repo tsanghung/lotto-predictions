@@ -733,6 +733,26 @@ function scoreRowsWithWeights(scoredForecasts, activeState, nextState) {
   });
 }
 
+const MAX_AGENT_ACTIVATION_ATTEMPTS = 3;
+
+function stateMatchesExpectedCheckpoint(state, expectedState) {
+  return String(state?.game_name) === String(expectedState?.game_name) &&
+    Number(state?.state_version) === Number(expectedState?.state_version) &&
+    String(state?.last_learned_draw_id) === String(expectedState?.last_learned_draw_id) &&
+    String(state?.last_learned_draw_date) === String(expectedState?.last_learned_draw_date);
+}
+
+function stateMatchesDrawCheckpoint(state, gameName, draw) {
+  return String(state?.game_name) === String(gameName) &&
+    String(state?.last_learned_draw_id) === String(draw?.draw_id);
+}
+
+async function fetchExactDrawCheckpoint(deps, gameName, draw) {
+  if (typeof deps.fetchAgentStateCheckpoint !== "function") return null;
+  const checkpoint = await deps.fetchAgentStateCheckpoint(gameName, draw.draw_id);
+  return stateMatchesDrawCheckpoint(checkpoint, gameName, draw) ? checkpoint : null;
+}
+
 export async function runPostDrawLearning({
   prediction,
   draw,
@@ -747,22 +767,7 @@ export async function runPostDrawLearning({
   ]);
 
   if (!forecasts.length) {
-    await deps.markPredictionEvaluated(prediction.source_key, evaluation);
     return { learning_status: "no_forecasts" };
-  }
-
-  const activeState = fetchedActiveState ?? createBaselineState({
-    gameName: prediction.game_name,
-    expertNames: forecastsFallbackExpertNames.length
-      ? forecastsFallbackExpertNames
-      : forecasts
-        .filter((forecast) => forecast.model_name !== "ensemble")
-        .map((forecast) => forecast.model_name),
-  });
-  const checkpointStatus = compareDrawCheckpoint(activeState, draw);
-  if (checkpointStatus !== "new_draw") {
-    await deps.markPredictionEvaluated(prediction.source_key, evaluation);
-    return { learning_status: checkpointStatus };
   }
 
   const scoredForecasts = forecasts.map((forecast) => scoreModelForecast({
@@ -770,35 +775,95 @@ export async function runPostDrawLearning({
     draw,
     config,
   }));
-  const scoreHistory = deps.fetchScoreHistory
-    ? await deps.fetchScoreHistory(prediction.game_name, draw)
-    : [];
-  const promotionDecision = buildCandidatePromotionDecision({
-    scoreHistory,
-    currentScores: scoredForecasts,
-    candidateNames: Object.keys(activeState.expert_weights || {}),
-    baselineName: "uniform",
-    picks: config?.picks,
-    throughDraw: draw,
+  let activeState = fetchedActiveState ?? createBaselineState({
+    gameName: prediction.game_name,
+    expertNames: forecastsFallbackExpertNames.length
+      ? forecastsFallbackExpertNames
+      : forecasts
+        .filter((forecast) => forecast.model_name !== "ensemble")
+        .map((forecast) => forecast.model_name),
   });
-  const nextState = buildNextAgentState({
-    activeState,
-    scoredForecasts,
-    draw,
-    promotionDecision,
-  });
-  const scoreRows = scoreRowsWithWeights(scoredForecasts, activeState, nextState);
 
-  await deps.upsertModelScores(scoreRows);
-  await deps.activateAgentState(nextState);
-  await deps.markPredictionEvaluated(prediction.source_key, evaluation);
-  return {
-    learning_status: "learned",
-    score_rows: scoreRows,
-    next_state: nextState,
-  };
+  for (let attempt = 1; attempt <= MAX_AGENT_ACTIVATION_ATTEMPTS; attempt += 1) {
+    const checkpointStatus = compareDrawCheckpoint(activeState, draw);
+    if (checkpointStatus === "already_learned") {
+      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+      return { learning_status: "already_learned" };
+    }
+    if (checkpointStatus === "stale_draw") {
+      const historicalCheckpoint = await fetchExactDrawCheckpoint(
+        deps,
+        prediction.game_name,
+        draw,
+      );
+      if (historicalCheckpoint) {
+        await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+        return { learning_status: "already_learned" };
+      }
+      return { learning_status: "stale_draw" };
+    }
+
+    const scoreHistory = deps.fetchScoreHistory
+      ? await deps.fetchScoreHistory(prediction.game_name, draw)
+      : [];
+    const promotionDecision = buildCandidatePromotionDecision({
+      scoreHistory,
+      currentScores: scoredForecasts,
+      candidateNames: Object.keys(activeState.expert_weights || {}),
+      baselineName: "uniform",
+      picks: config?.picks,
+      throughDraw: draw,
+    });
+    const nextState = buildNextAgentState({
+      activeState,
+      scoredForecasts,
+      draw,
+      promotionDecision,
+    });
+    const scoreRows = scoreRowsWithWeights(scoredForecasts, activeState, nextState);
+
+    await deps.upsertModelScores(scoreRows);
+    const activatedState = await deps.activateAgentState(nextState);
+    if (stateMatchesExpectedCheckpoint(activatedState, nextState)) {
+      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+      return {
+        learning_status: "learned",
+        score_rows: scoreRows,
+        next_state: nextState,
+        activation_attempts: attempt,
+      };
+    }
+
+    const historicalCheckpoint = await fetchExactDrawCheckpoint(
+      deps,
+      prediction.game_name,
+      draw,
+    );
+    if (historicalCheckpoint) {
+      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+      return {
+        learning_status: "already_learned",
+        activation_attempts: attempt,
+      };
+    }
+
+    if (attempt === MAX_AGENT_ACTIVATION_ATTEMPTS) {
+      throw new Error(
+        `LAI activation checkpoint conflict after ${MAX_AGENT_ACTIVATION_ATTEMPTS} attempts for ${prediction.game_name} draw ${draw.draw_id}`,
+      );
+    }
+
+    const latestActiveState = await deps.fetchActiveState(prediction.game_name);
+    if (!latestActiveState) {
+      throw new Error(
+        `LAI activation checkpoint conflict could not reload active state for ${prediction.game_name} draw ${draw.draw_id}`,
+      );
+    }
+    activeState = latestActiveState;
+  }
+
+  throw new Error(`LAI activation checkpoint retry invariant failed for ${prediction.game_name}`);
 }
-
 export function buildAsiLearningRecord(record, draw, evaluation) {
   const prediction = record?.prediction || {};
   const learningReport = evaluation?.learning_report || {};

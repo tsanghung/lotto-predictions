@@ -67,6 +67,8 @@ function createHarness({
   crashAfterScoreOnce = false,
   crashAfterRpcOnce = false,
   loseRpcResponseOnce = false,
+  activationHandler = null,
+  historicalStates = [],
 } = {}) {
   const db = {
     activeState: clone(activeState),
@@ -85,6 +87,9 @@ function createHarness({
   const deps = {
     fetchForecasts: async () => clone(FORECASTS),
     fetchActiveState: async () => clone(db.activeState),
+    fetchAgentStateCheckpoint: async (_gameName, drawId) => clone(
+      historicalStates.find((state) => String(state.last_learned_draw_id) === String(drawId)) ?? null,
+    ),
     fetchScoreHistory: async () => [...db.scores.values()].map(clone),
     upsertModelScores: async (rows) => {
       calls.scorePayloads.push(clone(rows));
@@ -98,11 +103,15 @@ function createHarness({
     },
     activateAgentState: async (state) => {
       calls.statePayloads.push(clone(state));
+      if (activationHandler) {
+        return activationHandler({ state: clone(state), db, calls });
+      }
       db.activeState = clone(state);
       if (responseLossPending) {
         responseLossPending = false;
         throw new Error("RPC response lost after commit");
       }
+      return clone(db.activeState);
     },
     markPredictionEvaluated: async () => {
       if (postRpcCrashPending) {
@@ -188,5 +197,145 @@ test("stale draw retry leaves the later active state unchanged", async () => {
   assert.equal(harness.calls.scorePayloads.length, 0);
   assert.equal(harness.calls.statePayloads.length, 0);
   assert.deepEqual(harness.db.activeState, laterState);
+  assert.equal(harness.calls.markCount, 0);
+});
+
+test("two different draws racing from one state version both activate in draw order", async () => {
+  const shared = {
+    activeState: baselineState(),
+    checkpoints: new Map(),
+    activationCalls: [],
+    markKeys: [],
+  };
+  let initialFetches = 0;
+  let releaseInitialFetches;
+  const initialFetchBarrier = new Promise((resolve) => {
+    releaseInitialFetches = resolve;
+  });
+
+  function depsFor(targetDraw) {
+    return {
+      fetchForecasts: async () => clone(FORECASTS).map((forecast) => ({
+        ...forecast,
+        id: `${forecast.id}-${targetDraw.draw_id}`,
+      })),
+      fetchActiveState: async () => {
+        initialFetches += 1;
+        if (initialFetches === 2) releaseInitialFetches();
+        if (initialFetches <= 2) await initialFetchBarrier;
+        return clone(shared.activeState);
+      },
+      fetchAgentStateCheckpoint: async (_gameName, drawId) => clone(
+        shared.checkpoints.get(String(drawId)) ?? null,
+      ),
+      fetchScoreHistory: async () => [],
+      upsertModelScores: async () => {},
+      activateAgentState: async (state) => {
+        shared.activationCalls.push(clone(state));
+        if (state.state_version <= shared.activeState.state_version) {
+          return clone(shared.activeState);
+        }
+        shared.activeState = clone(state);
+        shared.checkpoints.set(String(state.last_learned_draw_id), clone(state));
+        return clone(state);
+      },
+      markPredictionEvaluated: async (sourceKey) => shared.markKeys.push(sourceKey),
+    };
+  }
+
+  const earlierDraw = clone(DRAW);
+  const laterDraw = {
+    ...clone(DRAW),
+    draw_id: "115000161",
+    draw_date: "2026-07-11",
+  };
+  await Promise.all([
+    lottoCore.runPostDrawLearning({
+      prediction: PREDICTION,
+      draw: earlierDraw,
+      evaluation: { draw_id: earlierDraw.draw_id },
+      config: { maxNumber: 39, picks: 5 },
+      deps: depsFor(earlierDraw),
+    }),
+    lottoCore.runPostDrawLearning({
+      prediction: { ...PREDICTION, source_key: "prediction-539-2026-07-11", target_draw_date: "2026-07-11" },
+      draw: laterDraw,
+      evaluation: { draw_id: laterDraw.draw_id },
+      config: { maxNumber: 39, picks: 5 },
+      deps: depsFor(laterDraw),
+    }),
+  ]);
+
+  assert.equal(shared.activeState.last_learned_draw_id, laterDraw.draw_id);
+  assert.equal(shared.activeState.state_version, 9);
+  assert.equal(shared.checkpoints.size, 2);
+  assert.equal(shared.markKeys.length, 2);
+  assert.deepEqual(shared.activationCalls.map((state) => state.state_version), [8, 8, 9]);
+});
+
+test("unrelated activation checkpoint reloads state and succeeds after recompute", async () => {
+  const unrelatedState = baselineState({
+    state_version: 8,
+    expert_weights: { uniform: 0.8, markov: 0.2 },
+  });
+  let activationCount = 0;
+  const harness = createHarness({
+    activationHandler: ({ state, db }) => {
+      activationCount += 1;
+      if (activationCount === 1) {
+        db.activeState = clone(unrelatedState);
+        return clone(unrelatedState);
+      }
+      db.activeState = clone(state);
+      return clone(state);
+    },
+  });
+
+  const result = await run(harness);
+
+  assert.equal(result.learning_status, "learned");
+  assert.deepEqual(harness.calls.statePayloads.map((state) => state.state_version), [8, 9]);
+  assert.equal(harness.calls.scorePayloads[1][0].weight_before, 0.8);
+  assert.equal(harness.db.activeState.last_learned_draw_id, DRAW.draw_id);
+  assert.equal(harness.calls.markCount, 1);
+});
+
+test("repeated activation conflicts exhaust bounded retries without marking evaluated", async () => {
+  let conflictVersion = 7;
+  const harness = createHarness({
+    activationHandler: ({ db }) => {
+      conflictVersion += 1;
+      db.activeState = baselineState({ state_version: conflictVersion });
+      return clone(db.activeState);
+    },
+  });
+
+  await assert.rejects(run(harness), /activation checkpoint conflict.*3 attempts/i);
+
+  assert.equal(harness.calls.statePayloads.length, 3);
+  assert.equal(harness.calls.markCount, 0);
+  assert.equal(harness.db.predictionEvaluated, false);
+});
+
+test("exact historical draw checkpoint remains idempotent and may be marked evaluated", async () => {
+  const historicalState = baselineState({
+    state_version: 8,
+    last_learned_draw_id: DRAW.draw_id,
+    last_learned_draw_date: DRAW.draw_date,
+  });
+  const harness = createHarness({
+    activeState: baselineState({
+      state_version: 9,
+      last_learned_draw_id: "115000161",
+      last_learned_draw_date: "2026-07-11",
+    }),
+    historicalStates: [historicalState],
+  });
+
+  const result = await run(harness);
+
+  assert.equal(result.learning_status, "already_learned");
+  assert.equal(harness.calls.scorePayloads.length, 0);
+  assert.equal(harness.calls.statePayloads.length, 0);
   assert.equal(harness.calls.markCount, 1);
 });

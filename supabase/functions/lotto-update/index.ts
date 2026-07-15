@@ -458,6 +458,31 @@ async function fetchActiveAgentState(
   return rows[0] ?? null;
 }
 
+async function fetchAgentStateCheckpoint(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+  drawId: string,
+): Promise<AgentStatePayload | null> {
+  const params = new URLSearchParams({
+    select: "game_name,state_version,status,champion_model,expert_weights,learning_config,metrics,last_learned_draw_id,last_learned_draw_date",
+    game_name: `eq.${gameName}`,
+    last_learned_draw_id: `eq.${drawId}`,
+    order: "state_version.desc",
+    limit: "1",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_agent_states?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase agent checkpoint query failed: ${response.status} ${await response.text()}`);
+  }
+
+  const rows = await response.json() as AgentStatePayload[];
+  return rows[0] ?? null;
+}
+
 async function fetchUnscoredModelForecasts(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -553,7 +578,7 @@ async function activateAgentState(
   supabaseUrl: string,
   serviceRoleKey: string,
   nextState: AgentStatePayload,
-): Promise<void> {
+): Promise<AgentStatePayload> {
   const response = await fetch(`${supabaseUrl}/rest/v1/rpc/activate_lotto_agent_state`, {
     method: "POST",
     headers: supabaseHeaders(serviceRoleKey),
@@ -563,6 +588,16 @@ async function activateAgentState(
   if (!response.ok) {
     throw new Error(`Supabase agent state activation failed: ${response.status} ${await response.text()}`);
   }
+
+  const payload = await response.json() as AgentStatePayload | AgentStatePayload[];
+  const activated = Array.isArray(payload) ? payload[0] : payload;
+  if (!activated ||
+    typeof activated.game_name !== "string" ||
+    !Number.isFinite(Number(activated.state_version)) ||
+    activated.last_learned_draw_id == null) {
+    throw new Error("Supabase agent state activation returned an invalid checkpoint");
+  }
+  return activated;
 }
 
 async function fetchReadyPredictions(
@@ -775,6 +810,13 @@ async function evaluateReadyPredictions(
           serviceRoleKey,
           prediction.game_name,
         ),
+        fetchAgentStateCheckpoint: (gameName: string, drawId: string) =>
+          fetchAgentStateCheckpoint(
+            supabaseUrl,
+            serviceRoleKey,
+            gameName,
+            drawId,
+          ),
         fetchScoreHistory: () => fetchModelScoreHistory(
           supabaseUrl,
           serviceRoleKey,

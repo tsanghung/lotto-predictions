@@ -39,6 +39,7 @@ test("index wiring learns from matching forecasts and activates only after score
   assert.match(source, /await runPostDrawLearning\s*\(/);
   assert.match(source, /fetchForecasts:[^]*fetchUnscoredModelForecasts\s*\(/);
   assert.match(source, /fetchActiveState:[^]*fetchActiveAgentState\s*\(/);
+  assert.match(source, /fetchAgentStateCheckpoint:[^]*fetchAgentStateCheckpoint\s*\(/);
   assert.match(source, /upsertModelScores:[^]*upsertModelScores\s*\(/);
   assert.match(source, /activateAgentState:[^]*activateAgentState\s*\(/);
   assert.match(source, /markPredictionEvaluated:[^]*markPredictionEvaluated\s*\(/);
@@ -85,6 +86,8 @@ test("index wiring uses idempotent score and state endpoints with fail-fast erro
   );
   assert.match(activationSource, /rpc\/activate_lotto_agent_state/);
   assert.match(activationSource, /if\s*\(!response\.ok\)\s*\{\s*throw new Error/s);
+  assert.match(activationSource, /const\s+payload\s*=\s*await\s+response\.json\(\)/);
+  assert.match(activationSource, /return\s+activated/);
   assert.doesNotMatch(`${forecastSource}${scoreSource}${activationSource}`, /console\.warn/);
 });
 
