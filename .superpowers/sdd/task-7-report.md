@@ -56,3 +56,35 @@ Complete. The lotto update Edge Function now scores saved LAI forecasts after ea
 - `supabase/functions/lotto-update/lib/lottoCore.test.mjs`
 - `supabase/functions/lotto-update/index.ts`
 - `.superpowers/sdd/task-7-report.md`
+
+## Reviewer Fix Checkpoint
+
+### RED Evidence
+
+- Command: `node --test supabase/functions/lotto-update/lib/lottoCore.test.mjs supabase/functions/lotto-update/lib/laiHardening.test.mjs`
+- Result before implementation: exit 1; 23 pass / 9 fail.
+- Expected failures: no per-candidate promotion builder, no real score-history DB fetch, no follow-up checkpoint migration, missing Power special-area unavailable reason, and omitted snapshot `brier_skill_score`.
+- Additional pagination/RPC RED command: `node --test --test-name-pattern="index fetches real|activation RPC" supabase/functions/lotto-update/lib/lottoCore.test.mjs supabase/functions/lotto-update/lib/laiHardening.test.mjs`
+- Additional RED result: exit 1; 0 pass / 2 fail before paginated history fetch and explicit RPC return handling.
+
+### GREEN Implementation
+
+- `buildCandidatePromotionDecision` pairs each candidate with the `uniform` score for the same draw, merges current scores over history, and ignores rows after the current draw.
+- Candidate metrics use deterministic recent-100/recent-500 mean Brier skill, a deterministic 95% lower confidence bound, one-sided candidate p-values, Benjamini-Hochberg adjusted q-values, and paired union-coverage deltas.
+- `buildNextAgentState` promotes only when the explicitly selected candidate's identity matches its passing gate metrics and current expert weights. Missing or mismatched data preserves the existing baseline/champion.
+- `fetchModelScoreHistory` reads real joined model identities from Supabase, filters through the current draw date, paginates all rows, and fails fast on HTTP or identity errors.
+- `20260715000000_harden_lai_draw_checkpoints.sql` safely clears duplicate historical checkpoint fields on non-canonical rows, creates a partial unique index, and checks global historical/stale checkpoints under the game advisory lock before mutating active state.
+- Power forecasts without special probabilities now persist an explicit `special_probabilities_unavailable` reason. LAI snapshots emit `brier_skill_score: null` when no ensemble score exists.
+
+### GREEN Evidence
+
+- Update checkpoint command: `node --test supabase/functions/lotto-update/lib/lottoCore.test.mjs supabase/functions/lotto-update/lib/postDrawLearning.test.mjs supabase/functions/lotto-update/lib/laiHardening.test.mjs`
+- Update checkpoint result: exit 0; 36 pass / 0 fail, including all four failure-window tests.
+- Full Supabase functions command: `node --test supabase/functions/lotto-update/lib/*.test.mjs supabase/functions/lotto-predict-notify/index.contract.test.mjs supabase/functions/lotto-predict-notify/lib/*.test.mjs`
+- Full result: exit 0; 130 pass / 0 fail.
+- `node --check` passed for the update core, update index, and all three update test files.
+- `git diff --check` passed; only existing LF/CRLF conversion warnings were printed.
+
+### Verification Boundary
+
+- No live Supabase writes or migration deployment were executed. Migration behavior is covered by source contract tests; production application remains a deployment step.

@@ -29,23 +29,36 @@ function updateIndexSourceBetween(startMarker, endMarker) {
 test("index wiring learns from matching forecasts and activates only after score upsert", () => {
   assert.match(
     updateIndexSource,
-    /import\s*\{[^}]*buildNextAgentState[^}]*scoreModelForecast[^}]*\}\s*from\s*["']\.\/lib\/lottoCore\.js["']/s,
+    /import\s*\{[^}]*runPostDrawLearning[^}]*\}\s*from\s*["']\.\/lib\/lottoCore\.js["']/s,
   );
 
   const source = updateIndexSourceBetween(
     "async function evaluateReadyPredictions",
     "async function updateGame",
   );
-  assert.match(source, /fetchUnscoredModelForecasts\s*\(/);
-  assert.match(source, /fetchActiveAgentState\s*\(/);
-  assert.match(source, /scoreModelForecast\s*\(/);
-  assert.match(source, /buildNextAgentState\s*\(/);
+  assert.match(source, /await runPostDrawLearning\s*\(/);
+  assert.match(source, /fetchForecasts:[^]*fetchUnscoredModelForecasts\s*\(/);
+  assert.match(source, /fetchActiveState:[^]*fetchActiveAgentState\s*\(/);
+  assert.match(source, /upsertModelScores:[^]*upsertModelScores\s*\(/);
+  assert.match(source, /activateAgentState:[^]*activateAgentState\s*\(/);
+  assert.match(source, /markPredictionEvaluated:[^]*markPredictionEvaluated\s*\(/);
+  assert.match(source, /fetchScoreHistory:[^]*fetchModelScoreHistory\s*\(/);
+});
 
-  const scoreUpsert = source.indexOf("await upsertModelScores");
-  const activation = source.indexOf("await activateAgentState");
-  assert.ok(scoreUpsert >= 0, "evaluateReadyPredictions must upsert model scores");
-  assert.ok(activation > scoreUpsert, "model score upsert must happen before state activation");
-  assert.match(source, /nextState\.status\s*!==\s*["']already_learned["']/);
+test("index fetches real per-candidate score history through the current draw", () => {
+  const source = updateIndexSourceBetween(
+    "async function fetchModelScoreHistory",
+    "async function upsertModelScores",
+  );
+  assert.match(source, /lotto_model_scores/);
+  assert.match(source, /forecast:lotto_model_forecasts!inner\(model_name\)/);
+  assert.match(source, /game_name/);
+  assert.match(source, /draw_date/);
+  assert.match(source, /while\s*\(true\)/);
+  assert.match(source, /limit/);
+  assert.match(source, /offset/);
+  assert.match(source, /if\s*\(!response\.ok\)\s*\{\s*throw new Error/s);
+  assert.doesNotMatch(source, /Promise\.resolve\(\[\]\)/);
 });
 
 test("index wiring uses idempotent score and state endpoints with fail-fast errors", () => {
@@ -188,6 +201,180 @@ test("scores Power Lottery main and special areas independently", () => {
     overlap_count: 0,
     union_size: 2,
   });
+});
+
+test("Power score records an explicit reason when special probabilities are unavailable", () => {
+  const score = lottoCore.scoreModelForecast({
+    forecast: {
+      id: "forecast-power-missing-special",
+      game_name: "威力彩",
+      model_name: "markov",
+      probabilities: Array(38).fill(6 / 38),
+      special_probabilities: null,
+      final_groups: { combinations: {} },
+    },
+    draw: {
+      draw_id: "115000055",
+      draw_date: "2026-07-13",
+      numbers: [1, 2, 3, 4, 5, 6],
+      special_number: 3,
+    },
+    config: {
+      maxNumber: 38,
+      picks: 6,
+      secondaryNumber: { maxNumber: 8, picks: 1 },
+    },
+  });
+
+  assert.deepEqual(score.metrics.special_area, {
+    available: false,
+    reason: "special_probabilities_unavailable",
+  });
+});
+
+function candidateScore({ draw, modelName, brier, unionHits = 4 }) {
+  return {
+    forecast_id: `${modelName}-${draw}`,
+    game_name: "今彩539",
+    model_name: modelName,
+    draw_id: String(115000000 + draw),
+    draw_date: `2026-${String(1 + Math.floor((draw - 1) / 28)).padStart(2, "0")}-${String(1 + ((draw - 1) % 28)).padStart(2, "0")}`,
+    metrics: {
+      brier,
+      coverage: { union_hits: unionHits },
+    },
+  };
+}
+
+test("builds deterministic per-candidate promotion metrics through the current draw", () => {
+  assert.equal(typeof lottoCore.buildCandidatePromotionDecision, "function");
+  const scoreHistory = [];
+  for (let draw = 1; draw <= 39; draw += 1) {
+    scoreHistory.push(
+      candidateScore({ draw, modelName: "uniform", brier: 0.12 }),
+      candidateScore({ draw, modelName: "markov", brier: 0.08 }),
+      candidateScore({ draw, modelName: "lstm", brier: 0.14, unionHits: 3 }),
+    );
+  }
+  const currentScores = [
+    candidateScore({ draw: 40, modelName: "uniform", brier: 0.12 }),
+    candidateScore({ draw: 40, modelName: "markov", brier: 0.08 }),
+    candidateScore({ draw: 40, modelName: "lstm", brier: 0.01, unionHits: 3 }),
+  ];
+  const input = {
+    scoreHistory,
+    currentScores,
+    candidateNames: ["markov", "lstm"],
+    baselineName: "uniform",
+    picks: 5,
+    throughDraw: currentScores[0],
+  };
+
+  const decision = lottoCore.buildCandidatePromotionDecision(input);
+
+  assert.deepEqual(lottoCore.buildCandidatePromotionDecision(input), decision);
+  assert.equal(decision.candidateModel, "markov");
+  assert.equal(decision.promotion.promoted, true);
+  assert.equal(decision.metrics.candidateModel, "markov");
+  assert.equal(decision.metrics.productionSamples, 40);
+  assert.ok(Math.abs(decision.metrics.recent100Skill - (1 / 3)) < 1e-12);
+  assert.ok(Math.abs(decision.metrics.recent500Skill - (1 / 3)) < 1e-12);
+  assert.ok(decision.metrics.bootstrapLower95 > 0);
+  assert.ok(decision.metrics.adjustedQ <= 0.05);
+  assert.equal(decision.metrics.unionCoverageDelta, 0);
+  assert.ok(decision.candidates.markov.pValue <= decision.candidates.markov.adjustedQ);
+  assert.ok(decision.candidates.lstm.adjustedQ >= decision.candidates.lstm.pValue);
+});
+
+test("missing paired candidate history cannot promote away from baseline", () => {
+  const decision = lottoCore.buildCandidatePromotionDecision({
+    scoreHistory: Array.from({ length: 40 }, (_, index) =>
+      candidateScore({ draw: index + 1, modelName: "markov", brier: 0.01 })),
+    currentScores: [],
+    candidateNames: ["markov"],
+    baselineName: "uniform",
+    picks: 5,
+  });
+  const activeState = {
+    game_name: "今彩539",
+    state_version: 4,
+    status: "baseline",
+    champion_model: "uniform",
+    expert_weights: { uniform: 0.5, markov: 0.5 },
+    learning_config: { gamma: 0.1 },
+    metrics: { evaluated_draws: 40 },
+    last_learned_draw_id: "115000039",
+    last_learned_draw_date: "2026-02-11",
+  };
+  const next = lottoCore.buildNextAgentState({
+    activeState,
+    scoredForecasts: [
+      { model_name: "uniform", metrics: { brier: 0.12 } },
+      { model_name: "markov", metrics: { brier: 0.01 } },
+    ],
+    draw: { draw_id: "115000040", draw_date: "2026-02-12" },
+    promotionDecision: decision,
+  });
+
+  assert.equal(decision.candidateModel, null);
+  assert.equal(decision.promotion.promoted, false);
+  assert.equal(next.status, "baseline");
+  assert.equal(next.champion_model, "uniform");
+});
+
+test("next state promotes only the candidate whose own metrics passed every gate", () => {
+  const activeState = {
+    game_name: "今彩539",
+    state_version: 4,
+    status: "baseline",
+    champion_model: "uniform",
+    expert_weights: { uniform: 0.34, markov: 0.33, lstm: 0.33 },
+    learning_config: { gamma: 0.1 },
+    metrics: { evaluated_draws: 40 },
+    last_learned_draw_id: "115000039",
+    last_learned_draw_date: "2026-02-11",
+  };
+  const scoredForecasts = [
+    { model_name: "uniform", metrics: { brier: 0.12 } },
+    { model_name: "markov", metrics: { brier: 0.08 } },
+    { model_name: "lstm", metrics: { brier: 0.01 } },
+  ];
+  const passingMetrics = {
+    candidateModel: "markov",
+    productionSamples: 40,
+    recent100Skill: 0.2,
+    recent500Skill: 0.2,
+    bootstrapLower95: 0.1,
+    adjustedQ: 0.01,
+    unionCoverageDelta: 0,
+  };
+  const next = lottoCore.buildNextAgentState({
+    activeState,
+    scoredForecasts,
+    draw: { draw_id: "115000040", draw_date: "2026-02-12" },
+    promotionDecision: {
+      candidateModel: "markov",
+      metrics: passingMetrics,
+      promotion: { promoted: true, reason: "all_gates_passed" },
+      candidates: {},
+    },
+  });
+  const mismatched = lottoCore.buildNextAgentState({
+    activeState,
+    scoredForecasts,
+    draw: { draw_id: "115000040", draw_date: "2026-02-12" },
+    promotionDecision: {
+      candidateModel: "lstm",
+      metrics: passingMetrics,
+      promotion: { promoted: true, reason: "all_gates_passed" },
+      candidates: {},
+    },
+  });
+
+  assert.equal(next.status, "champion");
+  assert.equal(next.champion_model, "markov");
+  assert.equal(mismatched.status, "baseline");
+  assert.equal(mismatched.champion_model, "uniform");
 });
 
 test("next state records one draw checkpoint and normalized weights", () => {
@@ -758,6 +945,33 @@ test("extends performance snapshot with LAI metrics without replacing legacy fie
     champion_model: "markov",
     agent_status: "champion",
   });
+});
+
+test("performance snapshot emits null when no ensemble Brier skill exists", () => {
+  const records = [{
+    game_name: "今彩539",
+    target_draw_date: "2026-07-10",
+    is_evaluated: true,
+    prediction: { combinations: { aggressive: [1, 2, 3, 4, 5] } },
+    evaluation: {
+      draw_id: "115000160",
+      draw_date: "2026-07-10",
+      strategies: { aggressive: { hits: 1, miss_count: 4 } },
+    },
+  }];
+  const snapshot = buildPerformanceSnapshot(records, "2026-07-11T00:00:00.000Z", {
+    今彩539: {
+      latestMetrics: {},
+      latestState: { champion_model: "uniform", status: "baseline" },
+      unionHits: 0,
+      actualNumberCount: 0,
+      groupAHits: 0,
+      groupBHits: 0,
+      evaluatedDraws: 0,
+    },
+  });
+
+  assert.equal(snapshot.games["今彩539"].lai.brier_skill_score, null);
 });
 
 test("builds Power Lottery second-area cumulative hit rates", () => {

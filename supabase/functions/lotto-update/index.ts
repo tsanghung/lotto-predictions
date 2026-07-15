@@ -1,6 +1,5 @@
 import {
   buildAsiLearningRecord,
-  buildNextAgentState,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -8,11 +7,10 @@ import {
   needsSecondaryDaily539Check,
   parseAuzonetDaily539Html,
   parseOfficialPayload,
-  scoreModelForecast,
+  runPostDrawLearning,
   taiwanDateParts,
   toLottoDrawRow,
 } from "./lib/lottoCore.js";
-import { createBaselineState } from "../lotto-predict-notify/lib/agentState.js";
 import { GAME_CONFIG } from "../lotto-predict-notify/lib/gameConfig.js";
 
 type GameType = "539" | "649" | "power";
@@ -76,6 +74,10 @@ type ModelScoreRow = {
   weight_before: number | null;
   weight_after: number | null;
   evaluator_version: string;
+};
+
+type ModelScoreHistoryDbRow = Omit<ModelScoreRow, "model_name"> & {
+  forecast: { model_name: string } | null;
 };
 
 type AgentStatePayload = {
@@ -479,6 +481,47 @@ async function fetchUnscoredModelForecasts(
   return response.json();
 }
 
+async function fetchModelScoreHistory(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+  throughDrawDate: string,
+): Promise<ModelScoreRow[]> {
+  const rows: ModelScoreHistoryDbRow[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      select: "forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,forecast:lotto_model_forecasts!inner(model_name)",
+      game_name: `eq.${gameName}`,
+      draw_date: `lte.${throughDrawDate}`,
+      order: "draw_date.asc,draw_id.asc",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    const response = await fetch(`${supabaseUrl}/rest/v1/lotto_model_scores?${params}`, {
+      headers: supabaseHeaders(serviceRoleKey),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase model score history query failed: ${response.status} ${await response.text()}`);
+    }
+
+    const page = await response.json() as ModelScoreHistoryDbRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return rows.map(({ forecast, ...row }) => {
+    if (!forecast?.model_name) {
+      throw new Error(`Supabase model score history row ${row.forecast_id} is missing model identity`);
+    }
+    return { ...row, model_name: forecast.model_name };
+  });
+}
+
 async function upsertModelScores(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -715,58 +758,44 @@ async function evaluateReadyPredictions(
     }
 
     const evaluation = evaluatePredictionRecord(prediction, draw);
-    const [forecasts, fetchedActiveState] = await Promise.all([
-      fetchUnscoredModelForecasts(
-        supabaseUrl,
-        serviceRoleKey,
-        prediction.game_name,
-        prediction.target_draw_date,
-      ),
-      fetchActiveAgentState(supabaseUrl, serviceRoleKey, prediction.game_name),
-    ]);
+    await runPostDrawLearning({
+      prediction,
+      draw,
+      evaluation,
+      config: gameConfigForName(prediction.game_name),
+      deps: {
+        fetchForecasts: () => fetchUnscoredModelForecasts(
+          supabaseUrl,
+          serviceRoleKey,
+          prediction.game_name,
+          prediction.target_draw_date,
+        ),
+        fetchActiveState: () => fetchActiveAgentState(
+          supabaseUrl,
+          serviceRoleKey,
+          prediction.game_name,
+        ),
+        fetchScoreHistory: () => fetchModelScoreHistory(
+          supabaseUrl,
+          serviceRoleKey,
+          prediction.game_name,
+          draw.draw_date,
+        ),
+        upsertModelScores: (rows: ModelScoreRow[]) => upsertModelScores(
+          supabaseUrl,
+          serviceRoleKey,
+          rows,
+        ),
+        activateAgentState: (state: AgentStatePayload) => activateAgentState(
+          supabaseUrl,
+          serviceRoleKey,
+          state,
+        ),
+        markPredictionEvaluated: (sourceKey: string, result: Record<string, unknown>) =>
+          markPredictionEvaluated(supabaseUrl, serviceRoleKey, sourceKey, result),
+      },
+    });
 
-    if (forecasts.length) {
-      const config = gameConfigForName(prediction.game_name);
-      const activeState = (fetchedActiveState ?? createBaselineState({
-        gameName: prediction.game_name,
-        expertNames: forecasts
-          .filter((forecast) => forecast.model_name !== "ensemble")
-          .map((forecast) => forecast.model_name),
-      })) as AgentStatePayload;
-      const scoredForecasts = forecasts.map((forecast) => scoreModelForecast({
-        forecast,
-        draw,
-        config,
-      })) as Array<Omit<ModelScoreRow, "weight_before" | "weight_after">>;
-      const nextState = buildNextAgentState({
-        activeState,
-        scoredForecasts,
-        draw,
-        promotionMetrics: {
-          ...activeState.metrics,
-          productionSamples: Number(activeState.metrics?.evaluated_draws || 0) + 1,
-        },
-      }) as AgentStatePayload | { status: "already_learned" };
-      const nextWeights = nextState.status === "already_learned"
-        ? activeState.expert_weights
-        : nextState.expert_weights;
-      const scoreRows = scoredForecasts.map((score) => {
-        const weightBefore = activeState.expert_weights[score.model_name];
-        const weightAfter = nextWeights[score.model_name];
-        return {
-          ...score,
-          weight_before: Number.isFinite(weightBefore) ? weightBefore : null,
-          weight_after: Number.isFinite(weightAfter) ? weightAfter : null,
-        };
-      });
-
-      await upsertModelScores(supabaseUrl, serviceRoleKey, scoreRows);
-      if (nextState.status !== "already_learned") {
-        await activateAgentState(supabaseUrl, serviceRoleKey, nextState);
-      }
-    }
-
-    await markPredictionEvaluated(supabaseUrl, serviceRoleKey, prediction.source_key, evaluation);
     const asiLearningRecord = buildAsiLearningRecord(prediction, draw, evaluation);
     await upsertAsiLearningRecord(supabaseUrl, serviceRoleKey, asiLearningRecord);
     evaluated.push({

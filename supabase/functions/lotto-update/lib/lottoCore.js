@@ -1,4 +1,8 @@
-import { evaluatePromotion } from "../../lotto-predict-notify/lib/agentState.js";
+import {
+  benjaminiHochberg,
+  createBaselineState,
+  evaluatePromotion,
+} from "../../lotto-predict-notify/lib/agentState.js";
 import { updateHedgeWeights } from "../../lotto-predict-notify/lib/ensemble.js";
 import {
   brierScore,
@@ -451,14 +455,19 @@ export function scoreModelForecast({ forecast, draw, config }) {
     groups: forecastGroups(forecast?.final_groups, "combinations"),
   });
 
-  if (config?.secondaryNumber && Array.isArray(forecast?.special_probabilities)) {
-    metrics.special_area = areaScore({
-      probabilities: forecast.special_probabilities,
-      actualNumbers: [draw?.special_number],
-      maxNumber: config.secondaryNumber.maxNumber,
-      picks: config.secondaryNumber.picks,
-      groups: forecastGroups(forecast?.final_groups, "special_combinations"),
-    });
+  if (config?.secondaryNumber) {
+    metrics.special_area = Array.isArray(forecast?.special_probabilities)
+      ? areaScore({
+        probabilities: forecast.special_probabilities,
+        actualNumbers: [draw?.special_number],
+        maxNumber: config.secondaryNumber.maxNumber,
+        picks: config.secondaryNumber.picks,
+        groups: forecastGroups(forecast?.final_groups, "special_combinations"),
+      })
+      : {
+        available: false,
+        reason: "special_probabilities_unavailable",
+      };
   }
 
   return {
@@ -472,16 +481,171 @@ export function scoreModelForecast({ forecast, draw, config }) {
   };
 }
 
-function bestScoredModel(scoredForecasts, eligibleNames) {
-  return (scoredForecasts || [])
-    .filter((score) => eligibleNames.has(score?.model_name) && Number.isFinite(score?.metrics?.brier))
-    .sort((left, right) => (
-      left.metrics.brier - right.metrics.brier ||
-      String(left.model_name).localeCompare(String(right.model_name))
-    ))[0]?.model_name ?? null;
+function mean(values) {
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : null;
 }
 
-export function buildNextAgentState({ activeState, scoredForecasts, draw, promotionMetrics = {} }) {
+function normalCdf(value) {
+  const sign = value < 0 ? -1 : 1;
+  const x = Math.abs(value) / Math.sqrt(2);
+  const t = 1 / (1 + 0.3275911 * x);
+  const erf = sign * (1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
+    - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x));
+  return (1 + erf) / 2;
+}
+
+function deterministicInference(values) {
+  const average = mean(values);
+  if (!Number.isFinite(average) || values.length < 2) {
+    return { lower95: null, pValue: null };
+  }
+  const variance = values.reduce((sum, value) => sum + ((value - average) ** 2), 0) /
+    (values.length - 1);
+  const standardError = Math.sqrt(Math.max(variance, 0) / values.length);
+  if (standardError === 0) {
+    return {
+      lower95: average,
+      pValue: average > 0 ? 0 : 1,
+    };
+  }
+  const z = average / standardError;
+  return {
+    lower95: average - (1.96 * standardError),
+    pValue: Math.max(0, Math.min(1, 1 - normalCdf(z))),
+  };
+}
+
+function scoreModelName(score) {
+  return score?.model_name ?? score?.forecast?.model_name ?? null;
+}
+
+function compareScoreDraw(left, right) {
+  return String(left?.draw_date || "").localeCompare(String(right?.draw_date || "")) ||
+    String(left?.draw_id || "").localeCompare(String(right?.draw_id || ""), undefined, {
+      numeric: true,
+    });
+}
+
+function isThroughDraw(score, throughDraw) {
+  if (!throughDraw) return true;
+  return compareScoreDraw(score, throughDraw) <= 0;
+}
+
+function pairedCandidateSamples(scores, candidateName, baselineName) {
+  const baselineByDraw = new Map(scores
+    .filter((score) => scoreModelName(score) === baselineName)
+    .map((score) => [String(score.draw_id), score]));
+
+  return scores
+    .filter((score) => scoreModelName(score) === candidateName)
+    .map((candidate) => ({ candidate, baseline: baselineByDraw.get(String(candidate.draw_id)) }))
+    .filter(({ candidate, baseline }) => (
+      baseline &&
+      Number.isFinite(candidate?.metrics?.brier) &&
+      Number.isFinite(baseline?.metrics?.brier) &&
+      baseline.metrics.brier > 0
+    ))
+    .sort((left, right) => compareScoreDraw(left.candidate, right.candidate));
+}
+
+function metricsForCandidate(samples, candidateModel, picks) {
+  const skillValues = samples.map(({ candidate, baseline }) =>
+    1 - (candidate.metrics.brier / baseline.metrics.brier));
+  const recent100 = skillValues.slice(-100);
+  const recent500 = skillValues.slice(-500);
+  const inference = deterministicInference(recent500);
+  const coverageDeltas = samples.slice(-500)
+    .map(({ candidate, baseline }) => {
+      const candidateHits = candidate?.metrics?.coverage?.union_hits;
+      const baselineHits = baseline?.metrics?.coverage?.union_hits;
+      return Number.isFinite(candidateHits) && Number.isFinite(baselineHits) && picks > 0
+        ? (candidateHits - baselineHits) / picks
+        : null;
+    })
+    .filter(Number.isFinite);
+
+  return {
+    candidateModel,
+    productionSamples: samples.length,
+    recent100Skill: mean(recent100),
+    recent500Skill: mean(recent500),
+    bootstrapLower95: inference.lower95,
+    pValue: inference.pValue,
+    adjustedQ: null,
+    unionCoverageDelta: coverageDeltas.length === samples.slice(-500).length
+      ? mean(coverageDeltas)
+      : null,
+  };
+}
+
+export function buildCandidatePromotionDecision({
+  scoreHistory = [],
+  currentScores = [],
+  candidateNames = [],
+  baselineName = "uniform",
+  picks,
+  throughDraw = null,
+}) {
+  const byModelAndDraw = new Map();
+  for (const score of [...scoreHistory, ...currentScores]) {
+    const modelName = scoreModelName(score);
+    if (!modelName || score?.draw_id == null || !isThroughDraw(score, throughDraw)) continue;
+    byModelAndDraw.set(`${modelName}|${score.draw_id}`, { ...score, model_name: modelName });
+  }
+  const scores = [...byModelAndDraw.values()];
+  const names = [...new Set(candidateNames)]
+    .filter((name) => typeof name === "string" && name && name !== baselineName)
+    .sort();
+  const metricsByName = Object.fromEntries(names.map((name) => [
+    name,
+    metricsForCandidate(pairedCandidateSamples(scores, name, baselineName), name, picks),
+  ]));
+  const finitePValueNames = names.filter((name) => Number.isFinite(metricsByName[name].pValue));
+  const adjusted = benjaminiHochberg(finitePValueNames.map((name) => metricsByName[name].pValue));
+  finitePValueNames.forEach((name, index) => {
+    metricsByName[name].adjustedQ = adjusted[index];
+  });
+
+  const candidates = Object.fromEntries(names.map((name) => {
+    const metrics = metricsByName[name];
+    return [name, {
+      ...metrics,
+      promotion: evaluatePromotion(metrics),
+    }];
+  }));
+  const passing = Object.values(candidates)
+    .filter((candidate) => candidate.promotion.promoted)
+    .sort((left, right) => (
+      right.recent500Skill - left.recent500Skill ||
+      right.recent100Skill - left.recent100Skill ||
+      right.bootstrapLower95 - left.bootstrapLower95 ||
+      left.adjustedQ - right.adjustedQ ||
+      left.candidateModel.localeCompare(right.candidateModel)
+    ));
+  const selected = passing[0] ?? null;
+  const { promotion: selectedPromotion, ...selectedMetrics } = selected ?? {};
+
+  return {
+    candidateModel: selected?.candidateModel ?? null,
+    metrics: selected ? selectedMetrics : null,
+    promotion: selectedPromotion ?? {
+      promoted: false,
+      reason: names.some((name) => metricsByName[name].productionSamples > 0)
+        ? "no_candidate_passed"
+        : "promotion_metrics_unavailable",
+    },
+    candidates,
+  };
+}
+
+export function buildNextAgentState({
+  activeState,
+  scoredForecasts,
+  draw,
+  promotionDecision = null,
+}) {
   if (String(activeState?.last_learned_draw_id) === String(draw?.draw_id)) {
     return { status: "already_learned" };
   }
@@ -500,27 +664,138 @@ export function buildNextAgentState({ activeState, scoredForecasts, draw, promot
     baselineName: "uniform",
     gamma,
   });
-  const promotion = evaluatePromotion(promotionMetrics);
   const eligibleNames = new Set(Object.keys(expertWeights));
-  const promotedModel = promotion.promoted
-    ? bestScoredModel(scoredForecasts, eligibleNames)
-    : null;
+  const promotedModel = promotionDecision?.candidateModel;
+  const promotionMetrics = promotionDecision?.metrics;
+  const promotionIsValid = promotionDecision?.promotion?.promoted === true &&
+    typeof promotedModel === "string" &&
+    eligibleNames.has(promotedModel) &&
+    promotionMetrics?.candidateModel === promotedModel;
+  const promotion = promotionIsValid
+    ? promotionDecision.promotion
+    : {
+      promoted: false,
+      reason: promotionDecision?.promotion?.promoted
+        ? "candidate_identity_mismatch"
+        : promotionDecision?.promotion?.reason ?? "promotion_metrics_unavailable",
+    };
 
   return {
     game_name: activeState?.game_name,
     state_version: Number(activeState?.state_version) + 1,
-    status: promotion.promoted ? "champion" : activeState?.status,
-    champion_model: promotedModel ?? activeState?.champion_model,
+    status: promotionIsValid ? "champion" : activeState?.status,
+    champion_model: promotionIsValid ? promotedModel : activeState?.champion_model,
     expert_weights: expertWeights,
     learning_config: structuredClone(activeState?.learning_config || {}),
     metrics: {
       ...(activeState?.metrics || {}),
-      ...promotionMetrics,
+      ...(promotionIsValid ? promotionMetrics : {}),
       evaluated_draws: evaluatedDraws,
       promotion,
+      promotion_candidates: promotionDecision?.candidates ?? {},
     },
     last_learned_draw_id: String(draw?.draw_id),
     last_learned_draw_date: draw?.draw_date ?? draw?.date,
+  };
+}
+
+function compareDrawCheckpoint(activeState, draw) {
+  const learnedId = activeState?.last_learned_draw_id;
+  const drawId = draw?.draw_id;
+  if (learnedId == null || drawId == null) return "new_draw";
+  if (String(learnedId) === String(drawId)) return "already_learned";
+
+  const learnedDate = String(activeState?.last_learned_draw_date || "");
+  const drawDate = String(draw?.draw_date ?? draw?.date ?? "");
+  if (learnedDate && drawDate && learnedDate !== drawDate) {
+    return learnedDate > drawDate ? "stale_draw" : "new_draw";
+  }
+
+  const learnedNumber = Number(learnedId);
+  const drawNumber = Number(drawId);
+  if (Number.isFinite(learnedNumber) && Number.isFinite(drawNumber)) {
+    return learnedNumber > drawNumber ? "stale_draw" : "new_draw";
+  }
+  return String(learnedId).localeCompare(String(drawId), undefined, { numeric: true }) > 0
+    ? "stale_draw"
+    : "new_draw";
+}
+
+function scoreRowsWithWeights(scoredForecasts, activeState, nextState) {
+  return scoredForecasts.map((score) => {
+    const weightBefore = activeState.expert_weights?.[score.model_name];
+    const weightAfter = nextState.expert_weights?.[score.model_name];
+    return {
+      ...score,
+      weight_before: Number.isFinite(weightBefore) ? weightBefore : null,
+      weight_after: Number.isFinite(weightAfter) ? weightAfter : null,
+    };
+  });
+}
+
+export async function runPostDrawLearning({
+  prediction,
+  draw,
+  evaluation,
+  config,
+  forecastsFallbackExpertNames = [],
+  deps,
+}) {
+  const [forecasts, fetchedActiveState] = await Promise.all([
+    deps.fetchForecasts(prediction),
+    deps.fetchActiveState(prediction.game_name),
+  ]);
+
+  if (!forecasts.length) {
+    await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+    return { learning_status: "no_forecasts" };
+  }
+
+  const activeState = fetchedActiveState ?? createBaselineState({
+    gameName: prediction.game_name,
+    expertNames: forecastsFallbackExpertNames.length
+      ? forecastsFallbackExpertNames
+      : forecasts
+        .filter((forecast) => forecast.model_name !== "ensemble")
+        .map((forecast) => forecast.model_name),
+  });
+  const checkpointStatus = compareDrawCheckpoint(activeState, draw);
+  if (checkpointStatus !== "new_draw") {
+    await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+    return { learning_status: checkpointStatus };
+  }
+
+  const scoredForecasts = forecasts.map((forecast) => scoreModelForecast({
+    forecast,
+    draw,
+    config,
+  }));
+  const scoreHistory = deps.fetchScoreHistory
+    ? await deps.fetchScoreHistory(prediction.game_name, draw)
+    : [];
+  const promotionDecision = buildCandidatePromotionDecision({
+    scoreHistory,
+    currentScores: scoredForecasts,
+    candidateNames: Object.keys(activeState.expert_weights || {}),
+    baselineName: "uniform",
+    picks: config?.picks,
+    throughDraw: draw,
+  });
+  const nextState = buildNextAgentState({
+    activeState,
+    scoredForecasts,
+    draw,
+    promotionDecision,
+  });
+  const scoreRows = scoreRowsWithWeights(scoredForecasts, activeState, nextState);
+
+  await deps.upsertModelScores(scoreRows);
+  await deps.activateAgentState(nextState);
+  await deps.markPredictionEvaluated(prediction.source_key, evaluation);
+  return {
+    learning_status: "learned",
+    score_rows: scoreRows,
+    next_state: nextState,
   };
 }
 
@@ -707,7 +982,7 @@ export function buildPerformanceSnapshot(
       const actualNumberCount = Number(lai.actualNumberCount || 0);
       const evaluatedDraws = Number(lai.evaluatedDraws || 0);
       gamePerf.lai = {
-        brier_skill_score: lai.latestMetrics?.brier_skill_score,
+        brier_skill_score: lai.latestMetrics?.brier_skill_score ?? null,
         union_coverage_rate: actualNumberCount > 0
           ? Number(lai.unionHits || 0) / actualNumberCount
           : 0,
