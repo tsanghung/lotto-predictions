@@ -494,6 +494,8 @@ test("generateAdaptivePrediction stores two groups, baseline state, and forecast
   assert.equal(result.record.prediction.evidence.target_draw_date, "2026-07-10");
   assert.equal(result.record.prediction.evidence.model_version, "lai-v2");
   assert.equal(result.record.prediction.evidence.state_status, "baseline");
+  assert.equal(result.record.prediction.evidence.last_learned_draw_date, null);
+  assert.equal(result.record.prediction.evidence.champion_model, "uniform");
   assert.equal(result.record.prediction.evidence.data_status, "fresh");
   assert.equal(Object.hasOwn(result.record.prediction, "forecasts"), false);
   assert.ok(Array.isArray(result.forecasts));

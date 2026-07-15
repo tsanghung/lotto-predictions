@@ -6,9 +6,17 @@ const STATUS_LABELS = {
   degraded: 'Degraded'
 }
 
-function copyNumberList(value) {
+const GAME_LIMITS = {
+  '今彩539': { max: 39, picks: 5 },
+  '大樂透': { max: 49, picks: 6 },
+  '威力彩': { max: 38, picks: 6, specialMax: 8, specialPicks: 1 }
+}
+
+function copyNumberList(value, max = Number.POSITIVE_INFINITY, picks = Number.POSITIVE_INFINITY) {
   if (!Array.isArray(value)) return []
-  return value.filter((number) => Number.isInteger(number) && number > 0).slice()
+  return [...new Set(value.filter((number) => (
+    Number.isInteger(number) && number > 0 && number <= max
+  )))].slice(0, picks)
 }
 
 function copyExpertWeights(value) {
@@ -16,7 +24,7 @@ function copyExpertWeights(value) {
 
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([name, weight]) => name && Number.isFinite(weight) && weight >= 0)
+      .filter(([name, weight]) => name && Number.isFinite(weight) && weight >= 0 && weight <= 1)
       .map(([name, weight]) => [name, weight])
   )
 }
@@ -41,6 +49,7 @@ export function toLaiViewModel(record) {
     return null
   }
   const prediction = record.prediction
+  const limits = GAME_LIMITS[record.game_name] || {}
 
   const combinations = prediction.combinations && typeof prediction.combinations === 'object'
     ? prediction.combinations
@@ -50,13 +59,10 @@ export function toLaiViewModel(record) {
     : {}
   const groups = GROUP_LABELS.map((label) => ({
     label,
-    numbers: copyNumberList(combinations[label]),
-    special: copyNumberList(specialCombinations[label])
+    numbers: copyNumberList(combinations[label], limits.max, limits.picks),
+    special: copyNumberList(specialCombinations[label], limits.specialMax, limits.specialPicks)
   }))
   const fallbackMetrics = fallbackGroupMetrics(groups)
-  const metrics = prediction.group_metrics && typeof prediction.group_metrics === 'object'
-    ? prediction.group_metrics
-    : {}
 
   return {
     version: 'LAI v2',
@@ -72,12 +78,8 @@ export function toLaiViewModel(record) {
     targetDrawDate: record.target_draw_date || prediction.evidence?.target_draw_date || null,
     generatedAt: record.timestamp || record.predicted_at || null,
     groups,
-    overlapCount: Number.isInteger(metrics.overlap_count) && metrics.overlap_count >= 0
-      ? metrics.overlap_count
-      : fallbackMetrics.overlapCount,
-    unionSize: Number.isInteger(metrics.union_size) && metrics.union_size >= 0
-      ? metrics.union_size
-      : fallbackMetrics.unionSize,
+    overlapCount: fallbackMetrics.overlapCount,
+    unionSize: fallbackMetrics.unionSize,
     expertWeights: copyExpertWeights(prediction.expert_weights)
   }
 }

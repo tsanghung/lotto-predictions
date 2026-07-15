@@ -8,7 +8,7 @@ const LAI_PREDICTION = {
   agent_status: 'baseline',
   agent_state_version: 4,
   combinations: {
-    '機率主攻': [2, 7, 17, 34, 41],
+    '機率主攻': [2, 7, 17, 34, 37],
     '覆蓋探索': [8, 11, 22, 35, 39]
   },
   group_metrics: {
@@ -46,7 +46,7 @@ test('maps an LAI prediction into two named groups and operational status', () =
   assert.equal(view.lastLearnedDate, '2026-07-14')
   assert.equal(view.provenAboveRandom, false)
   assert.deepEqual(view.groups.map((group) => group.label), ['機率主攻', '覆蓋探索'])
-  assert.deepEqual(view.groups[0].numbers, [2, 7, 17, 34, 41])
+  assert.deepEqual(view.groups[0].numbers, [2, 7, 17, 34, 37])
   assert.equal(view.overlapCount, 0)
   assert.equal(view.unionSize, 10)
   assert.deepEqual(view.expertWeights, {
@@ -133,4 +133,22 @@ test('does not mutate the source record or expose mutable source arrays and obje
   view.expertWeights.uniform = 1
 
   assert.deepEqual(source, before)
+})
+
+test('sanitizes malformed number groups and derives coverage from displayed numbers', () => {
+  const view = toLaiViewModel(mappedRecord({
+    prediction: {
+      ...LAI_PREDICTION,
+      combinations: {
+        '機率主攻': [1, 1, 40, 2, 3, 4, 5, 6],
+        '覆蓋探索': [2, 7, 8, 9, 10]
+      },
+      group_metrics: { overlap_count: 99, union_size: 99 },
+      expert_weights: { valid: 0.5, invalid: 2 }
+    }
+  }))
+  assert.deepEqual(view.groups[0].numbers, [1, 2, 3, 4, 5])
+  assert.equal(view.overlapCount, 1)
+  assert.equal(view.unionSize, 9)
+  assert.deepEqual(view.expertWeights, { valid: 0.5 })
 })
