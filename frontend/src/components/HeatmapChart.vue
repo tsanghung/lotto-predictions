@@ -86,7 +86,7 @@ const cellStyle = (count) => {
 
     <div class="grid gap-1.5 sm:gap-2"
          :style="{ gridTemplateColumns: `repeat(${maxNum <= 39 ? 8 : 10}, minmax(0, 1fr))` }">
-      <div v-for="item in frequencies" :key="item.number"
+      <div v-for="item in frequencies" :key="item.number" class="heatmap-cell"
            :title="`號碼 ${item.number}：全歷史 ${periods} 期累計開出 ${item.count} 次`"
            :style="{
              ...cellStyle(item.count),
@@ -96,9 +96,34 @@ const cellStyle = (count) => {
            }"
            @mouseenter="e => e.currentTarget.style.transform = 'scale(1.12)'"
            @mouseleave="e => e.currentTarget.style.transform = 'scale(1)'">
-        <span style="font-size:30px;font-family:monospace;line-height:1;">{{ item.number }}</span>
-        <span :style="{ fontSize: '20px', opacity: 0.75, lineHeight: 1, marginTop: '4px' }">{{ item.count }}</span>
+        <span class="heatmap-number">{{ item.number }}</span>
+        <span class="heatmap-count">{{ item.count }}</span>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.heatmap-cell {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.heatmap-number {
+  font-family: monospace;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.heatmap-count {
+  margin-top: 4px;
+  font-size: 20px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+@media (max-width: 640px) {
+  .heatmap-number { font-size: 16px; }
+  .heatmap-count { font-size: 11px; }
+}
+</style>

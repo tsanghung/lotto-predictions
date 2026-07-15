@@ -44,7 +44,7 @@ const heatStyle = (ratio) => {
 
 <template>
   <div style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:20px;padding:24px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px;">
       <h3 style="font-size:17px;font-weight:700;color:#f1f5f9;display:flex;align-items:center;gap:8px;">
         📈 號碼頻率熱力圖
         <span style="font-size:14px;font-weight:400;color:#475569;">全期統計</span>
@@ -59,7 +59,7 @@ const heatStyle = (ratio) => {
     </div>
 
     <div style="display:grid;gap:5px;" :style="{ gridTemplateColumns: `repeat(${maxNumber <= 39 ? 8 : 10}, 1fr)` }">
-      <div v-for="item in numbers" :key="item.num"
+      <div v-for="item in numbers" :key="item.num" class="frequency-cell"
         :title="`號碼 ${item.num}：出現 ${item.count} 次`"
         :style="{
           aspectRatio:'1',
@@ -73,13 +73,38 @@ const heatStyle = (ratio) => {
         @mouseenter="e => e.target.style.transform='scale(1.15)'"
         @mouseleave="e => e.target.style.transform='scale(1)'"
       >
-        <span :style="{ fontSize:'26px', fontWeight:'800', fontFamily:'monospace', color: item.ratio > 0.3 ? '#fff' : '#94a3b8', lineHeight:'1' }">
+        <span class="frequency-number" :style="{ color: item.ratio > 0.3 ? '#fff' : '#94a3b8' }">
           {{ item.num.toString().padStart(2,'0') }}
         </span>
-        <span :style="{ fontSize:'20px', color: item.ratio > 0.3 ? 'rgba(255,255,255,0.7)' : '#475569', lineHeight:'1', marginTop:'3px' }">
+        <span class="frequency-count" :style="{ color: item.ratio > 0.3 ? 'rgba(255,255,255,0.7)' : '#475569' }">
           {{ item.count }}
         </span>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.frequency-cell {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.frequency-number {
+  font-family: monospace;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.frequency-count {
+  margin-top: 3px;
+  font-size: 20px;
+  line-height: 1;
+}
+
+@media (max-width: 640px) {
+  .frequency-number { font-size: 16px; }
+  .frequency-count { font-size: 11px; }
+}
+</style>

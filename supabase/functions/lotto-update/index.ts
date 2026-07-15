@@ -1,5 +1,6 @@
 import {
   buildAsiLearningRecord,
+  buildLaiLearningEvidence,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -7,9 +8,11 @@ import {
   needsSecondaryDaily539Check,
   parseAuzonetDaily539Html,
   parseOfficialPayload,
+  runPostDrawLearning,
   taiwanDateParts,
   toLottoDrawRow,
 } from "./lib/lottoCore.js";
+import { GAME_CONFIG } from "../lotto-predict-notify/lib/gameConfig.js";
 
 type GameType = "539" | "649" | "power";
 
@@ -49,6 +52,85 @@ type DrawRow = {
   special_number: number | null;
 };
 
+type ModelForecastRow = {
+  id: string;
+  game_name: string;
+  target_draw_date: string;
+  model_name: string;
+  model_version: string;
+  forecast_mode: "shadow" | "production";
+  probabilities: number[];
+  special_probabilities: number[] | null;
+  final_groups: Record<string, unknown>;
+  agent_state_version: number | null;
+};
+
+type ModelScoreRow = {
+  forecast_id: string;
+  game_name: string;
+  model_name: string;
+  draw_id: string;
+  draw_date: string;
+  metrics: Record<string, unknown>;
+  weight_before: number | null;
+  weight_after: number | null;
+  evaluator_version: string;
+};
+
+type ModelScoreHistoryDbRow = Omit<ModelScoreRow, "model_name"> & {
+  forecast: { model_name: string } | null;
+};
+
+type AgentStatePayload = {
+  game_name: string;
+  state_version: number;
+  status: "baseline" | "champion" | "degraded";
+  champion_model: string;
+  expert_weights: Record<string, number>;
+  learning_config: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  last_learned_draw_id: string | null;
+  learning_claim_token?: string;
+  prediction_source_key?: string;
+  last_learned_draw_date: string | null;
+};
+
+
+type LearningClaimRequest = {
+  game_name: string;
+  draw_id: string;
+  draw_date: string;
+  source_key: string;
+};
+
+type LearningClaimResult = {
+  status: "claimed" | "already_learned" | "deferred_earlier_draw" | "in_progress" | "not_eligible";
+  draw_id?: string;
+  claim_token: string | null;
+  blocking_draw_id?: string;
+  blocking_draw_date?: string;
+  lease_expires_at?: string;
+};
+type LearningRecoveryResult = {
+  status: "rewound" | "already_learned" | "deferred_earlier_draw" | "not_needed" | "not_eligible";
+  draw_id?: string;
+  blocking_draw_id?: string;
+  replay_from_date?: string;
+  replay_through_date?: string;
+};
+type EnsembleScoreRow = {
+  draw_id: string;
+  draw_date: string;
+  metrics: {
+    brier_skill_score?: number;
+    coverage?: {
+      union_hits?: number;
+      group_a_hits?: number;
+      group_b_hits?: number;
+    };
+  };
+};
+
 const OFFICIAL_URLS: Record<GameType, string> = {
   "539": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Daily539Result",
   "649": "https://api.taiwanlottery.com/TLCAPIWeB/Lottery/Lotto649Result",
@@ -60,6 +142,14 @@ const GAME_NAMES: Record<GameType, string> = {
   "649": "大樂透",
   "power": "威力彩",
 };
+
+function gameConfigForName(gameName: string) {
+  const config = Object.values(GAME_CONFIG).find((candidate) => candidate.name === gameName);
+  if (!config) {
+    throw new Error(`Unsupported LAI game name: ${gameName}`);
+  }
+  return config;
+}
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
@@ -371,6 +461,242 @@ async function upsertAsiLearningRecord(
   }
 }
 
+async function fetchActiveAgentState(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+): Promise<AgentStatePayload | null> {
+  const params = new URLSearchParams({
+    select: "game_name,state_version,status,champion_model,expert_weights,learning_config,metrics,last_learned_draw_id,last_learned_draw_date",
+    game_name: `eq.${gameName}`,
+    is_active: "eq.true",
+    limit: "1",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_agent_states?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase active agent state query failed: ${response.status} ${await response.text()}`);
+  }
+
+  const rows = await response.json() as AgentStatePayload[];
+  return rows[0] ?? null;
+}
+
+async function fetchAgentStateCheckpoint(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+  drawId: string,
+): Promise<AgentStatePayload | null> {
+  const params = new URLSearchParams({
+    select: "game_name,state_version,status,champion_model,expert_weights,learning_config,metrics,last_learned_draw_id,last_learned_draw_date",
+    game_name: `eq.${gameName}`,
+    last_learned_draw_id: `eq.${drawId}`,
+    order: "state_version.desc",
+    limit: "1",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_agent_states?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase agent checkpoint query failed: ${response.status} ${await response.text()}`);
+  }
+
+  const rows = await response.json() as AgentStatePayload[];
+  return rows[0] ?? null;
+}
+
+async function recoverAgentLearningOrder(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  request: Omit<LearningClaimRequest, "source_key">,
+): Promise<LearningRecoveryResult> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/recover_lai_learning_order`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceRoleKey),
+    body: JSON.stringify({
+      p_game_name: request.game_name,
+      p_draw_id: request.draw_id,
+      p_draw_date: request.draw_date,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase learning order recovery failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = await response.json() as LearningRecoveryResult | LearningRecoveryResult[];
+  const recovery = Array.isArray(payload) ? payload[0] : payload;
+  const allowedStatuses = new Set([
+    "rewound",
+    "already_learned",
+    "deferred_earlier_draw",
+    "not_needed",
+    "not_eligible",
+  ]);
+  if (!recovery || !allowedStatuses.has(recovery.status)) {
+    throw new Error("Supabase learning order recovery returned an invalid status");
+  }
+  return recovery;
+}
+async function claimAgentLearning(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  request: LearningClaimRequest,
+): Promise<LearningClaimResult> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/claim_next_lai_learning`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceRoleKey),
+    body: JSON.stringify({
+      p_game_name: request.game_name,
+      p_draw_id: request.draw_id,
+      p_draw_date: request.draw_date,
+      p_source_key: request.source_key,
+      p_lease_seconds: 120,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase ordered learning claim failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = await response.json() as LearningClaimResult | LearningClaimResult[];
+  const claim = Array.isArray(payload) ? payload[0] : payload;
+  const allowedStatuses = new Set([
+    "claimed",
+    "already_learned",
+    "deferred_earlier_draw",
+    "in_progress",
+    "not_eligible",
+  ]);
+  if (!claim || !allowedStatuses.has(claim.status)) {
+    throw new Error("Supabase ordered learning claim returned an invalid status");
+  }
+  if (claim.status === "claimed" && !claim.claim_token) {
+    throw new Error("Supabase ordered learning claim returned no claim_token");
+  }
+  return claim;
+}
+async function fetchUnscoredModelForecasts(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+  targetDrawDate: string,
+): Promise<ModelForecastRow[]> {
+  const params = new URLSearchParams({
+    select: "id,game_name,target_draw_date,model_name,model_version,forecast_mode,probabilities,special_probabilities,final_groups,agent_state_version",
+    game_name: `eq.${gameName}`,
+    target_draw_date: `eq.${targetDrawDate}`,
+    order: "model_name.asc,model_version.asc,forecast_mode.asc",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_model_forecasts?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase model forecast query failed: ${response.status} ${await response.text()}`);
+  }
+
+  return response.json();
+}
+
+async function fetchModelScoreHistory(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+  throughDrawDate: string,
+): Promise<ModelScoreRow[]> {
+  const rows: ModelScoreHistoryDbRow[] = [];
+  const pageSize = 1000;
+  let offset = 0;
+
+  while (true) {
+    const params = new URLSearchParams({
+      select: "forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,forecast:lotto_model_forecasts!inner(model_name)",
+      game_name: `eq.${gameName}`,
+      draw_date: `lte.${throughDrawDate}`,
+      order: "draw_date.asc,draw_id.asc",
+      limit: String(pageSize),
+      offset: String(offset),
+    });
+    const response = await fetch(`${supabaseUrl}/rest/v1/lotto_model_scores?${params}`, {
+      headers: supabaseHeaders(serviceRoleKey),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Supabase model score history query failed: ${response.status} ${await response.text()}`);
+    }
+
+    const page = await response.json() as ModelScoreHistoryDbRow[];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    offset += pageSize;
+  }
+
+  return rows.map(({ forecast, ...row }) => {
+    if (!forecast?.model_name) {
+      throw new Error(`Supabase model score history row ${row.forecast_id} is missing model identity`);
+    }
+    return { ...row, model_name: forecast.model_name };
+  });
+}
+
+async function upsertModelScores(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  scoreRows: ModelScoreRow[],
+): Promise<void> {
+  if (!scoreRows.length) {
+    return;
+  }
+
+  const persistedRows = scoreRows.map(({ model_name: _modelName, ...row }) => row);
+  const response = await fetch(
+    `${supabaseUrl}/rest/v1/lotto_model_scores?on_conflict=forecast_id,draw_id`,
+    {
+      method: "POST",
+      headers: {
+        ...supabaseHeaders(serviceRoleKey),
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: JSON.stringify(persistedRows),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Supabase model score upsert failed: ${response.status} ${await response.text()}`);
+  }
+}
+
+async function activateAgentState(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  nextState: AgentStatePayload,
+): Promise<AgentStatePayload> {
+  const response = await fetch(`${supabaseUrl}/rest/v1/rpc/activate_lotto_agent_state`, {
+    method: "POST",
+    headers: supabaseHeaders(serviceRoleKey),
+    body: JSON.stringify({ p_state: nextState }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase agent state activation failed: ${response.status} ${await response.text()}`);
+  }
+
+  const payload = await response.json() as AgentStatePayload | AgentStatePayload[];
+  const activated = Array.isArray(payload) ? payload[0] : payload;
+  if (!activated ||
+    typeof activated.game_name !== "string" ||
+    !Number.isFinite(Number(activated.state_version)) ||
+    activated.last_learned_draw_id == null) {
+    throw new Error("Supabase agent state activation returned an invalid checkpoint");
+  }
+  return activated;
+}
+
 async function fetchReadyPredictions(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -428,12 +754,74 @@ async function fetchEvaluatedPredictions(
   }
 }
 
+async function fetchEnsembleModelScores(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameName: string,
+): Promise<EnsembleScoreRow[]> {
+  const params = new URLSearchParams({
+    select: "draw_id,draw_date,metrics,forecast:lotto_model_forecasts!inner(model_name)",
+    game_name: `eq.${gameName}`,
+    "forecast.model_name": "eq.ensemble",
+    order: "draw_date.asc,draw_id.asc",
+  });
+  const response = await fetch(`${supabaseUrl}/rest/v1/lotto_model_scores?${params}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Supabase ensemble score query failed: ${response.status} ${await response.text()}`);
+  }
+
+  return response.json();
+}
+
+async function fetchLaiPerformanceByGame(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameNames: string[],
+): Promise<Record<string, unknown>> {
+  const entries = await Promise.all(gameNames.map(async (gameName) => {
+    const config = gameConfigForName(gameName);
+    const [scoreRows, latestState] = await Promise.all([
+      fetchEnsembleModelScores(supabaseUrl, serviceRoleKey, gameName),
+      fetchActiveAgentState(supabaseUrl, serviceRoleKey, gameName),
+    ]);
+    const byDraw = new Map<string, EnsembleScoreRow>();
+    for (const row of scoreRows) {
+      byDraw.set(String(row.draw_id), row);
+    }
+    const uniqueRows = [...byDraw.values()].sort((left, right) => (
+      left.draw_date.localeCompare(right.draw_date) ||
+      String(left.draw_id).localeCompare(String(right.draw_id), undefined, { numeric: true })
+    ));
+    const coverageTotals = uniqueRows.reduce((totals, row) => ({
+      unionHits: totals.unionHits + Number(row.metrics?.coverage?.union_hits || 0),
+      groupAHits: totals.groupAHits + Number(row.metrics?.coverage?.group_a_hits || 0),
+      groupBHits: totals.groupBHits + Number(row.metrics?.coverage?.group_b_hits || 0),
+    }), { unionHits: 0, groupAHits: 0, groupBHits: 0 });
+
+    return [gameName, {
+      latestMetrics: uniqueRows.at(-1)?.metrics ?? {},
+      latestState,
+      ...coverageTotals,
+      actualNumberCount: uniqueRows.length * config.picks,
+      evaluatedDraws: uniqueRows.length,
+    }] as const;
+  }));
+
+  return Object.fromEntries(entries);
+}
+
 async function rebuildPerformanceSnapshot(
   supabaseUrl: string,
   serviceRoleKey: string,
 ): Promise<Record<string, unknown>> {
   const evaluatedPredictions = await fetchEvaluatedPredictions(supabaseUrl, serviceRoleKey);
-  const snapshot = buildPerformanceSnapshot(evaluatedPredictions);
+  const gameNames = [...new Set(evaluatedPredictions.map((record) => record.game_name))];
+  const laiByGame = await fetchLaiPerformanceByGame(supabaseUrl, serviceRoleKey, gameNames);
+  const generatedAt = new Date().toISOString();
+  const snapshot = buildPerformanceSnapshot(evaluatedPredictions, generatedAt, laiByGame);
   await upsertPerformanceSnapshot(supabaseUrl, serviceRoleKey, snapshot);
   return snapshot;
 }
@@ -502,8 +890,74 @@ async function evaluateReadyPredictions(
     }
 
     const evaluation = evaluatePredictionRecord(prediction, draw);
-    await markPredictionEvaluated(supabaseUrl, serviceRoleKey, prediction.source_key, evaluation);
+    const learningResult = await runPostDrawLearning({
+      prediction,
+      draw,
+      evaluation,
+      config: gameConfigForName(prediction.game_name),
+      deps: {
+        fetchForecasts: () => fetchUnscoredModelForecasts(
+          supabaseUrl,
+          serviceRoleKey,
+          prediction.game_name,
+          prediction.target_draw_date,
+        ),
+        fetchActiveState: () => fetchActiveAgentState(
+          supabaseUrl,
+          serviceRoleKey,
+          prediction.game_name,
+        ),
+        fetchAgentStateCheckpoint: (gameName: string, drawId: string) =>
+          fetchAgentStateCheckpoint(
+            supabaseUrl,
+            serviceRoleKey,
+            gameName,
+            drawId,
+          ),
+        recoverAgentLearningOrder: (request: Omit<LearningClaimRequest, "source_key">) =>
+          recoverAgentLearningOrder(
+            supabaseUrl,
+            serviceRoleKey,
+            request,
+          ),
+        claimAgentLearning: (request: LearningClaimRequest) => claimAgentLearning(
+          supabaseUrl,
+          serviceRoleKey,
+          request,
+        ),
+        fetchScoreHistory: () => fetchModelScoreHistory(
+          supabaseUrl,
+          serviceRoleKey,
+          prediction.game_name,
+          draw.draw_date,
+        ),
+        upsertModelScores: (rows: ModelScoreRow[]) => upsertModelScores(
+          supabaseUrl,
+          serviceRoleKey,
+          rows,
+        ),
+        activateAgentState: (state: AgentStatePayload) => activateAgentState(
+          supabaseUrl,
+          serviceRoleKey,
+          state,
+        ),
+        markPredictionEvaluated: (sourceKey: string, result: Record<string, unknown>) =>
+          markPredictionEvaluated(supabaseUrl, serviceRoleKey, sourceKey, result),
+      },
+    });
+
+    if (!["learned", "already_learned"].includes(learningResult.learning_status)) {
+      continue;
+    }
+
     const asiLearningRecord = buildAsiLearningRecord(prediction, draw, evaluation);
+    const laiEvidence = buildLaiLearningEvidence(learningResult);
+    if (laiEvidence) {
+      asiLearningRecord.raw_learning_report = {
+        ...(asiLearningRecord.raw_learning_report || {}),
+        lai: laiEvidence,
+      };
+    }
     await upsertAsiLearningRecord(supabaseUrl, serviceRoleKey, asiLearningRecord);
     evaluated.push({
       source_key: prediction.source_key,

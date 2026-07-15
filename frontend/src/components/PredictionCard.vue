@@ -1,6 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 import { predictionHasDetailedInsight } from '../services/predictionVisibility'
+import { isLaiPredictionRecord } from '../services/laiPresentation.js'
+import LaiAgentPanel from './LaiAgentPanel.vue'
 
 const props = defineProps({
   gameName: { type: String, required: true },
@@ -12,7 +14,7 @@ const props = defineProps({
 const latestPrediction = computed(() => {
   if (!props.predictionData || props.predictionData.length === 0) return null
   const filtered = props.predictionData.filter(p => p.game_name === props.gameName)
-  const detailed = filtered.filter(predictionHasDetailedInsight)
+  const detailed = filtered.filter(p => isLaiPredictionRecord(p) || predictionHasDetailedInsight(p))
   return detailed.length ? detailed[detailed.length - 1] : (filtered[filtered.length - 1] || null)
 })
 
@@ -84,8 +86,14 @@ const sortedInsights = computed(() => {
 <template>
   <div style="display:flex;flex-direction:column;gap:20px;">
 
+    <LaiAgentPanel
+      v-if="latestPrediction?.prediction?.model === 'lai-v2'"
+      :record="latestPrediction"
+      :accent="accent"
+    />
+
     <!-- Latest Prediction Card -->
-    <div :style="{
+    <div v-else :style="{
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.08)',
       borderRadius: '20px',

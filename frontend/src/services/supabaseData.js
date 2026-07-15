@@ -82,6 +82,7 @@ function mapAsiLearning(row) {
     next_adjustments: row.next_adjustments || [],
     reasoning_source: row.reasoning_source,
     model_name: row.model_name,
+    raw_learning_report: row.raw_learning_report || {},
     created_at: row.created_at
   }
 }
@@ -102,7 +103,7 @@ export async function fetchSupabaseLottoData() {
     requestAll('lotto_draws?game_name=eq.%E4%BB%8A%E5%BD%A9539&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     requestAll('lotto_draws?game_name=eq.%E5%A8%81%E5%8A%9B%E5%BD%A9&select=draw_id,draw_date,numbers,special_number&order=draw_date.asc'),
     request('performance_snapshots?snapshot_key=eq.current&select=payload&limit=1'),
-    requestOptionalAll('asi_learning_records?select=game_name,target_draw_date,draw_id,matched_numbers,missed_numbers,actual_numbers,strategy_effectiveness,next_adjustments,reasoning_source,model_name,created_at&order=target_draw_date.asc,created_at.asc')
+    requestOptionalAll('asi_learning_records?select=game_name,target_draw_date,draw_id,matched_numbers,missed_numbers,actual_numbers,strategy_effectiveness,next_adjustments,reasoning_source,model_name,raw_learning_report,created_at&order=target_draw_date.asc,created_at.asc')
   ])
 
   if (!metaRows[0]?.payload || !lottoRows.length || !dailyRows.length || !powerRows.length) {

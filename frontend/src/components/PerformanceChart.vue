@@ -13,6 +13,7 @@ import {
 } from 'chart.js'
 import { Line, Bar } from 'vue-chartjs'
 import { specialAreaLabel, predictsSpecialArea } from '../services/gameMeta'
+import { toLaiPerformanceView } from '../services/laiPresentation.js'
 
 ChartJS.register(
   CategoryScale,
@@ -47,8 +48,11 @@ const specialLabel = computed(() => specialAreaLabel(props.gameName))
 const secondAreaStats = computed(() =>
   predictsSpecialArea(props.gameName) ? (gamePerf.value?.second_area || null) : null
 )
+const laiPerformance = computed(() => toLaiPerformanceView(gamePerf.value))
 
 const formatRate = (rate) => `${((Number(rate) || 0) * 100).toFixed(1)}%`
+const formatScore = (score) => Number.isFinite(score) ? Number(score).toFixed(4) : '資料不足'
+const formatAverage = (value) => Number.isFinite(value) ? Number(value).toFixed(2) : '資料不足'
 
 // 共用的 Chart.js 設定
 const commonOptions = {
@@ -184,6 +188,39 @@ const hitMissChartData = computed(() => {
           </p>
         </div>
       </div>
+    </section>
+
+    <section v-if="laiPerformance" class="rounded-lg border border-cyan-300/20 bg-cyan-300/[0.04] p-5" aria-label="LAI 量化成效">
+      <div class="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p class="text-xs font-bold uppercase text-cyan-200/70">LAI Performance</p>
+          <h4 class="mt-1 text-lg font-black text-slate-100">量化預測成效</h4>
+        </div>
+        <div class="text-right">
+          <p class="text-xs font-semibold text-slate-400">Champion</p>
+          <p class="text-lg font-black text-cyan-200">{{ laiPerformance.championModel || '尚未建立' }}</p>
+          <p class="text-xs font-semibold text-slate-500">{{ laiPerformance.agentStatus || '資料不足' }}</p>
+        </div>
+      </div>
+      <dl class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div class="rounded-md border border-white/10 bg-slate-950/35 p-3">
+          <dt class="text-xs font-semibold text-slate-500">Brier Skill Score</dt>
+          <dd class="mt-1 font-mono text-xl font-black text-cyan-200">{{ formatScore(laiPerformance.brierSkillScore) }}</dd>
+        </div>
+        <div class="rounded-md border border-white/10 bg-slate-950/35 p-3">
+          <dt class="text-xs font-semibold text-slate-500">雙組聯集覆蓋率</dt>
+          <dd class="mt-1 font-mono text-xl font-black text-cyan-200">{{ laiPerformance.unionCoverageRate == null ? '資料不足' : formatRate(laiPerformance.unionCoverageRate) }}</dd>
+        </div>
+        <div class="rounded-md border border-white/10 bg-slate-950/35 p-3">
+          <dt class="text-xs font-semibold text-slate-500">機率主攻平均命中</dt>
+          <dd class="mt-1 font-mono text-xl font-black text-slate-200">{{ formatAverage(laiPerformance.averageGroupAHits) }}</dd>
+        </div>
+        <div class="rounded-md border border-white/10 bg-slate-950/35 p-3">
+          <dt class="text-xs font-semibold text-slate-500">覆蓋探索平均命中</dt>
+          <dd class="mt-1 font-mono text-xl font-black text-slate-200">{{ formatAverage(laiPerformance.averageGroupBHits) }}</dd>
+        </div>
+      </dl>
+      <p class="mt-3 text-xs leading-5 text-slate-500">{{ laiPerformance.limitation }}</p>
     </section>
 
     <div class="grid grid-cols-1 gap-6">
