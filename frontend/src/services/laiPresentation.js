@@ -83,3 +83,69 @@ export function toLaiViewModel(record) {
     expertWeights: copyExpertWeights(prediction.expert_weights)
   }
 }
+
+export function toLaiLearningView(record) {
+  const report = record?.raw_learning_report?.lai || record?.evaluation?.learning_report?.lai
+  if (!report || typeof report !== 'object' || Array.isArray(report)) return null
+
+  const weightChanges = Array.isArray(report.weight_changes)
+    ? report.weight_changes
+      .filter((row) => (
+        row && typeof row.model === 'string' && row.model &&
+        Number.isFinite(row.before) && Number.isFinite(row.after)
+      ))
+      .map((row) => ({
+        model: row.model,
+        before: row.before,
+        after: row.after,
+        delta: Number((row.after - row.before).toFixed(12))
+      }))
+    : []
+  const coverage = report.coverage && typeof report.coverage === 'object'
+    ? report.coverage
+    : {}
+
+  return {
+    drawDate: record.target_draw_date || record.draw_date || null,
+    stateVersion: Number.isInteger(report.state_version) ? report.state_version : null,
+    agentStatus: typeof report.agent_status === 'string' ? report.agent_status : null,
+    weightChanges,
+    championChanged: typeof report.champion_changed === 'boolean' ? report.champion_changed : null,
+    previousChampionModel: typeof report.previous_champion_model === 'string'
+      ? report.previous_champion_model
+      : null,
+    championModel: typeof report.champion_model === 'string' ? report.champion_model : null,
+    brierSkillScore: Number.isFinite(report.brier_skill_score) ? report.brier_skill_score : null,
+    unionHits: Number.isInteger(coverage.union_hits) && coverage.union_hits >= 0
+      ? coverage.union_hits
+      : null,
+    unionSize: Number.isInteger(coverage.union_size) && coverage.union_size >= 0
+      ? coverage.union_size
+      : null,
+    overlapCount: Number.isInteger(coverage.overlap_count) && coverage.overlap_count >= 0
+      ? coverage.overlap_count
+      : null,
+    limitation: '單期結果只能更新量化損失，不能證明特定號碼具有因果規律。'
+  }
+}
+
+export function toLaiPerformanceView(gamePerformance) {
+  const lai = gamePerformance?.lai
+  if (!lai || typeof lai !== 'object' || Array.isArray(lai)) return null
+  return {
+    brierSkillScore: Number.isFinite(lai.brier_skill_score) ? lai.brier_skill_score : null,
+    unionCoverageRate: Number.isFinite(lai.union_coverage_rate) &&
+      lai.union_coverage_rate >= 0 && lai.union_coverage_rate <= 1
+      ? lai.union_coverage_rate
+      : null,
+    averageGroupAHits: Number.isFinite(lai.average_group_a_hits) && lai.average_group_a_hits >= 0
+      ? lai.average_group_a_hits
+      : null,
+    averageGroupBHits: Number.isFinite(lai.average_group_b_hits) && lai.average_group_b_hits >= 0
+      ? lai.average_group_b_hits
+      : null,
+    championModel: typeof lai.champion_model === 'string' ? lai.champion_model : null,
+    agentStatus: typeof lai.agent_status === 'string' ? lai.agent_status : null,
+    limitation: 'Brier Skill Score 大於 0 代表此評估區間優於均勻隨機基準；不代表保證中獎。'
+  }
+}

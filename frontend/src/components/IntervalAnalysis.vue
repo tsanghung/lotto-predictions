@@ -46,7 +46,7 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
     <!-- 即將開出候選 Top 8 -->
     <div style="margin-bottom:22px;">
       <h4 style="font-size:18px;font-weight:600;color:#cbd5e1;margin-bottom:14px;">🎯 即將開出候選（指數 Top 8）</h4>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+      <div class="due-candidate-grid">
         <div v-for="item in dueCandidates" :key="item.num"
           :style="{
             background: indexStyle(item.index).bg,
@@ -73,7 +73,7 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
     <!-- 全部號碼遺漏表（依指數排序） -->
     <h4 style="font-size:18px;font-weight:600;color:#cbd5e1;margin-bottom:14px;">全部號碼遺漏指數（高 → 低）</h4>
     <div style="display:grid;gap:6px;" :style="{ gridTemplateColumns: `repeat(${maxNumber <= 39 ? 8 : 10}, 1fr)` }">
-      <div v-for="item in sortedByIndex" :key="item.num"
+      <div v-for="item in sortedByIndex" :key="item.num" class="interval-cell"
         :title="`號碼 ${item.num}｜已隔 ${item.curGapDraw} 期 / ${item.curGapDay} 天｜平均間隔 ${fmt(item.avgDraw,1)} 期 / ${fmt(item.avgDay,1)} 天｜最大遺漏 ${item.maxDraw} 期｜出現 ${item.appearances} 次｜指數 ${fmt(item.index,2)}`"
         :style="{
           background: indexStyle(item.index).bg,
@@ -85,10 +85,10 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
         @mouseenter="e => e.currentTarget.style.transform='scale(1.12)'"
         @mouseleave="e => e.currentTarget.style.transform='scale(1)'"
       >
-        <span :style="{ fontSize:'26px', fontWeight:'800', fontFamily:'monospace', lineHeight:'1.1', color: indexStyle(item.index).text }">
+        <span class="interval-number" :style="{ color: indexStyle(item.index).text }">
           {{ item.num.toString().padStart(2,'0') }}
         </span>
-        <span :style="{ fontSize:'17px', lineHeight:'1.2', color: indexStyle(item.index).text, opacity:0.85 }">
+        <span class="interval-gap" :style="{ color: indexStyle(item.index).text }">
           {{ item.curGapDraw }}期
         </span>
       </div>
@@ -100,3 +100,35 @@ const fmt = (v, d = 1) => (v == null ? '—' : Number(v).toFixed(d))
     </p>
   </div>
 </template>
+
+<style scoped>
+.due-candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.interval-cell {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.interval-number {
+  font-family: monospace;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.interval-gap {
+  font-size: 17px;
+  line-height: 1.2;
+  opacity: 0.85;
+}
+
+@media (max-width: 640px) {
+  .due-candidate-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .interval-number { font-size: 16px; }
+  .interval-gap { font-size: 11px; }
+}
+</style>

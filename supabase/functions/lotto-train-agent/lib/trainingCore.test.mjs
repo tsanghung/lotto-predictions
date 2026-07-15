@@ -319,6 +319,7 @@ test("Power training and production use the same combined Brier loss", () => {
     config: GAME_CONFIG.power,
   });
   assert.equal(training.combined_brier, production.metrics.combined_brier);
+  assert.equal(production.metrics.combined_brier_skill_score, 0);
 });
 
 test("checkpoint keeps a bounded recent score window for promotion metrics", () => {

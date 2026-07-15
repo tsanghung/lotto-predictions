@@ -1,5 +1,6 @@
 import {
   buildAsiLearningRecord,
+  buildLaiLearningEvidence,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -950,6 +951,13 @@ async function evaluateReadyPredictions(
     }
 
     const asiLearningRecord = buildAsiLearningRecord(prediction, draw, evaluation);
+    const laiEvidence = buildLaiLearningEvidence(learningResult);
+    if (laiEvidence) {
+      asiLearningRecord.raw_learning_report = {
+        ...(asiLearningRecord.raw_learning_report || {}),
+        lai: laiEvidence,
+      };
+    }
     await upsertAsiLearningRecord(supabaseUrl, serviceRoleKey, asiLearningRecord);
     evaluated.push({
       source_key: prediction.source_key,

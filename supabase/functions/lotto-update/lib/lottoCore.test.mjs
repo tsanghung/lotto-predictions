@@ -6,6 +6,7 @@ import * as lottoCore from "./lottoCore.js";
 
 import {
   buildAsiLearningRecord,
+  buildLaiLearningEvidence,
   buildPerformanceSnapshot,
   chooseFreshestDraw,
   evaluatePredictionRecord,
@@ -15,6 +16,37 @@ import {
   parseOfficialPayload,
   toLottoDrawRow,
 } from "./lottoCore.js";
+
+test("builds recorded LAI learning evidence without causal number explanations", () => {
+  const evidence = buildLaiLearningEvidence({
+    learning_status: "learned",
+    previous_state: { state_version: 4, status: "baseline", champion_model: "uniform" },
+    next_state: { state_version: 5, status: "baseline", champion_model: "uniform" },
+    score_rows: [
+      { model_name: "hazard", weight_before: 0.2, weight_after: 0.18, metrics: { brier: 0.2 } },
+      {
+        model_name: "ensemble",
+        weight_before: null,
+        weight_after: null,
+        metrics: {
+          brier_skill_score: 0.04,
+          coverage: { union_hits: 2, union_size: 10, overlap_count: 0 },
+        },
+      },
+    ],
+  });
+  assert.deepEqual(evidence.weight_changes, [
+    { model: "hazard", before: 0.2, after: 0.18, delta: -0.02 },
+  ]);
+  assert.equal(evidence.champion_changed, false);
+  assert.equal(evidence.brier_skill_score, 0.04);
+  assert.equal(evidence.coverage.union_hits, 2);
+  assert.doesNotMatch(JSON.stringify(evidence), /why|\u70ba\u4ec0\u9ebc\u958b/i);
+});
+
+test("does not invent LAI learning evidence for idempotent retries", () => {
+  assert.equal(buildLaiLearningEvidence({ learning_status: "already_learned" }), null);
+});
 
 const updateIndexSource = await readFile(new URL("../index.ts", import.meta.url), "utf8");
 

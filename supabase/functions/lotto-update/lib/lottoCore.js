@@ -435,14 +435,13 @@ function forecastGroups(finalGroups, key) {
 function areaScore({ probabilities, actualNumbers, maxNumber, picks, groups }) {
   const baseline = Array(maxNumber).fill(picks / maxNumber);
   const brier = brierScore(probabilities, actualNumbers, maxNumber);
+  const baselineBrier = brierScore(baseline, actualNumbers, maxNumber);
 
   return {
     brier,
+    baseline_brier: baselineBrier,
     log_loss: logLoss(probabilities, actualNumbers, maxNumber),
-    brier_skill_score: brierSkillScore(
-      brier,
-      brierScore(baseline, actualNumbers, maxNumber),
-    ),
+    brier_skill_score: brierSkillScore(brier, baselineBrier),
     coverage: coverageMetrics(groups[0], groups[1], actualNumbers),
   };
 }
@@ -475,6 +474,18 @@ export function scoreModelForecast({ forecast, draw, config }) {
     metrics.brier,
     Number.isFinite(metrics.special_area?.brier) ? metrics.special_area.brier : null,
   );
+  metrics.main_brier_skill_score = metrics.brier_skill_score;
+  const combinedBaselineBrier = combinedAreaBrier(
+    metrics.baseline_brier,
+    Number.isFinite(metrics.special_area?.baseline_brier)
+      ? metrics.special_area.baseline_brier
+      : null,
+  );
+  metrics.combined_brier_skill_score = brierSkillScore(
+    metrics.combined_brier,
+    combinedBaselineBrier,
+  );
+  metrics.brier_skill_score = metrics.combined_brier_skill_score;
 
   return {
     forecast_id: String(forecast?.id),
@@ -979,13 +990,29 @@ export async function runPostDrawLearning({
     await deps.upsertModelScores(scoreRows);
     const activatedState = await deps.activateAgentState(claimedNextState);
     if (stateMatchesExpectedCheckpoint(activatedState, nextState)) {
-      await deps.markPredictionEvaluated(prediction.source_key, evaluation);
-      return {
+      const learnedResult = {
         learning_status: "learned",
         score_rows: scoreRows,
         next_state: nextState,
+        previous_state: {
+          state_version: activeState.state_version,
+          status: activeState.status,
+          champion_model: activeState.champion_model,
+        },
         activation_attempts: attempt,
       };
+      const laiEvidence = buildLaiLearningEvidence(learnedResult);
+      const enrichedEvaluation = laiEvidence
+        ? {
+          ...structuredClone(evaluation),
+          learning_report: {
+            ...(structuredClone(evaluation?.learning_report) || {}),
+            lai: laiEvidence,
+          },
+        }
+        : evaluation;
+      await deps.markPredictionEvaluated(prediction.source_key, enrichedEvaluation);
+      return learnedResult;
     }
 
     const historicalCheckpoint = await fetchExactDrawCheckpoint(
@@ -1017,6 +1044,46 @@ export async function runPostDrawLearning({
   }
 
   throw new Error(`LAI activation checkpoint retry invariant failed for ${prediction.game_name}`);
+}
+
+export function buildLaiLearningEvidence(learningResult) {
+  if (learningResult?.learning_status !== "learned" || !learningResult?.next_state) {
+    return null;
+  }
+  const scoreRows = Array.isArray(learningResult.score_rows) ? learningResult.score_rows : [];
+  const ensemble = scoreRows.find((row) => row?.model_name === "ensemble") ?? null;
+  const weightChanges = scoreRows
+    .filter((row) => (
+      row?.model_name !== "ensemble" &&
+      Number.isFinite(row?.weight_before) &&
+      Number.isFinite(row?.weight_after)
+    ))
+    .map((row) => ({
+      model: row.model_name,
+      before: row.weight_before,
+      after: row.weight_after,
+      delta: Number((row.weight_after - row.weight_before).toFixed(12)),
+    }));
+  const previousChampion = learningResult.previous_state?.champion_model ?? null;
+  const nextChampion = learningResult.next_state?.champion_model ?? null;
+
+  return {
+    state_version: learningResult.next_state.state_version ?? null,
+    agent_status: learningResult.next_state.status ?? null,
+    weight_changes: weightChanges,
+    champion_changed: previousChampion != null && nextChampion != null
+      ? previousChampion !== nextChampion
+      : null,
+    previous_champion_model: previousChampion,
+    champion_model: nextChampion,
+    brier_skill_score: Number.isFinite(ensemble?.metrics?.brier_skill_score)
+      ? ensemble.metrics.brier_skill_score
+      : null,
+    coverage: ensemble?.metrics?.coverage
+      ? structuredClone(ensemble.metrics.coverage)
+      : null,
+    limitation: "Single-draw outcomes update quantitative loss only and do not establish causal number patterns.",
+  };
 }
 export function buildAsiLearningRecord(record, draw, evaluation) {
   const prediction = record?.prediction || {};

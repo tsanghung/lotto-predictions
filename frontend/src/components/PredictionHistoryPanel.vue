@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { specialAreaLabel } from '../services/gameMeta'
+import { toLaiLearningView } from '../services/laiPresentation.js'
 
 const props = defineProps({
   gameName: { type: String, required: true },
@@ -161,6 +162,8 @@ const strategyLearningRows = (record) =>
     ...review
   }))
 const guidanceItems = (record) => learningReport(record)?.next_prediction_guidance || []
+const laiLearning = (record) => toLaiLearningView(record)
+const formatLaiScore = (value) => Number.isFinite(value) ? Number(value).toFixed(4) : '資料不足'
 
 const numberListText = (numbers) => {
   if (!Array.isArray(numbers) || !numbers.length) return '無'
@@ -314,7 +317,24 @@ const showMore = () => {
           </div>
         </div>
 
-        <section v-if="learningReport(record)" class="learning-report">
+        <section v-if="laiLearning(record)" class="lai-history-learning" aria-label="LAI 本期量化學習">
+          <div class="lai-history-learning__header">
+            <div>
+              <p class="learning-kicker">LAI Quantitative Review</p>
+              <h4>本期量化學習</h4>
+            </div>
+            <span>State v{{ laiLearning(record).stateVersion ?? '--' }}</span>
+          </div>
+          <dl>
+            <div><dt>Champion</dt><dd>{{ laiLearning(record).championModel || '資料不足' }}</dd></div>
+            <div><dt>Brier Skill Score</dt><dd>{{ formatLaiScore(laiLearning(record).brierSkillScore) }}</dd></div>
+            <div><dt>雙組聯集命中</dt><dd>{{ laiLearning(record).unionHits ?? '--' }} / {{ laiLearning(record).unionSize ?? '--' }}</dd></div>
+            <div><dt>兩組重疊</dt><dd>{{ laiLearning(record).overlapCount ?? '--' }}</dd></div>
+          </dl>
+          <p>{{ laiLearning(record).limitation }}</p>
+        </section>
+
+        <section v-if="learningReport(record) && !laiLearning(record)" class="learning-report">
           <div class="learning-report-header">
             <div>
               <p class="learning-kicker">Agent Learning</p>
@@ -410,6 +430,74 @@ const showMore = () => {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.lai-history-learning {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.lai-history-learning__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lai-history-learning h4 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 20px;
+}
+
+.lai-history-learning__header > span {
+  padding: 5px 9px;
+  color: #a5f3fc;
+  font-size: 13px;
+  font-weight: 800;
+  border: 1px solid rgba(103, 232, 249, 0.24);
+  border-radius: 6px;
+}
+
+.lai-history-learning dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.lai-history-learning dl > div {
+  min-width: 0;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+}
+
+.lai-history-learning dt {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lai-history-learning dd {
+  margin: 4px 0 0;
+  color: #e2e8f0;
+  font-family: monospace;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.lai-history-learning > p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .learning-report-header {
@@ -600,6 +688,10 @@ const showMore = () => {
     grid-template-columns: 1fr;
   }
 
+  .lai-history-learning dl {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .learning-number-row {
     grid-template-columns: 42px minmax(0, 1fr);
   }
@@ -607,5 +699,9 @@ const showMore = () => {
   .learning-number-row > div {
     grid-column: 1 / -1;
   }
+}
+
+@media (max-width: 480px) {
+  .lai-history-learning dl { grid-template-columns: 1fr; }
 }
 </style>

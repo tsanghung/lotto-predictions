@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFile } from 'node:fs/promises'
 
-import { isLaiPredictionRecord, toLaiViewModel } from './laiPresentation.js'
+import {
+  isLaiPredictionRecord,
+  toLaiLearningView,
+  toLaiPerformanceView,
+  toLaiViewModel
+} from './laiPresentation.js'
 
 const LAI_PREDICTION = {
   model: 'lai-v2',
@@ -151,4 +157,51 @@ test('sanitizes malformed number groups and derives coverage from displayed numb
   assert.equal(view.overlapCount, 1)
   assert.equal(view.unionSize, 9)
   assert.deepEqual(view.expertWeights, { valid: 0.5 })
+})
+
+test('maps post-draw LAI learning without inventing causal explanations', () => {
+  const view = toLaiLearningView({
+    target_draw_date: '2026-07-15',
+    raw_learning_report: {
+      lai: {
+        state_version: 5,
+        agent_status: 'baseline',
+        weight_changes: [{ model: 'hazard', before: 0.2, after: 0.18, delta: 999 }],
+        champion_changed: false,
+        champion_model: 'uniform',
+        brier_skill_score: 0.04,
+        coverage: { union_hits: 2, union_size: 10, overlap_count: 0 }
+      }
+    }
+  })
+  assert.deepEqual(view.weightChanges, [{ model: 'hazard', before: 0.2, after: 0.18, delta: -0.02 }])
+  assert.equal(view.championChanged, false)
+  assert.equal(view.unionHits, 2)
+  assert.ok(!JSON.stringify(view).includes('為什麼開'))
+  assert.match(view.limitation, /不能證明/)
+})
+
+test('maps LAI performance metrics and preserves unavailable values as null', () => {
+  assert.equal(toLaiPerformanceView({}), null)
+  assert.equal(toLaiPerformanceView({ lai: { union_coverage_rate: 1.01 } }).unionCoverageRate, null)
+  const view = toLaiPerformanceView({
+    lai: {
+      brier_skill_score: 0.03,
+      union_coverage_rate: 0.4,
+      average_group_a_hits: 1.2,
+      average_group_b_hits: 1.1,
+      champion_model: 'hazard',
+      agent_status: 'champion'
+    }
+  })
+  assert.equal(view.brierSkillScore, 0.03)
+  assert.equal(view.unionCoverageRate, 0.4)
+  assert.equal(view.championModel, 'hazard')
+  assert.match(view.limitation, /不代表保證中獎/)
+})
+
+test('Supabase learning query retains the persisted LAI report', async () => {
+  const source = await readFile(new URL('./supabaseData.js', import.meta.url), 'utf8')
+  assert.match(source, /asi_learning_records\?select=[^'\n]*raw_learning_report/)
+  assert.match(source, /raw_learning_report:\s*row\.raw_learning_report/)
 })
