@@ -180,6 +180,14 @@ export function logLoss(probabilities, actualNumbers, maxNumber, epsilon = 1e-12
   }, 0) / maxNumber;
 }
 
+export function calibrationObservations(probabilities, actualNumbers, maxNumber) {
+  const { values, actual } = validateProbabilityInputs(probabilities, actualNumbers, maxNumber);
+  return values.map((probability, index) => ({
+    probability,
+    outcome: actual.has(index + 1) ? 1 : 0,
+  }));
+}
+
 export function brierSkillScore(modelScore, baselineScore) {
   if (!Number.isFinite(modelScore) || !Number.isFinite(baselineScore)) {
     throw new TypeError("scores must be finite numbers");

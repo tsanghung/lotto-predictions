@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   brierScore,
   brierSkillScore,
+  calibrationObservations,
   coverageMetrics,
   logLoss,
   normalizeProbabilityVector,
@@ -81,6 +82,18 @@ test("supports Power Lottery second-area probability vectors", () => {
   assert.equal(brierScore(probabilities, [3], 8), 0);
   assert.ok(logLoss(probabilities, [3], 8) > 0);
   assert.ok(logLoss(probabilities, [3], 8) < 1e-9);
+});
+
+test("calibration observations preserve probability and binary outcome", () => {
+  assert.deepEqual(
+    calibrationObservations([0.1, 0.7, 0.2], [2], 3),
+    [
+      { probability: 0.1, outcome: 0 },
+      { probability: 0.7, outcome: 1 },
+      { probability: 0.2, outcome: 0 },
+    ],
+  );
+  assert.throws(() => calibrationObservations([0.1, Number.NaN], [1], 2), /finite/i);
 });
 
 test("rejects invalid scoring vectors and actual numbers", () => {
