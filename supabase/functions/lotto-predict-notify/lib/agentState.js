@@ -1,3 +1,7 @@
+import { benjaminiHochberg } from "../../_shared/lai-v3/statistics.js";
+
+export { benjaminiHochberg };
+
 function cloneJson(value) {
   return value === undefined ? {} : structuredClone(value);
 }
@@ -21,23 +25,6 @@ export function createBaselineState({ gameName = null, expertNames = [], learnin
     last_learned_draw_id: null,
     last_learned_draw_date: null,
   };
-}
-
-export function benjaminiHochberg(pValues) {
-  if (!Array.isArray(pValues)) throw new TypeError("pValues must be an array");
-  const ranked = pValues.map((value, index) => {
-    if (!Number.isFinite(value)) throw new TypeError("pValues must contain finite numbers");
-    if (value < 0 || value > 1) throw new RangeError("pValues must be within [0, 1]");
-    return { value, index };
-  }).sort((left, right) => left.value - right.value || left.index - right.index);
-  const adjusted = Array(pValues.length);
-  let runningMinimum = 1;
-  for (let index = ranked.length - 1; index >= 0; index -= 1) {
-    const candidate = Math.min(1, ranked[index].value * ranked.length / (index + 1));
-    runningMinimum = Math.min(runningMinimum, candidate);
-    adjusted[ranked[index].index] = runningMinimum;
-  }
-  return adjusted;
 }
 
 export function evaluatePromotion(metrics = {}) {
