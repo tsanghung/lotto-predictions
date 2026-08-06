@@ -86,6 +86,22 @@ test("forecast cutoff parses date-only strings as UTC midnight and offsets as eq
   ));
 });
 
+test("forecast cutoff rejects same Taiwan calendar-day date-only history", () => {
+  const sameDay = [{ draw_date: "2026-08-06" }];
+  assert.throws(
+    () => assertForecastCutoff(sameDay, "2026-08-06T10:00:00+08:00"),
+    /data cutoff/i,
+  );
+  assert.throws(
+    () => assertForecastCutoff(sameDay, "2026-08-05T16:30:00Z"),
+    /data cutoff/i,
+  );
+  assert.doesNotThrow(() => assertForecastCutoff(
+    [{ draw_date: "2026-08-05" }],
+    "2026-08-05T16:30:00Z",
+  ));
+});
+
 test("forecast cutoff rejects timezone-less date-times instead of using host local time", () => {
   const validDraws = [{ draw_date: "2026-08-05" }];
   assert.throws(() => assertForecastCutoff(validDraws, "2026-08-06T00:00:00"), /generatedAt/i);

@@ -81,6 +81,17 @@ function parseTimestamp(value, label) {
   return calendar.getTime() + (offset[1] === "+" ? -offsetMs : offsetMs);
 }
 
+function taiwanCalendarDate(timestamp) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(timestamp));
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 export function assertProbabilityVector(values, shape) {
   assertGameShape(shape ?? {});
   const { maxNumber, picks } = shape;
@@ -101,10 +112,15 @@ export function assertProbabilityVector(values, shape) {
 
 export function assertForecastCutoff(draws, generatedAt) {
   const generatedAtMs = parseTimestamp(generatedAt, "generatedAt");
+  const generatedAtTaiwanDate = taiwanCalendarDate(generatedAtMs);
   if (!Array.isArray(draws)) throw new TypeError("draws must be an array");
   for (const draw of draws) {
     if (!draw || typeof draw !== "object") throw new TypeError("draws must contain objects");
-    const drawMs = parseTimestamp(draw.draw_date, "draw_date");
+    const drawDate = draw.draw_date.trim();
+    const drawMs = parseTimestamp(drawDate, "draw_date");
+    if (/^\d{4}-\d{2}-\d{2}$/.test(drawDate) && drawDate >= generatedAtTaiwanDate) {
+      throw new RangeError("draw violates the data cutoff");
+    }
     if (drawMs >= generatedAtMs) {
       throw new RangeError("draw violates the data cutoff");
     }

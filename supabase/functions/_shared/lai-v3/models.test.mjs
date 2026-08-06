@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { assertProbabilityVector } from "./contracts.js";
 import { buildEvidenceForecasts } from "./models.js";
 import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
+import { ML_WEIGHTS } from "../../lotto-predict-notify/lib/mlWeights.js";
 
 const NOW = "2026-08-06T10:00:00+08:00";
 const fixtures = {
@@ -45,6 +46,35 @@ const registrations = ["539", "649", "power"].flatMap((gameType) => [
   registration(gameType, "bayesian-drift"),
   registration(gameType, "transition-regularized"),
 ]);
+
+function sequenceRegistration(gameType = "539") {
+  return {
+    ...registration(gameType, "sequence-challenger"),
+    parameters: {
+      random_seed: `${gameType}-sequence`,
+      minimumHistory: 30,
+      calibration: {
+        method: "isotonic",
+        status: "shadow-pending",
+        version: "sequence-calibration-v1",
+      },
+    },
+  };
+}
+
+function sequenceHistory() {
+  return Array.from({ length: 30 }, (_, index) => ({
+    draw_id: `sequence-${index + 1}`,
+    draw_date: `2026-07-${String(index + 1).padStart(2, "0")}`,
+    numbers: [
+      (index % 35) + 1,
+      ((index + 7) % 35) + 1,
+      ((index + 14) % 35) + 1,
+      ((index + 21) % 35) + 1,
+      ((index + 28) % 35) + 1,
+    ],
+  }));
+}
 
 for (const gameType of ["539", "649", "power"]) {
   test(`${gameType} v3 forecasts are legal and replayable`, () => {
@@ -95,8 +125,8 @@ test("sequence challenger cannot be requested as production", () => {
   }), /shadow only/i);
 });
 
-test("every non-uniform family remains shadow-only with zero production weight", () => {
-  for (const family of ["bayesian-drift", "transition-regularized", "sequence-challenger"]) {
+test("every non-sequence challenger remains shadow-only with zero production weight", () => {
+  for (const family of ["bayesian-drift", "transition-regularized"]) {
     const [forecast] = buildEvidenceForecasts({
       gameType: "539",
       draws: fixtures["539"],
@@ -114,6 +144,98 @@ test("every non-uniform family remains shadow-only with zero production weight",
       mode: "production",
     }), /shadow only/i);
   }
+});
+
+test("sequence challenger emits calibrated shadow-only evidence only with valid weights and history", () => {
+  const [result] = buildEvidenceForecasts({
+    gameType: "539",
+    draws: sequenceHistory(),
+    generatedAt: NOW,
+    registrations: [sequenceRegistration()],
+  });
+
+  assert.equal(result.status, "completed");
+  assertProbabilityVector(result.probabilities, GAME_CONFIG["539"]);
+  assert.deepEqual(result.featureSummary.calibration, {
+    method: "isotonic",
+    status: "shadow-pending",
+    version: "sequence-calibration-v1",
+  });
+  assert.equal(result.featureSummary.shadowOnly, true);
+  assert.equal(result.featureSummary.productionWeight, 0);
+});
+
+test("sequence failures return failed results without probabilities", () => {
+  const cases = [
+    {
+      name: "short-history",
+      draws: fixtures["539"],
+      row: sequenceRegistration(),
+      reason: /minimum history/i,
+    },
+    {
+      name: "missing-calibration",
+      draws: sequenceHistory(),
+      row: { ...sequenceRegistration(), parameters: { random_seed: "missing-calibration", minimumHistory: 30 } },
+      reason: /calibration/i,
+    },
+  ];
+
+  for (const scenario of cases) {
+    const [result] = buildEvidenceForecasts({
+      gameType: "539",
+      draws: scenario.draws,
+      generatedAt: NOW,
+      registrations: [scenario.row],
+    });
+    assert.equal(result.status, "failed", scenario.name);
+    assert.match(result.failureReason, scenario.reason, scenario.name);
+    assert.equal("probabilities" in result, false, scenario.name);
+    assert.equal("specialProbabilities" in result, false, scenario.name);
+  }
+});
+
+test("invalid static LSTM weights return failed sequence evidence without a uniform substitute", () => {
+  const original = ML_WEIGHTS["539"];
+  try {
+    ML_WEIGHTS["539"] = { N: 39, H: 1 };
+    const [result] = buildEvidenceForecasts({
+      gameType: "539",
+      draws: sequenceHistory(),
+      generatedAt: NOW,
+      registrations: [sequenceRegistration()],
+    });
+    assert.equal(result.status, "failed");
+    assert.match(result.failureReason, /lstm weights/i);
+    assert.equal("probabilities" in result, false);
+  } finally {
+    ML_WEIGHTS["539"] = original;
+  }
+});
+
+test("Power sequence special area is explicit independent non-sequence policy", () => {
+  const powerHistory = sequenceHistory().map((draw, index) => ({
+    ...draw,
+    numbers: [
+      (index % 38) + 1,
+      ((index + 6) % 38) + 1,
+      ((index + 12) % 38) + 1,
+      ((index + 18) % 38) + 1,
+      ((index + 24) % 38) + 1,
+      ((index + 30) % 38) + 1,
+    ],
+    special_number: (index % 8) + 1,
+  }));
+  const [result] = buildEvidenceForecasts({
+    gameType: "power",
+    draws: powerHistory,
+    generatedAt: NOW,
+    registrations: [sequenceRegistration("power")],
+  });
+
+  assert.equal(result.status, "completed");
+  assert.equal(result.featureSummary.specialArea.policy, "independent-uniform-no-sequence-weights");
+  assertProbabilityVector(result.specialProbabilities, GAME_CONFIG.power.secondaryNumber);
 });
 
 test("builder does not mutate caller history or registry parameters", () => {
@@ -137,7 +259,7 @@ test("invalid historical numbers and seeds fail fast", () => {
     generatedAt: NOW,
     registrations: [registration("539", "uniform-null")],
   }), /numbers/i);
-  assert.throws(() => buildEvidenceForecasts({
+  const [failed] = buildEvidenceForecasts({
     gameType: "539",
     draws: fixtures["539"],
     generatedAt: NOW,
@@ -145,5 +267,91 @@ test("invalid historical numbers and seeds fail fast", () => {
       ...registration("539", "uniform-null"),
       parameters: { random_seed: "  " },
     }],
-  }), /seed/i);
+  });
+  assert.equal(failed.status, "failed");
+  assert.match(failed.failureReason, /seed/i);
+});
+
+test("history rejects duplicate identities and same-date chronology before sorting", () => {
+  const history = structuredClone(fixtures["539"]);
+  assert.throws(() => buildEvidenceForecasts({
+    gameType: "539",
+    draws: [...history, { ...history[0], draw_date: "2026-08-04" }],
+    generatedAt: NOW,
+    registrations: [registration("539", "uniform-null")],
+  }), /draw_id/i);
+  assert.throws(() => buildEvidenceForecasts({
+    gameType: "539",
+    draws: [...history, { ...history[0], draw_id: "new-id", draw_date: "2026-08-03" }],
+    generatedAt: NOW,
+    registrations: [registration("539", "uniform-null")],
+  }), /chronology/i);
+});
+
+test("invalid registration rows are isolated while valid current-game rows complete", () => {
+  const invalid = {
+    ...registration("539", "bayesian-drift"),
+    id: "invalid-challenger",
+    code_commit: "invalid",
+  };
+  const results = buildEvidenceForecasts({
+    gameType: "539",
+    draws: fixtures["539"],
+    generatedAt: NOW,
+    registrations: [
+      registration("539", "uniform-null"),
+      invalid,
+      registration("649", "uniform-null"),
+      { ...registration("539", "uniform-null"), id: "unknown-game", game_name: "not-a-known-game" },
+    ],
+  });
+
+  assert.equal(results.length, 3);
+  assert.equal(results[0].status, "completed");
+  assert.equal(results[1].status, "failed");
+  assert.match(results[1].failureReason, /code_commit/i);
+  assert.equal(results[2].status, "failed");
+  assert.match(results[2].failureReason, /game_name/i);
+});
+
+test("registry status and transition guardrails fail closed per registration", () => {
+  const rows = [
+    { ...registration("539", "uniform-null"), id: "uniform-status", status: "registered" },
+    { ...registration("539", "bayesian-drift"), id: "challenger-status", status: "baseline" },
+    {
+      ...registration("539", "transition-regularized"),
+      id: "support-too-low",
+      parameters: { minimumSupport: 29, effectCap: 0.25, random_seed: "support-too-low" },
+    },
+    {
+      ...registration("539", "transition-regularized"),
+      id: "cap-too-high",
+      parameters: { minimumSupport: 30, effectCap: 0.26, random_seed: "cap-too-high" },
+    },
+  ];
+  const results = buildEvidenceForecasts({
+    gameType: "539",
+    draws: fixtures["539"],
+    generatedAt: NOW,
+    registrations: rows,
+  });
+
+  assert.deepEqual(results.map((result) => result.status), ["failed", "failed", "failed", "failed"]);
+  assert.match(results[0].failureReason, /baseline/i);
+  assert.match(results[1].failureReason, /baseline/i);
+  assert.match(results[2].failureReason, /minimumSupport/i);
+  assert.match(results[3].failureReason, /effectCap/i);
+});
+
+test("completed metadata deep-clones nested registration parameters", () => {
+  const row = registration("539", "uniform-null");
+  row.parameters = { random_seed: "nested", provenance: { revision: 1 } };
+  const [result] = buildEvidenceForecasts({
+    gameType: "539",
+    draws: fixtures["539"],
+    generatedAt: NOW,
+    registrations: [row],
+  });
+  result.parameters.provenance.revision = 2;
+  assert.equal(row.parameters.provenance.revision, 1);
 });
