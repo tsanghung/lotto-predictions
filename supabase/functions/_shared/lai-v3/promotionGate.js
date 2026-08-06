@@ -1,3 +1,5 @@
+import { V3_MODEL_FAMILIES } from "./contracts.js";
+
 const GATE_VERSION = "lai-v3-promotion-gate-v1";
 const CANARY_WEIGHT = 0.10;
 const UNIFORM_CHAMPION_WEIGHT = 0.25;
@@ -15,6 +17,7 @@ const STAGES = new Set([
 ]);
 const ACTIVE_STAGES = new Set(["historical_passed", "shadow_verified", "canary", "champion"]);
 const TERMINAL_STAGES = new Set(["cooldown", "disabled", "rejected"]);
+const MODEL_FAMILIES = new Set(V3_MODEL_FAMILIES);
 
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -51,7 +54,22 @@ function makeDecision(fromStatus, decision, toStatus, reason, evidenceDigest, au
   };
 }
 
+function evidenceStructureFailure(evidence) {
+  if (!finite(evidence.recent30Skill)) return "recent_30_skill_missing";
+  if (!finite(evidence.calibrationDelta)
+    || !finite(evidence.calibrationCi?.lower95)
+    || !finite(evidence.calibrationCi?.upper95)
+    || evidence.calibrationCi.lower95 > evidence.calibrationCi.upper95
+    || evidence.calibrationDelta < evidence.calibrationCi.lower95
+    || evidence.calibrationDelta > evidence.calibrationCi.upper95) {
+    return "calibration_evidence_invalid";
+  }
+  return null;
+}
+
 function evidenceFailure(evidence) {
+  const structureFailure = evidenceStructureFailure(evidence);
+  if (structureFailure) return structureFailure;
   if (!Number.isInteger(evidence.sampleCount) || evidence.sampleCount < 500) {
     return "historical_window_incomplete";
   }
@@ -108,6 +126,12 @@ export function evaluatePromotionGate(input) {
   if (unhealthy) {
     return makeDecision(stage, "disable", "disabled", "health_check_failed", evidenceDigest);
   }
+  const structureFailure = evidenceStructureFailure(input.evidence);
+  if (structureFailure) {
+    return ACTIVE_STAGES.has(stage)
+      ? makeDecision(stage, "demote", "cooldown", structureFailure, evidenceDigest)
+      : makeDecision(stage, "hold", stage, structureFailure, evidenceDigest);
+  }
   if (finite(input.evidence.recent30Skill) && input.evidence.recent30Skill < 0) {
     return ACTIVE_STAGES.has(stage)
       ? makeDecision(stage, "demote", "cooldown", "rolling_30_skill_negative", evidenceDigest)
@@ -128,6 +152,11 @@ export function evaluatePromotionGate(input) {
     return ACTIVE_STAGES.has(stage)
       ? makeDecision(stage, "demote", "cooldown", failure, evidenceDigest)
       : makeDecision(stage, "hold", stage, failure, evidenceDigest);
+  }
+
+  if (["shadow_verified", "canary", "champion"].includes(stage)
+    && input.liveShadowDraws < 30) {
+    return makeDecision(stage, "hold", stage, "live_shadow_window_incomplete", evidenceDigest);
   }
 
   if (stage === "registered") {
@@ -153,10 +182,22 @@ function candidateEvidence(candidate, familyEvidence) {
   return candidate.evidence ?? familyEvidence?.[candidate.name] ?? null;
 }
 
+function assertModelIdentity(candidate, label = "candidate") {
+  assertObject(candidate, label);
+  const name = assertName(candidate.name, `${label}.name`);
+  const family = assertName(candidate.family, `${label}.family`);
+  if (!MODEL_FAMILIES.has(family)) throw new RangeError(`${label}.family is unsupported`);
+  if (name === "uniform-null" && family !== "uniform-null") {
+    throw new RangeError("uniform-null is reserved for the uniform-null family");
+  }
+  if (family === "uniform-null" && name !== "uniform-null") {
+    throw new RangeError("uniform-null family must use the uniform-null model name");
+  }
+  return { name, family };
+}
+
 function candidateWithEvidence(candidate, familyEvidence) {
-  assertObject(candidate, "candidate");
-  const name = assertName(candidate.name, "candidate.name");
-  const family = assertName(candidate.family, "candidate.family");
+  const { name, family } = assertModelIdentity(candidate);
   const evidence = candidateEvidence(candidate, familyEvidence);
   assertObject(evidence, `evidence for ${name}`);
   return { ...candidate, name, family, evidence };
@@ -177,8 +218,11 @@ function compareEvidence(left, right) {
 export function selectFamilyRepresentatives(candidates) {
   if (!Array.isArray(candidates)) throw new TypeError("candidates must be an array");
   const byFamily = new Map();
+  const names = new Set();
   for (const raw of candidates) {
     const candidate = candidateWithEvidence(raw);
+    if (names.has(candidate.name)) throw new RangeError(`duplicate model name: ${candidate.name}`);
+    names.add(candidate.name);
     if (candidate.family === "uniform-null") continue;
     const current = byFamily.get(candidate.family);
     const comparison = current ? compareEvidence(candidate.evidence, current.evidence) : 1;
@@ -219,6 +263,30 @@ function normalizedApprovedWeights({ baselineName, currentChampion, approvedWeig
   return closeExactly(result, adjustmentName, total);
 }
 
+function validateApprovedFamilies({ approvedWeights, approvedFamilies, baselineName }) {
+  if (approvedWeights == null) return new Map([[baselineName, "uniform-null"]]);
+  assertObject(approvedFamilies, "approvedFamilies");
+  const weightNames = Object.keys(approvedWeights);
+  const familyNames = Object.keys(approvedFamilies);
+  if (weightNames.length !== familyNames.length
+    || weightNames.some((name) => !Object.hasOwn(approvedFamilies, name))) {
+    throw new RangeError("approvedFamilies must identify every approved weight exactly once");
+  }
+  const representativeByFamily = new Map();
+  for (const name of weightNames) {
+    const family = assertName(approvedFamilies[name], `approvedFamilies.${name}`);
+    assertModelIdentity({ name, family }, `approved model ${name}`);
+    if (representativeByFamily.has(family)) {
+      throw new RangeError(`duplicate active family representative: ${family}`);
+    }
+    representativeByFamily.set(family, name);
+  }
+  if (representativeByFamily.get("uniform-null") !== baselineName) {
+    throw new RangeError("uniform-null approved family identity is required");
+  }
+  return representativeByFamily;
+}
+
 function canEnterProduction(evidence) {
   return evidenceFailure(evidence) == null;
 }
@@ -226,7 +294,13 @@ function canEnterProduction(evidence) {
 function canaryWeights(input, baselineName) {
   const challenger = candidateWithEvidence(input.challenger, input.familyEvidence);
   if (challenger.stage !== "canary") throw new RangeError("challenger must be at canary stage");
-  if (input.currentChampion?.family === challenger.family) {
+  if (input.currentChampion != null) assertModelIdentity(input.currentChampion, "currentChampion");
+  const approvedRepresentatives = validateApprovedFamilies({ ...input, baselineName });
+  if (input.currentChampion
+    && approvedRepresentatives.get(input.currentChampion.family) !== input.currentChampion.name) {
+    throw new RangeError("currentChampion identity must match approvedFamilies");
+  }
+  if (approvedRepresentatives.has(challenger.family)) {
     throw new RangeError("only one active family representative is allowed");
   }
   if (!canEnterProduction(challenger.evidence)) {
@@ -245,9 +319,20 @@ function canaryWeights(input, baselineName) {
 function championWeights(input, baselineName) {
   const originalCandidates = Array.isArray(input.candidates) ? input.candidates : [];
   const all = originalCandidates.map((candidate) => candidateWithEvidence(candidate, input.familyEvidence));
-  if (input.currentChampion
-    && !all.some((candidate) => candidate.name === input.currentChampion.name)) {
-    all.push(candidateWithEvidence(input.currentChampion, input.familyEvidence));
+  const candidatesByName = new Map();
+  for (const candidate of all) {
+    if (candidatesByName.has(candidate.name)) {
+      throw new RangeError(`duplicate model name: ${candidate.name}`);
+    }
+    candidatesByName.set(candidate.name, candidate);
+  }
+  if (input.currentChampion) {
+    const currentChampion = candidateWithEvidence(input.currentChampion, input.familyEvidence);
+    const existing = candidatesByName.get(currentChampion.name);
+    if (existing && existing.family !== currentChampion.family) {
+      throw new RangeError(`duplicate model name across families: ${currentChampion.name}`);
+    }
+    if (!existing) all.push(currentChampion);
   }
 
   const weights = { [baselineName]: UNIFORM_CHAMPION_WEIGHT };
