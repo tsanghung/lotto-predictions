@@ -94,7 +94,7 @@ test("index fetches real per-candidate score history through the current draw", 
   assert.doesNotMatch(source, /Promise\.resolve\(\[\]\)/);
 });
 
-test("index wiring uses idempotent score and state endpoints with fail-fast errors", () => {
+test("index wiring uses the server-side score RPC compatible with the partial unique index", () => {
   const forecastSource = updateIndexSourceBetween(
     "async function fetchUnscoredModelForecasts",
     "async function upsertModelScores",
@@ -108,8 +108,9 @@ test("index wiring uses idempotent score and state endpoints with fail-fast erro
     "async function upsertModelScores",
     "async function activateAgentState",
   );
-  assert.match(scoreSource, /lotto_model_scores\?on_conflict=forecast_id,draw_id/);
-  assert.match(scoreSource, /resolution=merge-duplicates/);
+  assert.match(scoreSource, /rpc\/upsert_lotto_model_scores/);
+  assert.match(scoreSource, /p_scores:\s*persistedRows/);
+  assert.doesNotMatch(scoreSource, /lotto_model_scores\?on_conflict=forecast_id,draw_id/);
   assert.match(scoreSource, /if\s*\(!response\.ok\)\s*\{\s*throw new Error/s);
 
   const activationSource = updateIndexSourceBetween(

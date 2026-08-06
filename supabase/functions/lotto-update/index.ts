@@ -655,14 +655,11 @@ async function upsertModelScores(
 
   const persistedRows = scoreRows.map(({ model_name: _modelName, ...row }) => row);
   const response = await fetch(
-    `${supabaseUrl}/rest/v1/lotto_model_scores?on_conflict=forecast_id,draw_id`,
+    `${supabaseUrl}/rest/v1/rpc/upsert_lotto_model_scores`,
     {
       method: "POST",
-      headers: {
-        ...supabaseHeaders(serviceRoleKey),
-        Prefer: "resolution=merge-duplicates,return=minimal",
-      },
-      body: JSON.stringify(persistedRows),
+      headers: supabaseHeaders(serviceRoleKey),
+      body: JSON.stringify({ p_scores: persistedRows }),
     },
   );
 
