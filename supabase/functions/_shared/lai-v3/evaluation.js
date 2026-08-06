@@ -7,6 +7,7 @@ import {
   logLoss,
 } from "../../lotto-predict-notify/lib/scoring.js";
 import {
+  expectedCalibrationError,
   mean,
   pairedBlockBootstrap,
   pairedPermutationTest,
@@ -44,6 +45,22 @@ function assertUsableRow(row, label) {
   }
   if (row.isValid === false || row.is_valid === false) {
     throw new RangeError(`${label} contains an invalid model row`);
+  }
+}
+
+function assertUniformBaselineIdentity(row, label) {
+  const aliases = ["family", "modelFamily", "model_family"];
+  const present = aliases
+    .filter((alias) => Object.hasOwn(row, alias))
+    .map((alias) => row[alias]);
+  if (present.length === 0) {
+    throw new RangeError(`${label} family identity is required`);
+  }
+  if (new Set(present).size !== 1) {
+    throw new RangeError(`${label} family aliases conflict`);
+  }
+  if (present[0] !== "uniform-null") {
+    throw new RangeError(`${label} must use the uniform-null family`);
   }
 }
 
@@ -349,10 +366,7 @@ export function pairCandidateWithBaseline(candidateRows, baselineRows) {
   const baselineByDraw = new Map();
   baselineRows.forEach((row, index) => {
     assertUsableRow(row, `baselineRows[${index}]`);
-    const family = row.family ?? row.modelFamily ?? row.model_family;
-    if (family != null && family !== "uniform-null") {
-      throw new RangeError("baseline rows must use the uniform-null family");
-    }
+    assertUniformBaselineIdentity(row, `baselineRows[${index}]`);
     const drawId = drawIdOf(row, `baselineRows[${index}]`);
     if (baselineByDraw.has(drawId)) throw new RangeError("baseline draw ids must be unique");
     baselineByDraw.set(drawId, row);
@@ -376,38 +390,63 @@ function metricRow(row, area) {
   return null;
 }
 
-function observationError(observations, label) {
-  if (!Array.isArray(observations) || observations.length === 0) {
-    throw new RangeError(`${label} must contain calibration observations`);
+function validatePairedCalibrationObservations(candidate, baseline, drawId) {
+  if (candidate == null && baseline == null) return;
+  if (candidate == null || baseline == null) {
+    throw new RangeError(`paired calibration observations are incomplete for draw ${drawId}`);
   }
-  const bins = Array.from({ length: 10 }, () => ({ count: 0, probability: 0, outcome: 0 }));
-  observations.forEach((observation, index) => {
-    assertObject(observation, `${label}[${index}]`);
-    const probability = finiteNumber(observation.probability, `${label} probability`);
-    if (probability < 0 || probability > 1) {
-      throw new RangeError(`${label} probability must be within [0, 1]`);
+  if (!Array.isArray(candidate) || !Array.isArray(baseline) || candidate.length === 0 || baseline.length === 0) {
+    throw new RangeError(`paired calibration observations must be non-empty arrays for draw ${drawId}`);
+  }
+  if (candidate.length !== baseline.length) {
+    throw new RangeError(`paired calibration observations must have identical length for draw ${drawId}`);
+  }
+  expectedCalibrationError(candidate);
+  expectedCalibrationError(baseline);
+  candidate.forEach((observation, index) => {
+    if (observation.outcome !== baseline[index].outcome) {
+      throw new RangeError(`paired calibration outcomes must match at every index for draw ${drawId}`);
     }
-    if (observation.outcome !== 0 && observation.outcome !== 1) {
-      throw new RangeError(`${label} outcome must be binary`);
-    }
-    const bin = bins[Math.min(9, Math.floor(probability * 10))];
-    bin.count += 1;
-    bin.probability += probability;
-    bin.outcome += observation.outcome;
   });
-  return bins.reduce((total, bin) => {
-    if (bin.count === 0) return total;
-    return total + (bin.count / observations.length) * Math.abs(
-      (bin.probability / bin.count) - (bin.outcome / bin.count),
-    );
-  }, 0);
+}
+
+function blockLengthFor(sampleCount) {
+  return Math.min(sampleCount, Math.max(2, Math.round(Math.cbrt(sampleCount))));
+}
+
+function calibrationDifference(rows) {
+  return expectedCalibrationError(rows.flatMap((row) => row.candidateObservations))
+    - expectedCalibrationError(rows.flatMap((row) => row.baselineObservations));
+}
+
+function pairedCalibrationBootstrap(rows, seed) {
+  if (rows.length < 2) return null;
+  const blockLength = blockLengthFor(rows.length);
+  const rng = seededRandom(seed);
+  const estimates = [];
+  for (let iteration = 0; iteration < 2000; iteration += 1) {
+    const sample = [];
+    while (sample.length < rows.length) {
+      const start = Math.floor(rng() * rows.length);
+      for (let offset = 0; offset < blockLength && sample.length < rows.length; offset += 1) {
+        sample.push(rows[(start + offset) % rows.length]);
+      }
+    }
+    estimates.push(calibrationDifference(sample));
+  }
+  estimates.sort((left, right) => left - right);
+  return {
+    mean: calibrationDifference(rows),
+    lower95: estimates[Math.floor((estimates.length - 1) * 0.025)],
+    upper95: estimates[Math.ceil((estimates.length - 1) * 0.975)],
+  };
 }
 
 function bootstrap(deltas, seed) {
   if (deltas.length < 2) return null;
   return pairedBlockBootstrap({
     deltas,
-    blockLength: Math.min(deltas.length, Math.max(2, Math.round(Math.cbrt(deltas.length)))),
+    blockLength: blockLengthFor(deltas.length),
     iterations: 2000,
     seed,
   });
@@ -430,9 +469,7 @@ function evidenceForArea(pairs, area, seed) {
     const baselineLogLoss = finiteNumber(baselineMetric.logLoss, "baseline logLoss", { nonNegative: true });
     const candidateObservations = candidateMetric.calibrationObservations ?? null;
     const baselineObservations = baselineMetric.calibrationObservations ?? null;
-    if ((candidateObservations == null) !== (baselineObservations == null)) {
-      throw new RangeError(`paired calibration observations are incomplete for draw ${drawId}`);
-    }
+    validatePairedCalibrationObservations(candidateObservations, baselineObservations, drawId);
     const coverageDelta = candidateMetric.coverageDelta;
     if (coverageDelta != null) finiteNumber(coverageDelta, "coverageDelta");
     return {
@@ -441,26 +478,15 @@ function evidenceForArea(pairs, area, seed) {
       logLossDelta: candidateLogLoss - baselineLogLoss,
       candidateObservations,
       baselineObservations,
-      calibrationDelta: candidateObservations == null
-        ? null
-        : observationError(candidateObservations, "candidate calibration observations")
-          - observationError(baselineObservations, "baseline calibration observations"),
       coverageDelta: coverageDelta ?? null,
     };
   });
   const brierSkills = values.map((row) => row.brierSkill);
-  const calibrationDeltas = values.map((row) => row.calibrationDelta);
   const coverageDeltas = values.map((row) => row.coverageDelta);
-  const hasCompleteCalibration = calibrationDeltas.every(Number.isFinite);
+  const hasCompleteCalibration = values.every((row) => row.candidateObservations != null);
   const hasCompleteCoverage = coverageDeltas.every(Number.isFinite);
   const calibrationDelta = values.length && hasCompleteCalibration
-    ? observationError(
-      values.flatMap((row) => row.candidateObservations),
-      "candidate calibration observations",
-    ) - observationError(
-      values.flatMap((row) => row.baselineObservations),
-      "baseline calibration observations",
-    )
+    ? calibrationDifference(values)
     : null;
 
   return {
@@ -474,7 +500,7 @@ function evidenceForArea(pairs, area, seed) {
     logLossDelta: values.length ? mean(values.map((row) => row.logLossDelta)) : null,
     calibrationDelta,
     calibrationCi: values.length && hasCompleteCalibration
-      ? bootstrap(calibrationDeltas, `${seed}|${area}|calibration`)
+      ? pairedCalibrationBootstrap(values, `${seed}|${area}|calibration`)
       : null,
     coverageDelta: values.length && hasCompleteCoverage ? mean(coverageDeltas) : null,
     coverageCi: values.length && hasCompleteCoverage
@@ -482,7 +508,7 @@ function evidenceForArea(pairs, area, seed) {
       : null,
     permutationP: values.length >= 2 ? pairedPermutationTest({
       deltas: brierSkills,
-      blockLength: Math.min(values.length, Math.max(2, Math.round(Math.cbrt(values.length)))),
+      blockLength: blockLengthFor(values.length),
       iterations: 5000,
       seed: `${seed}|${area}|permutation`,
     }) : null,

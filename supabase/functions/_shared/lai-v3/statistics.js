@@ -126,19 +126,38 @@ export function expectedCalibrationError(observations) {
   if (!Array.isArray(observations)) throw new TypeError("observations must be an array");
   if (observations.length === 0) return null;
   const bins = Array.from({ length: 10 }, () => ({ count: 0, probability: 0, outcome: 0 }));
+  let total = 0;
+  const add = (probability, outcome) => {
+    if (!Number.isFinite(probability)) throw new TypeError("probability must be a finite number");
+    if (probability < 0 || probability > 1) throw new RangeError("probability must be within [0, 1]");
+    if (outcome !== 0 && outcome !== 1) throw new RangeError("outcome must be binary");
+    const bin = bins[Math.min(9, Math.floor(probability * 10))];
+    bin.count += 1;
+    bin.probability += probability;
+    bin.outcome += outcome;
+    total += 1;
+  };
+  const first = observations[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) {
+    throw new TypeError("observations must contain objects");
+  }
+  const flat = Object.hasOwn(first, "probability") || Object.hasOwn(first, "outcome");
   for (const observation of observations) {
-    if (!observation || typeof observation !== "object") throw new TypeError("observations must contain objects");
+    if (!observation || typeof observation !== "object" || Array.isArray(observation)) {
+      throw new TypeError("observations must contain objects");
+    }
+    if (flat) {
+      add(observation.probability, observation.outcome);
+      continue;
+    }
     const { probabilities, actualNumbers, maxNumber, picks } = observation;
     assertProbabilityVector(probabilities, { maxNumber, picks });
     const actual = actualNumberSet(actualNumbers, maxNumber, picks);
-    probabilities.forEach((probability, index) => {
-      const bin = bins[Math.min(9, Math.floor(probability * 10))];
-      bin.count += 1;
-      bin.probability += probability;
-      bin.outcome += Number(actual.has(index + 1));
-    });
+    probabilities.forEach((probability, index) => add(
+      probability,
+      Number(actual.has(index + 1)),
+    ));
   }
-  const total = bins.reduce((sum, bin) => sum + bin.count, 0);
   return bins.reduce((error, bin) => {
     if (bin.count === 0) return error;
     return error + (bin.count / total) * Math.abs(bin.probability / bin.count - bin.outcome / bin.count);

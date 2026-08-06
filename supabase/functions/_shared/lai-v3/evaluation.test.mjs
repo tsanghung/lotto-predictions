@@ -15,9 +15,9 @@ const candidateRows = [
   { drawId: "103", brier: 0.09 },
 ];
 const baselineRows = [
-  { drawId: "102", brier: 0.11 },
-  { drawId: "103", brier: 0.10 },
-  { drawId: "104", brier: 0.13 },
+  { drawId: "102", brier: 0.11, family: "uniform-null" },
+  { drawId: "103", brier: 0.10, family: "uniform-null" },
+  { drawId: "104", brier: 0.13, family: "uniform-null" },
 ];
 const powerForecast = {
   probabilities: Array(38).fill(6 / 38),
@@ -37,6 +37,36 @@ const powerDraw = {
 test("candidate evidence pairs only identical draw ids", () => {
   const pairs = pairCandidateWithBaseline(candidateRows, baselineRows);
   assert.deepEqual(pairs.map((row) => row.drawId), ["102", "103"]);
+});
+
+test("baseline pairing requires an explicit trusted family identity", () => {
+  assert.throws(() => pairCandidateWithBaseline(
+    [{ drawId: "1", brier: 0.1 }],
+    [{ drawId: "1", brier: 0.1 }],
+  ), /family identity.*required/i);
+});
+
+test("baseline pairing rejects conflicting family aliases", () => {
+  assert.throws(() => pairCandidateWithBaseline(
+    [{ drawId: "1", brier: 0.1 }],
+    [{ drawId: "1", brier: 0.1, family: "uniform-null", model_family: "bayesian-drift" }],
+  ), /family aliases.*conflict/i);
+});
+
+test("baseline pairing accepts agreeing uniform-null aliases", () => {
+  const pairs = pairCandidateWithBaseline(
+    [{ drawId: "1", brier: 0.1 }],
+    [{
+      drawId: "1",
+      brier: 0.1,
+      family: "uniform-null",
+      modelFamily: "uniform-null",
+      model_family: "uniform-null",
+    }],
+  );
+
+  assert.equal(pairs.length, 1);
+  assert.equal(pairs[0].baseline.family, "uniform-null");
 });
 
 test("matched random baseline preserves group shape and overlap", () => {
@@ -120,6 +150,7 @@ test("paired evidence uses proper score directions and complete recent windows",
   }));
   const baseline = Array.from({ length: 30 }, (_, index) => ({
     drawId: String(index + 1),
+    family: "uniform-null",
     brier: 0.10,
     logLoss: 0.25,
     calibrationObservations: [{ probability: 0.7, outcome: 1 }],
@@ -145,13 +176,105 @@ test("calibration delta is ECE over preserved paired observations", () => {
       { drawId: "2", ...shared, calibrationObservations: [{ probability: 0.8, outcome: 0 }] },
     ],
     baselineRows: [
-      { drawId: "1", ...shared, calibrationObservations: [{ probability: 0.5, outcome: 1 }] },
-      { drawId: "2", ...shared, calibrationObservations: [{ probability: 0.5, outcome: 0 }] },
+      { drawId: "1", family: "uniform-null", ...shared, calibrationObservations: [{ probability: 0.5, outcome: 1 }] },
+      { drawId: "2", family: "uniform-null", ...shared, calibrationObservations: [{ probability: 0.5, outcome: 0 }] },
     ],
     seed: "ece",
   });
 
   assert.ok(Math.abs(evidence.calibrationDelta - 0.3) < 1e-12);
+  assert.ok(Math.abs(evidence.calibrationCi.mean - 0.3) < 1e-12);
+  assert.ok(Math.abs(evidence.calibrationCi.lower95 - 0.3) < 1e-12);
+  assert.ok(Math.abs(evidence.calibrationCi.upper95 - 0.3) < 1e-12);
+});
+
+test("paired calibration requires identical observation lengths", () => {
+  const shared = { brier: 0.1, logLoss: 0.2 };
+  assert.throws(() => evaluateCandidateSeries({
+    candidateRows: [{
+      drawId: "1",
+      ...shared,
+      calibrationObservations: [
+        { probability: 0.8, outcome: 1 },
+        { probability: 0.2, outcome: 0 },
+      ],
+    }],
+    baselineRows: [{
+      drawId: "1",
+      family: "uniform-null",
+      ...shared,
+      calibrationObservations: [{ probability: 0.5, outcome: 1 }],
+    }],
+    seed: "length-mismatch",
+  }), /identical length/i);
+});
+
+test("paired calibration requires aligned outcomes at every index", () => {
+  const shared = { brier: 0.1, logLoss: 0.2 };
+  assert.throws(() => evaluateCandidateSeries({
+    candidateRows: [{
+      drawId: "1",
+      ...shared,
+      calibrationObservations: [
+        { probability: 0.8, outcome: 1 },
+        { probability: 0.2, outcome: 0 },
+      ],
+    }],
+    baselineRows: [{
+      drawId: "1",
+      family: "uniform-null",
+      ...shared,
+      calibrationObservations: [
+        { probability: 0.5, outcome: 0 },
+        { probability: 0.5, outcome: 1 },
+      ],
+    }],
+    seed: "outcome-mismatch",
+  }), /outcomes.*index/i);
+});
+
+test("paired calibration accepts aligned outcomes with different probabilities", () => {
+  const shared = { brier: 0.1, logLoss: 0.2 };
+  const evidence = evaluateCandidateSeries({
+    candidateRows: [{
+      drawId: "1",
+      ...shared,
+      calibrationObservations: [
+        { probability: 0.8, outcome: 1 },
+        { probability: 0.2, outcome: 0 },
+      ],
+    }],
+    baselineRows: [{
+      drawId: "1",
+      family: "uniform-null",
+      ...shared,
+      calibrationObservations: [
+        { probability: 0.6, outcome: 1 },
+        { probability: 0.4, outcome: 0 },
+      ],
+    }],
+    seed: "aligned",
+  });
+
+  assert.ok(Number.isFinite(evidence.calibrationDelta));
+});
+
+test("paired calibration rejects malformed flat observations", () => {
+  const shared = { brier: 0.1, logLoss: 0.2 };
+  assert.throws(() => evaluateCandidateSeries({
+    candidateRows: [{
+      drawId: "1",
+      ...shared,
+      calibrationObservations: [{ probability: Number.NaN, outcome: 1 }],
+    }],
+    baselineRows: [{
+      drawId: "1",
+      family: "uniform-null",
+      ...shared,
+      calibrationObservations: [{ probability: 0.5, outcome: 1 }],
+    }],
+    seed: "malformed-observation",
+  }), /finite/i);
 });
 
 test("empty and one-pair evidence do not fabricate inferential windows", () => {
@@ -163,7 +286,7 @@ test("empty and one-pair evidence do not fabricate inferential windows", () => {
 
   const one = evaluateCandidateSeries({
     candidateRows: [{ drawId: "1", brier: 0.09, logLoss: 0.2 }],
-    baselineRows: [{ drawId: "1", brier: 0.1, logLoss: 0.2 }],
+    baselineRows: [{ drawId: "1", family: "uniform-null", brier: 0.1, logLoss: 0.2 }],
     seed: "one",
   });
   assert.equal(one.sampleCount, 1);
@@ -175,11 +298,11 @@ test("empty and one-pair evidence do not fabricate inferential windows", () => {
 test("failed rows and malformed non-finite values are rejected", () => {
   assert.throws(() => pairCandidateWithBaseline(
     [{ drawId: "1", brier: 0.1, status: "failed" }],
-    [{ drawId: "1", brier: 0.1 }],
+    [{ drawId: "1", brier: 0.1, family: "uniform-null" }],
   ), /failed/i);
   assert.throws(() => evaluateCandidateSeries({
     candidateRows: [{ drawId: "1", brier: Number.NaN, logLoss: 0.2 }],
-    baselineRows: [{ drawId: "1", brier: 0.1, logLoss: 0.2 }],
+    baselineRows: [{ drawId: "1", family: "uniform-null", brier: 0.1, logLoss: 0.2 }],
     seed: "bad",
   }), /finite/i);
   assert.throws(() => pairCandidateWithBaseline(

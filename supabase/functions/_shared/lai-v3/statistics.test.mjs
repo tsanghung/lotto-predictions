@@ -74,3 +74,16 @@ test("ten-bin calibration error treats every draw-number pair as a Bernoulli out
   assert.equal(expectedCalibrationError([]), null);
   assert.throws(() => expectedCalibrationError([{ probabilities: [0.5, 0.5], actualNumbers: [3], maxNumber: 2, picks: 1 }]), /actualNumbers/i);
 });
+
+test("ten-bin calibration error accepts flat probability-outcome observations", () => {
+  assert.ok(Math.abs(expectedCalibrationError([
+    { probability: 0.8, outcome: 1 },
+    { probability: 0.8, outcome: 0 },
+  ]) - 0.3) < 1e-12);
+  assert.throws(() => expectedCalibrationError([
+    { probability: Number.NaN, outcome: 1 },
+  ]), /finite/i);
+  assert.throws(() => expectedCalibrationError([
+    { probability: 0.5, outcome: 2 },
+  ]), /binary/i);
+});
