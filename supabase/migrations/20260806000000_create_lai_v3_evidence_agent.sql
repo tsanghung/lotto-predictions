@@ -310,10 +310,31 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
   affected_rows integer := 0;
+  score_game_name text;
+  score_game_count integer;
 begin
   if pg_catalog.jsonb_typeof(p_scores) <> 'array' then
     raise exception 'upsert_lotto_model_scores requires an array';
   end if;
+
+  select
+    pg_catalog.min(rows.score->>'game_name'),
+    pg_catalog.count(distinct rows.score->>'game_name')::integer
+  into score_game_name, score_game_count
+  from pg_catalog.jsonb_array_elements(p_scores) as rows(score);
+  if pg_catalog.nullif(score_game_name, '') is null or score_game_count <> 1 then
+    raise exception 'upsert_lotto_model_scores requires rows for one game';
+  end if;
+  if exists (
+    select 1
+    from pg_catalog.jsonb_array_elements(p_scores) as rows(score)
+    where pg_catalog.coalesce(pg_catalog.nullif(rows.score->>'source_revision', ''), 'original') <> 'original'
+      or pg_catalog.nullif(rows.score->>'supersedes_score_id', '') is not null
+  ) then
+    raise exception 'upsert_lotto_model_scores only accepts original score rows';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(score_game_name, 0));
 
   insert into public.lotto_model_scores (
     forecast_id, game_name, draw_id, draw_date, metrics,
@@ -329,7 +350,7 @@ begin
     (rows.score->>'weight_before')::numeric,
     (rows.score->>'weight_after')::numeric,
     rows.score->>'evaluator_version',
-    pg_catalog.coalesce(pg_catalog.nullif(rows.score->>'source_revision', ''), 'original'),
+    'original',
     true,
     null,
     null
@@ -344,7 +365,9 @@ begin
     evaluator_version = excluded.evaluator_version,
     source_revision = excluded.source_revision,
     invalidated_at = null,
-    supersedes_score_id = null;
+    supersedes_score_id = null
+  where public.lotto_model_scores.source_revision = 'original'
+    and public.lotto_model_scores.supersedes_score_id is null;
   get diagnostics affected_rows = row_count;
   return affected_rows;
 end;
@@ -550,6 +573,20 @@ begin
   end if;
 
   select public.activate_lotto_agent_state(p_state) into activated;
+
+  if activated.id = active_state.id
+    or activated.game_name is distinct from p_state->>'game_name'
+    or activated.state_version is distinct from (p_state->>'state_version')::bigint
+    or activated.status is distinct from p_state->>'status'
+    or activated.last_learned_draw_id is distinct from p_state->>'last_learned_draw_id'
+    or activated.last_learned_draw_date is distinct from (p_state->>'last_learned_draw_date')::date
+    or activated.champion_model is distinct from p_state->>'champion_model'
+    or activated.expert_weights is distinct from p_state->'expert_weights'
+    or activated.learning_config is distinct from p_state->'learning_config'
+    or activated.metrics is distinct from p_state->'metrics'
+    or activated.metrics #>> '{promotion_stage}' is distinct from decision_row.to_status then
+    raise exception 'LAI v3 activation returned a state different from the requested promotion state';
+  end if;
 
   update public.lai_promotion_decisions
   set activated_at = pg_catalog.now(), activated_state_id = activated.id
