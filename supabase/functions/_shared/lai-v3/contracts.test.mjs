@@ -69,3 +69,28 @@ test("forecast cutoff permits only draws strictly before generation", () => {
   assert.throws(() => assertForecastCutoff(draws, "not-a-date"), /generatedAt/i);
   assert.throws(() => assertForecastCutoff(draws, "2026-02-30T10:00:00+08:00"), /generatedAt/i);
 });
+
+test("forecast cutoff parses date-only strings as UTC midnight and offsets as equivalent instants", () => {
+  assert.throws(
+    () => assertForecastCutoff([{ draw_date: "2026-08-06" }], "2026-08-06T00:00:00Z"),
+    /data cutoff/i,
+  );
+  assert.doesNotThrow(() => assertForecastCutoff([{ draw_date: "2026-08-05" }], "2026-08-06"));
+  assert.throws(
+    () => assertForecastCutoff([{ draw_date: "2026-08-06T08:00:00+08:00" }], "2026-08-06T00:00:00Z"),
+    /data cutoff/i,
+  );
+  assert.doesNotThrow(() => assertForecastCutoff(
+    [{ draw_date: "2026-08-06T07:59:59+08:00" }],
+    "2026-08-06T00:00:00Z",
+  ));
+});
+
+test("forecast cutoff rejects timezone-less date-times instead of using host local time", () => {
+  const validDraws = [{ draw_date: "2026-08-05" }];
+  assert.throws(() => assertForecastCutoff(validDraws, "2026-08-06T00:00:00"), /generatedAt/i);
+  assert.throws(
+    () => assertForecastCutoff([{ draw_date: "2026-08-05T00:00:00" }], "2026-08-06T00:00:00Z"),
+    /draw_date/i,
+  );
+});

@@ -42,20 +42,43 @@ function parseTimestamp(value, label) {
     throw new TypeError(`${label} must be a valid date or timestamp`);
   }
   const input = value.trim();
-  const date = input.match(/^(\d{4})-(\d{2})-(\d{2})(?:$|T)/);
-  const timestamp = Date.parse(input);
-  if (!date || !Number.isFinite(timestamp)) {
+  const dateOnly = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const dateTime = input.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/);
+  const parts = dateOnly ?? dateTime;
+  if (!parts) {
     throw new TypeError(`${label} must be a valid date or timestamp`);
   }
-  const calendar = new Date(Date.UTC(Number(date[1]), Number(date[2]) - 1, Number(date[3])));
+  const year = Number(parts[1]);
+  const month = Number(parts[2]);
+  const day = Number(parts[3]);
+  const hour = dateTime ? Number(parts[4]) : 0;
+  const minute = dateTime ? Number(parts[5]) : 0;
+  const second = dateTime && parts[6] ? Number(parts[6]) : 0;
+  const millisecond = dateTime && parts[7]
+    ? Number(parts[7].slice(1, 4).padEnd(3, "0"))
+    : 0;
+  if (hour > 23 || minute > 59 || second > 59) {
+    throw new TypeError(`${label} must be a valid date or timestamp`);
+  }
+  const calendar = new Date(0);
+  calendar.setUTCFullYear(year, month - 1, day);
+  calendar.setUTCHours(hour, minute, second, millisecond);
   if (
-    calendar.getUTCFullYear() !== Number(date[1]) ||
-    calendar.getUTCMonth() !== Number(date[2]) - 1 ||
-    calendar.getUTCDate() !== Number(date[3])
+    calendar.getUTCFullYear() !== year ||
+    calendar.getUTCMonth() !== month - 1 ||
+    calendar.getUTCDate() !== day
   ) {
     throw new TypeError(`${label} must be a valid date or timestamp`);
   }
-  return timestamp;
+  if (!dateTime || parts[8] === "Z") return calendar.getTime();
+  const offset = parts[8].match(/^([+-])(\d{2}):(\d{2})$/);
+  const offsetHours = Number(offset[2]);
+  const offsetMinutes = Number(offset[3]);
+  if (offsetHours > 23 || offsetMinutes > 59) {
+    throw new TypeError(`${label} must be a valid date or timestamp`);
+  }
+  const offsetMs = (offsetHours * 60 + offsetMinutes) * 60000;
+  return calendar.getTime() + (offset[1] === "+" ? -offsetMs : offsetMs);
 }
 
 export function assertProbabilityVector(values, shape) {

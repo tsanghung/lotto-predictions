@@ -9,6 +9,16 @@ function assertFiniteArray(values, label, minimumLength = 1) {
   }
 }
 
+function canonicalSeed(seed) {
+  if (typeof seed === "string") {
+    const normalized = seed.trim();
+    if (normalized) return normalized;
+  } else if (typeof seed === "number" && Number.isFinite(seed)) {
+    return String(seed);
+  }
+  throw new TypeError("seed must be a non-empty string or finite number");
+}
+
 function assertResamplingInput({ deltas, blockLength, iterations, seed }) {
   assertFiniteArray(deltas, "deltas", 2);
   if (!Number.isInteger(blockLength) || blockLength < 1 || blockLength > deltas.length) {
@@ -17,7 +27,7 @@ function assertResamplingInput({ deltas, blockLength, iterations, seed }) {
   if (!Number.isInteger(iterations) || iterations < 1) {
     throw new RangeError("iterations must be a positive integer");
   }
-  if (seed === undefined || seed === null) throw new TypeError("seed is required");
+  return canonicalSeed(seed);
 }
 
 function actualNumberSet(values, maxNumber, picks) {
@@ -41,9 +51,9 @@ export function mean(values) {
 }
 
 export function seededRandom(seed) {
-  if (seed === undefined || seed === null) throw new TypeError("seed is required");
+  const canonical = canonicalSeed(seed);
   let state = 2166136261;
-  for (const char of String(seed)) {
+  for (const char of canonical) {
     state ^= char.charCodeAt(0);
     state = Math.imul(state, 16777619);
   }
@@ -57,8 +67,8 @@ export function seededRandom(seed) {
 }
 
 export function pairedBlockBootstrap({ deltas, blockLength, iterations = 2000, seed } = {}) {
-  assertResamplingInput({ deltas, blockLength, iterations, seed });
-  const rng = seededRandom(seed);
+  const canonical = assertResamplingInput({ deltas, blockLength, iterations, seed });
+  const rng = seededRandom(canonical);
   const means = [];
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const sample = [];
@@ -79,9 +89,9 @@ export function pairedBlockBootstrap({ deltas, blockLength, iterations = 2000, s
 }
 
 export function pairedPermutationTest({ deltas, blockLength, iterations = 5000, seed } = {}) {
-  assertResamplingInput({ deltas, blockLength, iterations, seed });
+  const canonical = assertResamplingInput({ deltas, blockLength, iterations, seed });
   const observed = mean(deltas);
-  const rng = seededRandom(seed);
+  const rng = seededRandom(canonical);
   let atLeastObserved = 0;
   for (let iteration = 0; iteration < iterations; iteration += 1) {
     const signs = new Map();

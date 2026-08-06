@@ -22,6 +22,25 @@ test("seeded random produces the same stream for the same explicit seed", () => 
   assert.deepEqual([first(), first(), first()], [second(), second(), second()]);
 });
 
+test("public resampling entry points reject invalid seed domains", () => {
+  const invalidSeeds = [Number.NaN, Infinity, -Infinity, {}, [], true, false, null, undefined, "", "   "];
+  const input = { deltas: [0.1, 0.2], blockLength: 1, iterations: 2 };
+  for (const seed of invalidSeeds) {
+    assert.throws(() => seededRandom(seed), /seed/i);
+    assert.throws(() => pairedBlockBootstrap({ ...input, seed }), /seed/i);
+    assert.throws(() => pairedPermutationTest({ ...input, seed }), /seed/i);
+  }
+});
+
+test("numeric zero and negative zero canonicalize to the same deterministic seed", () => {
+  const zero = seededRandom(0);
+  const negativeZero = seededRandom(-0);
+  assert.deepEqual([zero(), zero(), zero()], [negativeZero(), negativeZero(), negativeZero()]);
+  const input = { deltas: [0.1, 0.2, -0.1, 0.3], blockLength: 2, iterations: 200 };
+  assert.deepEqual(pairedBlockBootstrap({ ...input, seed: 0 }), pairedBlockBootstrap({ ...input, seed: -0 }));
+  assert.equal(pairedPermutationTest({ ...input, seed: 0 }), pairedPermutationTest({ ...input, seed: -0 }));
+});
+
 test("paired bootstrap is deterministic for the same seed", () => {
   const input = { deltas: [0.1, 0.2, -0.1, 0.3], blockLength: 2, iterations: 200, seed: "same" };
   assert.deepEqual(pairedBlockBootstrap(input), pairedBlockBootstrap(input));
