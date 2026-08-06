@@ -2,7 +2,12 @@ import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
 import { lstmScores } from "../../lotto-predict-notify/lib/experts.js";
 import { ML_WEIGHTS } from "../../lotto-predict-notify/lib/mlWeights.js";
 import { normalizeProbabilityVector } from "../../lotto-predict-notify/lib/scoring.js";
-import { V3_MODEL_FAMILIES, assertForecastCutoff, assertProbabilityVector } from "./contracts.js";
+import {
+  V3_MODEL_FAMILIES,
+  assertForecastCutoff,
+  assertProbabilityVector,
+  canonicalChronologyInstant,
+} from "./contracts.js";
 import { seededRandom } from "./statistics.js";
 
 const SHADOW_ONLY_FAMILIES = new Set([
@@ -23,6 +28,11 @@ const REGISTRATION_STATUSES = new Set([
 ]);
 const CODE_COMMIT_PATTERN = /^[0-9a-f]{7,64}$/;
 const MINIMUM_SEQUENCE_HISTORY = 30;
+const SEQUENCE_CALIBRATION = Object.freeze({
+  method: "capped-simplex-projection",
+  status: "shadow-pending-evaluation",
+  version: /^capped-simplex-projection-v[1-9]\d*$/,
+});
 
 function assertPositiveFinite(value, label) {
   if (!Number.isFinite(value) || value <= 0) {
@@ -69,32 +79,42 @@ function validateNumbers(values, { maxNumber, picks }, label) {
 function validateHistory(draws, config) {
   const drawIds = new Set();
   const chronology = new Set();
+  const validated = [];
   for (const draw of draws) {
     if (!draw || typeof draw !== "object") throw new TypeError("draws must contain objects");
     const drawId = assertNonEmptyString(draw.draw_id, "draw_id");
     if (drawIds.has(drawId)) throw new RangeError("draw_id values must be unique");
     drawIds.add(drawId);
-    const dateKey = draw.draw_date.slice(0, 10);
-    if (chronology.has(dateKey)) throw new RangeError("draw chronology keys must be unique");
-    chronology.add(dateKey);
+    const chronologyInstant = canonicalChronologyInstant(draw.draw_date);
+    if (chronology.has(chronologyInstant)) throw new RangeError("draw chronology instants must be unique");
+    chronology.add(chronologyInstant);
     validateNumbers(draw.numbers, config, "numbers");
     if (config.secondaryNumber) {
       validateNumbers([draw.special_number], config.secondaryNumber, "special_number");
     }
+    validated.push({ draw, chronologyInstant });
   }
+  return validated;
 }
 
-function chronologicalHistory(draws) {
-  return [...draws].sort((left, right) => left.draw_date.localeCompare(right.draw_date));
+function chronologicalHistory(validatedHistory) {
+  return [...validatedHistory]
+    .sort((left, right) => left.chronologyInstant - right.chronologyInstant)
+    .map(({ draw }) => draw);
 }
 
 function uniformArea(shape) {
   return normalizeProbabilityVector(Array(shape.maxNumber).fill(1), shape.maxNumber, shape.picks);
 }
 
-function bayesianArea(draws, shape, { halfLifeDraws, priorStrength }, numberSelector) {
+function validateBayesianParameters({ halfLifeDraws, priorStrength }) {
   assertPositiveFinite(halfLifeDraws, "halfLifeDraws");
   assertPositiveFinite(priorStrength, "priorStrength");
+}
+
+function bayesianArea(draws, shape, parameters, numberSelector) {
+  validateBayesianParameters(parameters);
+  const { halfLifeDraws, priorStrength } = parameters;
   const baseRate = shape.picks / shape.maxNumber;
   const weightedCounts = Array(shape.maxNumber).fill(0);
   let totalWeight = 0;
@@ -115,12 +135,17 @@ function logit(probability) {
   return Math.log(bounded / (1 - bounded));
 }
 
-function transitionArea(draws, shape, { minimumSupport, effectCap }, numberSelector) {
+function validateTransitionParameters({ minimumSupport, effectCap }) {
   assertPositiveInteger(minimumSupport, "minimumSupport");
   if (minimumSupport < 30) throw new RangeError("minimumSupport must be at least 30");
   if (!Number.isFinite(effectCap) || effectCap <= 0 || effectCap > 0.25) {
     throw new RangeError("effectCap must be greater than 0 and at most 0.25");
   }
+}
+
+function transitionArea(draws, shape, parameters, numberSelector) {
+  validateTransitionParameters(parameters);
+  const { minimumSupport, effectCap } = parameters;
   const baseRate = shape.picks / shape.maxNumber;
   const supports = Array(shape.maxNumber).fill(0);
   const successes = Array.from({ length: shape.maxNumber }, () => Array(shape.maxNumber).fill(0));
@@ -163,6 +188,21 @@ function validateSequenceParameters(parameters) {
   for (const field of ["method", "status", "version"]) {
     assertNonEmptyString(parameters.calibration[field], `calibration.${field}`);
   }
+  if (parameters.calibration.method !== SEQUENCE_CALIBRATION.method) {
+    throw new RangeError("calibration method must be capped-simplex-projection");
+  }
+  if (parameters.calibration.status !== SEQUENCE_CALIBRATION.status) {
+    throw new RangeError("calibration status must be shadow-pending-evaluation");
+  }
+  if (!SEQUENCE_CALIBRATION.version.test(parameters.calibration.version)) {
+    throw new RangeError("calibration version must be a capped-simplex-projection version");
+  }
+}
+
+function validateFamilyParameters(family, parameters) {
+  if (family === "bayesian-drift") validateBayesianParameters(parameters);
+  if (family === "transition-regularized") validateTransitionParameters(parameters);
+  if (family === "sequence-challenger") validateSequenceParameters(parameters);
 }
 
 function validateRegistration(row, gameType) {
@@ -198,6 +238,7 @@ function validateRegistration(row, gameType) {
   const parameters = deepClone(row.parameters, "registration parameters");
   const seed = parameters.random_seed;
   seededRandom(seed);
+  validateFamilyParameters(row.model_family, parameters);
   return {
     id,
     name,
@@ -322,8 +363,7 @@ export function buildEvidenceForecasts({ gameType, draws, generatedAt, registrat
   if (mode !== "shadow" && mode !== "production") throw new RangeError("mode must be shadow or production");
   if (!Array.isArray(registrations)) throw new TypeError("registrations must be an array");
   assertForecastCutoff(draws, generatedAt);
-  validateHistory(draws, config);
-  const history = chronologicalHistory(draws);
+  const history = chronologicalHistory(validateHistory(draws, config));
   const results = [];
   for (const row of registrations) {
     let registration;

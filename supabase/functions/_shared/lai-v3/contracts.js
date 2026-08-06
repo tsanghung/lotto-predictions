@@ -92,6 +92,14 @@ function taiwanCalendarDate(timestamp) {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+export function canonicalChronologyInstant(value) {
+  const input = typeof value === "string" ? value.trim() : value;
+  const timestamp = parseTimestamp(input, "draw_date");
+  return /^\d{4}-\d{2}-\d{2}$/.test(input)
+    ? timestamp - 8 * 60 * 60 * 1000
+    : timestamp;
+}
+
 export function assertProbabilityVector(values, shape) {
   assertGameShape(shape ?? {});
   const { maxNumber, picks } = shape;
@@ -116,9 +124,9 @@ export function assertForecastCutoff(draws, generatedAt) {
   if (!Array.isArray(draws)) throw new TypeError("draws must be an array");
   for (const draw of draws) {
     if (!draw || typeof draw !== "object") throw new TypeError("draws must contain objects");
-    const drawDate = draw.draw_date.trim();
+    const drawDate = typeof draw.draw_date === "string" ? draw.draw_date.trim() : draw.draw_date;
     const drawMs = parseTimestamp(drawDate, "draw_date");
-    if (/^\d{4}-\d{2}-\d{2}$/.test(drawDate) && drawDate >= generatedAtTaiwanDate) {
+    if (typeof drawDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(drawDate) && drawDate >= generatedAtTaiwanDate) {
       throw new RangeError("draw violates the data cutoff");
     }
     if (drawMs >= generatedAtMs) {

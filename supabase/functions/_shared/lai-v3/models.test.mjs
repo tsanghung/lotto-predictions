@@ -54,9 +54,9 @@ function sequenceRegistration(gameType = "539") {
       random_seed: `${gameType}-sequence`,
       minimumHistory: 30,
       calibration: {
-        method: "isotonic",
-        status: "shadow-pending",
-        version: "sequence-calibration-v1",
+        method: "capped-simplex-projection",
+        status: "shadow-pending-evaluation",
+        version: "capped-simplex-projection-v1",
       },
     },
   };
@@ -117,10 +117,7 @@ test("sequence challenger cannot be requested as production", () => {
     gameType: "539",
     draws: fixtures["539"],
     generatedAt: NOW,
-    registrations: [{
-      ...registration("539", "sequence-challenger"),
-      parameters: { shadowOnly: true, random_seed: "sequence" },
-    }],
+    registrations: [sequenceRegistration()],
     mode: "production",
   }), /shadow only/i);
 });
@@ -157,9 +154,9 @@ test("sequence challenger emits calibrated shadow-only evidence only with valid 
   assert.equal(result.status, "completed");
   assertProbabilityVector(result.probabilities, GAME_CONFIG["539"]);
   assert.deepEqual(result.featureSummary.calibration, {
-    method: "isotonic",
-    status: "shadow-pending",
-    version: "sequence-calibration-v1",
+    method: "capped-simplex-projection",
+    status: "shadow-pending-evaluation",
+    version: "capped-simplex-projection-v1",
   });
   assert.equal(result.featureSummary.shadowOnly, true);
   assert.equal(result.featureSummary.productionWeight, 0);
@@ -192,6 +189,32 @@ test("sequence failures return failed results without probabilities", () => {
     assert.match(result.failureReason, scenario.reason, scenario.name);
     assert.equal("probabilities" in result, false, scenario.name);
     assert.equal("specialProbabilities" in result, false, scenario.name);
+  }
+});
+
+test("sequence calibration accepts only the versioned deterministic projection contract", () => {
+  const invalidCalibrations = [
+    { method: "none", status: "shadow-pending-evaluation", version: "capped-simplex-projection-v1" },
+    { method: "isotonic", status: "shadow-pending-evaluation", version: "capped-simplex-projection-v1" },
+    { method: "capped-simplex-projection", status: "uncalibrated", version: "capped-simplex-projection-v1" },
+    { method: "capped-simplex-projection", status: "shadow-verified", version: "capped-simplex-projection-v1" },
+    { method: "capped-simplex-projection", status: "shadow-pending-evaluation", version: "none" },
+    { method: "capped-simplex-projection", status: "shadow-pending-evaluation", version: "other-transform-v1" },
+  ];
+
+  for (const calibration of invalidCalibrations) {
+    const [result] = buildEvidenceForecasts({
+      gameType: "539",
+      draws: sequenceHistory(),
+      generatedAt: NOW,
+      registrations: [{ ...sequenceRegistration(), parameters: {
+        ...sequenceRegistration().parameters,
+        calibration,
+      } }],
+    });
+    assert.equal(result.status, "failed");
+    assert.match(result.failureReason, /calibration/i);
+    assert.equal("probabilities" in result, false);
   }
 });
 
@@ -288,6 +311,34 @@ test("history rejects duplicate identities and same-date chronology before sorti
   }), /chronology/i);
 });
 
+test("canonical chronology uses Taiwan date-only instants and rejects offset-equivalent duplicates", () => {
+  const mixedOffsets = [
+    { draw_id: "a", draw_date: "2026-08-01T00:00:00+08:00", numbers: [1, 2, 3, 4, 5] },
+    { draw_id: "b", draw_date: "2026-07-31T17:00:00Z", numbers: [6, 7, 8, 9, 10] },
+    { draw_id: "c", draw_date: "2026-08-01T02:00:00+08:00", numbers: [11, 12, 13, 14, 15] },
+  ];
+  const canonicalUtc = [
+    { ...mixedOffsets[0], draw_date: "2026-07-31T16:00:00Z" },
+    mixedOffsets[1],
+    { ...mixedOffsets[2], draw_date: "2026-07-31T18:00:00Z" },
+  ];
+  const rows = [registration("539", "bayesian-drift"), registration("539", "transition-regularized")];
+
+  assert.deepEqual(
+    buildEvidenceForecasts({ gameType: "539", draws: mixedOffsets, generatedAt: NOW, registrations: rows }),
+    buildEvidenceForecasts({ gameType: "539", draws: canonicalUtc, generatedAt: NOW, registrations: rows }),
+  );
+  assert.throws(() => buildEvidenceForecasts({
+    gameType: "539",
+    draws: [
+      { ...mixedOffsets[0], draw_date: "2026-08-01" },
+      { ...mixedOffsets[0], draw_id: "same-instant", draw_date: "2026-07-31T16:00:00Z" },
+    ],
+    generatedAt: NOW,
+    registrations: [registration("539", "uniform-null")],
+  }), /chronology/i);
+});
+
 test("invalid registration rows are isolated while valid current-game rows complete", () => {
   const invalid = {
     ...registration("539", "bayesian-drift"),
@@ -312,6 +363,35 @@ test("invalid registration rows are isolated while valid current-game rows compl
   assert.match(results[1].failureReason, /code_commit/i);
   assert.equal(results[2].status, "failed");
   assert.match(results[2].failureReason, /game_name/i);
+});
+
+test("invalid family parameters for other known games are failed rather than filtered", () => {
+  const results = buildEvidenceForecasts({
+    gameType: "539",
+    draws: fixtures["539"],
+    generatedAt: NOW,
+    registrations: [
+      registration("539", "uniform-null"),
+      {
+        ...registration("649", "transition-regularized"),
+        id: "other-game-transition",
+        parameters: { minimumSupport: 29, effectCap: 0.25, random_seed: "other-game-transition" },
+      },
+      {
+        ...sequenceRegistration("power"),
+        id: "other-game-sequence",
+        parameters: {
+          ...sequenceRegistration("power").parameters,
+          calibration: { method: "none", status: "shadow-pending-evaluation", version: "capped-simplex-projection-v1" },
+        },
+      },
+      registration("649", "uniform-null"),
+    ],
+  });
+
+  assert.deepEqual(results.map((result) => result.status), ["completed", "failed", "failed"]);
+  assert.match(results[1].failureReason, /minimumSupport/i);
+  assert.match(results[2].failureReason, /calibration/i);
 });
 
 test("registry status and transition guardrails fail closed per registration", () => {
