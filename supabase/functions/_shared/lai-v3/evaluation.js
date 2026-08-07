@@ -1,4 +1,5 @@
 import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
+import { V3_GATE_CONFIG } from "./contracts.js";
 import {
   brierScore,
   calibrationObservations,
@@ -16,6 +17,11 @@ import {
 
 const FAILED_STATUSES = new Set(["failed", "rejected", "invalid"]);
 
+export const DEFAULT_EVALUATION_RESAMPLING = Object.freeze({
+  bootstrapIterations: V3_GATE_CONFIG.bootstrapIterations,
+  permutationIterations: V3_GATE_CONFIG.permutationIterations,
+});
+
 function assertObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError(`${label} must be an object`);
@@ -26,6 +32,20 @@ function assertPositiveInteger(value, label) {
   if (!Number.isInteger(value) || value < 1) {
     throw new RangeError(`${label} must be a positive integer`);
   }
+}
+
+function resolvedResampling(value) {
+  if (value == null) return DEFAULT_EVALUATION_RESAMPLING;
+  assertObject(value, "resampling");
+  const bootstrapIterations = value.bootstrapIterations
+    ?? DEFAULT_EVALUATION_RESAMPLING.bootstrapIterations;
+  const permutationIterations = value.permutationIterations
+    ?? DEFAULT_EVALUATION_RESAMPLING.permutationIterations;
+  const maxSamples = value.maxSamples ?? null;
+  assertPositiveInteger(bootstrapIterations, "resampling.bootstrapIterations");
+  assertPositiveInteger(permutationIterations, "resampling.permutationIterations");
+  if (maxSamples != null) assertPositiveInteger(maxSamples, "resampling.maxSamples");
+  return { bootstrapIterations, permutationIterations, maxSamples };
 }
 
 function finiteNumber(value, label, { nonNegative = false, positive = false } = {}) {
@@ -419,12 +439,12 @@ function calibrationDifference(rows) {
     - expectedCalibrationError(rows.flatMap((row) => row.baselineObservations));
 }
 
-function pairedCalibrationBootstrap(rows, seed) {
+function pairedCalibrationBootstrap(rows, seed, iterations) {
   if (rows.length < 2) return null;
   const blockLength = blockLengthFor(rows.length);
   const rng = seededRandom(seed);
   const estimates = [];
-  for (let iteration = 0; iteration < 2000; iteration += 1) {
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
     const sample = [];
     while (sample.length < rows.length) {
       const start = Math.floor(rng() * rows.length);
@@ -442,12 +462,12 @@ function pairedCalibrationBootstrap(rows, seed) {
   };
 }
 
-function bootstrap(deltas, seed) {
+function bootstrap(deltas, seed, iterations) {
   if (deltas.length < 2) return null;
   return pairedBlockBootstrap({
     deltas,
     blockLength: blockLengthFor(deltas.length),
-    iterations: 2000,
+    iterations,
     seed,
   });
 }
@@ -456,7 +476,7 @@ function recentMean(values, window) {
   return values.length >= window ? mean(values.slice(-window)) : null;
 }
 
-function evidenceForArea(pairs, area, seed) {
+function evidenceForArea(pairs, area, seed, resampling) {
   const values = pairs.map(({ drawId, candidate, baseline }) => {
     const candidateMetric = metricRow(candidate, area);
     const baselineMetric = metricRow(baseline, area);
@@ -481,12 +501,16 @@ function evidenceForArea(pairs, area, seed) {
       coverageDelta: coverageDelta ?? null,
     };
   });
+  const inferenceValues = resampling.maxSamples == null
+    ? values
+    : values.slice(-resampling.maxSamples);
   const brierSkills = values.map((row) => row.brierSkill);
-  const coverageDeltas = values.map((row) => row.coverageDelta);
-  const hasCompleteCalibration = values.every((row) => row.candidateObservations != null);
-  const hasCompleteCoverage = coverageDeltas.every(Number.isFinite);
-  const calibrationDelta = values.length && hasCompleteCalibration
-    ? calibrationDifference(values)
+  const inferenceBrierSkills = inferenceValues.map((row) => row.brierSkill);
+  const inferenceCoverageDeltas = inferenceValues.map((row) => row.coverageDelta);
+  const hasCompleteCalibration = inferenceValues.every((row) => row.candidateObservations != null);
+  const hasCompleteCoverage = inferenceCoverageDeltas.every(Number.isFinite);
+  const calibrationDelta = inferenceValues.length && hasCompleteCalibration
+    ? calibrationDifference(inferenceValues)
     : null;
 
   return {
@@ -494,22 +518,40 @@ function evidenceForArea(pairs, area, seed) {
     recent30Skill: recentMean(brierSkills, 30),
     recent100Skill: recentMean(brierSkills, 100),
     recent500Skill: recentMean(brierSkills, 500),
-    brierSkill: values.length ? mean(brierSkills) : null,
-    meanExcessLoss: values.length ? mean(values.map((row) => row.excessLoss)) : null,
-    brierCi: bootstrap(brierSkills, `${seed}|${area}|brier`),
-    logLossDelta: values.length ? mean(values.map((row) => row.logLossDelta)) : null,
+    brierSkill: inferenceValues.length ? mean(inferenceBrierSkills) : null,
+    meanExcessLoss: inferenceValues.length
+      ? mean(inferenceValues.map((row) => row.excessLoss))
+      : null,
+    brierCi: bootstrap(
+      inferenceBrierSkills,
+      `${seed}|${area}|brier`,
+      resampling.bootstrapIterations,
+    ),
+    logLossDelta: inferenceValues.length
+      ? mean(inferenceValues.map((row) => row.logLossDelta))
+      : null,
     calibrationDelta,
-    calibrationCi: values.length && hasCompleteCalibration
-      ? pairedCalibrationBootstrap(values, `${seed}|${area}|calibration`)
+    calibrationCi: inferenceValues.length && hasCompleteCalibration
+      ? pairedCalibrationBootstrap(
+        inferenceValues,
+        `${seed}|${area}|calibration`,
+        resampling.bootstrapIterations,
+      )
       : null,
-    coverageDelta: values.length && hasCompleteCoverage ? mean(coverageDeltas) : null,
-    coverageCi: values.length && hasCompleteCoverage
-      ? bootstrap(coverageDeltas, `${seed}|${area}|coverage`)
+    coverageDelta: inferenceValues.length && hasCompleteCoverage
+      ? mean(inferenceCoverageDeltas)
       : null,
-    permutationP: values.length >= 2 ? pairedPermutationTest({
-      deltas: brierSkills,
-      blockLength: blockLengthFor(values.length),
-      iterations: 5000,
+    coverageCi: inferenceValues.length && hasCompleteCoverage
+      ? bootstrap(
+        inferenceCoverageDeltas,
+        `${seed}|${area}|coverage`,
+        resampling.bootstrapIterations,
+      )
+      : null,
+    permutationP: inferenceValues.length >= 2 ? pairedPermutationTest({
+      deltas: inferenceBrierSkills,
+      blockLength: blockLengthFor(inferenceValues.length),
+      iterations: resampling.permutationIterations,
       seed: `${seed}|${area}|permutation`,
     }) : null,
     adjustedQ: null,
@@ -535,19 +577,20 @@ function emptyEvidence() {
   };
 }
 
-export function evaluateCandidateSeries({ candidateRows, baselineRows, seed } = {}) {
+export function evaluateCandidateSeries({ candidateRows, baselineRows, seed, resampling } = {}) {
   seededRandom(seed);
+  const resolved = resolvedResampling(resampling);
   const pairs = pairCandidateWithBaseline(candidateRows, baselineRows);
   if (pairs.length === 0) {
     const empty = emptyEvidence();
     return { ...empty, main: { ...empty }, combined: { ...empty }, specialArea: null };
   }
-  const combined = evidenceForArea(pairs, "combined", seed);
-  const main = evidenceForArea(pairs, "main", seed);
+  const combined = evidenceForArea(pairs, "combined", seed, resolved);
+  const main = evidenceForArea(pairs, "main", seed, resolved);
   const hasSpecial = pairs.some(({ candidate, baseline }) => (
     metricRow(candidate, "special") != null || metricRow(baseline, "special") != null
   ));
-  const specialArea = hasSpecial ? evidenceForArea(pairs, "special", seed) : null;
+  const specialArea = hasSpecial ? evidenceForArea(pairs, "special", seed, resolved) : null;
   return {
     ...combined,
     main,

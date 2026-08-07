@@ -350,6 +350,32 @@ test("canary without a champion assigns the remaining 0.90 to uniform-null", () 
   assert.deepEqual(weights, { "uniform-null": 0.90, "bayes-v1": 0.10 });
 });
 
+test("canary derives approved weights and family metadata from the current champion", () => {
+  const input = {
+    baselineName: "uniform-null",
+    currentChampion: {
+      name: "bayes-v1",
+      family: "bayesian-drift",
+      stage: "champion",
+      evidence: passingEvidence(),
+    },
+    challenger: {
+      name: "transition-v1",
+      family: "transition-regularized",
+      stage: "canary",
+      evidence: passingEvidence(),
+    },
+  };
+  const snapshot = structuredClone(input);
+
+  assert.deepEqual(buildProductionWeights(input), {
+    "uniform-null": 0.225,
+    "bayes-v1": 0.675,
+    "transition-v1": 0.10,
+  });
+  assert.deepEqual(input, snapshot);
+});
+
 test("canary rejects approved weights that remove the permanent uniform baseline", () => {
   assert.throws(() => buildProductionWeights({
     baselineName: "uniform-null",

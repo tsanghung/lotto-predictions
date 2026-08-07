@@ -168,6 +168,105 @@ test("paired evidence uses proper score directions and complete recent windows",
   assert.ok(evidence.brierCi.lower95 > 0);
 });
 
+test("production evaluator defaults remain 2000 bootstrap and 5000 permutation iterations", async () => {
+  const evaluation = await import("./evaluation.js");
+  assert.deepEqual(evaluation.DEFAULT_EVALUATION_RESAMPLING, {
+    bootstrapIterations: 2000,
+    permutationIterations: 5000,
+  });
+
+  const candidate = Array.from({ length: 30 }, (_, index) => ({
+    drawId: String(index + 1),
+    brier: 0.08,
+    logLoss: 0.20,
+    calibrationObservations: [{ probability: 0.8, outcome: 1 }],
+    coverageDelta: 0.1,
+  }));
+  const baseline = Array.from({ length: 30 }, (_, index) => ({
+    drawId: String(index + 1),
+    family: "uniform-null",
+    brier: 0.10,
+    logLoss: 0.25,
+    calibrationObservations: [{ probability: 0.7, outcome: 1 }],
+  }));
+  const input = { candidateRows: candidate, baselineRows: baseline, seed: "resampling-defaults" };
+
+  assert.deepEqual(
+    evaluateCandidateSeries(input),
+    evaluateCandidateSeries({
+      ...input,
+      resampling: { bootstrapIterations: 2000, permutationIterations: 5000 },
+    }),
+  );
+});
+
+test("production evaluator accepts a deterministic test resampling budget", () => {
+  const candidate = Array.from({ length: 30 }, (_, index) => ({
+    drawId: String(index + 1),
+    brier: index % 3 === 0 ? 0.08 : 0.09,
+    logLoss: 0.20,
+    calibrationObservations: [{ probability: 0.8, outcome: index % 2 }],
+    coverageDelta: index % 2 ? 0.1 : -0.1,
+  }));
+  const baseline = Array.from({ length: 30 }, (_, index) => ({
+    drawId: String(index + 1),
+    family: "uniform-null",
+    brier: 0.10,
+    logLoss: 0.25,
+    calibrationObservations: [{ probability: 0.7, outcome: index % 2 }],
+  }));
+
+  const evidence = evaluateCandidateSeries({
+    candidateRows: candidate,
+    baselineRows: baseline,
+    seed: "resampling-test-budget",
+    resampling: { bootstrapIterations: 19, permutationIterations: 19 },
+  });
+
+  assert.ok(Math.abs((evidence.permutationP * 20) - Math.round(evidence.permutationP * 20)) < 1e-12);
+});
+
+test("test resampling can use a bounded tail without changing the complete sample count", () => {
+  const candidate = Array.from({ length: 30 }, (_, index) => ({
+    drawId: String(index + 1),
+    brier: 0.075 + ((index % 7) * 0.003),
+    logLoss: 0.20 + ((index % 5) * 0.002),
+    calibrationObservations: [{ probability: 0.55 + ((index % 4) * 0.05), outcome: index % 2 }],
+    coverageDelta: ((index % 5) - 2) / 10,
+  }));
+  const baseline = Array.from({ length: 30 }, (_, index) => ({
+    drawId: String(index + 1),
+    family: "uniform-null",
+    brier: 0.10,
+    logLoss: 0.25,
+    calibrationObservations: [{ probability: 0.50, outcome: index % 2 }],
+  }));
+  const resampling = { bootstrapIterations: 19, permutationIterations: 19 };
+  const bounded = evaluateCandidateSeries({
+    candidateRows: candidate,
+    baselineRows: baseline,
+    seed: "bounded-tail",
+    resampling: { ...resampling, maxSamples: 10 },
+  });
+  const tail = evaluateCandidateSeries({
+    candidateRows: candidate.slice(-10),
+    baselineRows: baseline.slice(-10),
+    seed: "bounded-tail",
+    resampling,
+  });
+
+  assert.equal(bounded.sampleCount, 30);
+  assert.equal(bounded.brierSkill, tail.brierSkill);
+  assert.equal(bounded.meanExcessLoss, tail.meanExcessLoss);
+  assert.equal(bounded.logLossDelta, tail.logLossDelta);
+  assert.equal(bounded.calibrationDelta, tail.calibrationDelta);
+  assert.equal(bounded.coverageDelta, tail.coverageDelta);
+  assert.deepEqual(bounded.brierCi, tail.brierCi);
+  assert.deepEqual(bounded.calibrationCi, tail.calibrationCi);
+  assert.deepEqual(bounded.coverageCi, tail.coverageCi);
+  assert.equal(bounded.permutationP, tail.permutationP);
+});
+
 test("calibration delta is ECE over preserved paired observations", () => {
   const shared = { brier: 0.1, logLoss: 0.2 };
   const evidence = evaluateCandidateSeries({

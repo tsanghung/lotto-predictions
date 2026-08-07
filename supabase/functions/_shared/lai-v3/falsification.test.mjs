@@ -1,24 +1,72 @@
+import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { brierScore, logLoss } from "../../lotto-predict-notify/lib/scoring.js";
+import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
+import {
+  brierScore,
+  calibrationObservations,
+  coverageMetrics,
+  logLoss,
+} from "../../lotto-predict-notify/lib/scoring.js";
+import {
+  evaluateCandidateSeries,
+  matchedRandomCoverage,
+  scoreEvidenceForecast,
+} from "./evaluation.js";
 import { evaluatePromotionGate } from "./promotionGate.js";
 import { benjaminiHochberg, seededRandom } from "./statistics.js";
 
-const MAX_NUMBER = 39;
-const PICKS = 5;
+const CONFIG = GAME_CONFIG["539"];
+const MAX_NUMBER = CONFIG.maxNumber;
+const PICKS = CONFIG.picks;
 const BASE_PROBABILITY = PICKS / MAX_NUMBER;
+const STRUCTURED_PROBABILITY_SCALE = 2 ** 20;
+const STRUCTURED_FAVORED_NUMBERS = Object.freeze([3, 7, 11, 19, 23]);
+const WEAK_SIGNAL_LIFT = 0.035;
+const SINGLE_NUMBER_LIFT_GRID = Object.freeze([0.035, 0.07, 0.14, 0.28, 0.56, 1.0]);
+const STRUCTURED_DRIFT_INTENSITY_GRID = Object.freeze([
+  0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49, 0.55,
+]);
+const MDE_TARGET_POWER = 0.80;
+const MDE_CHECKPOINT = 20000;
 const FAMILY_NAMES = Object.freeze([
   "bayesian-drift",
   "transition-regularized",
   "sequence-challenger",
 ]);
 const HEALTHY = Object.freeze({ dataValid: true, replayDigestValid: true, modelValid: true });
-const POWER_SEEDS = Object.freeze([101, 211, 307, 401, 503, 601, 701, 809]);
+const FAST_RESAMPLING = Object.freeze({ bootstrapIterations: 19, permutationIterations: 63 });
+const SLOW_NULL_RESAMPLING = Object.freeze({
+  bootstrapIterations: 19,
+  permutationIterations: 63,
+  maxSamples: 100,
+});
+const SLOW_POWER_RESAMPLING = Object.freeze({
+  bootstrapIterations: 19,
+  permutationIterations: 63,
+  maxSamples: 500,
+});
 
-function mean(values) {
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-}
+// These seeds selected the validation checkpoint and must never be used for acceptance.
+const TUNING_SEEDS = Object.freeze([101, 211, 307, 401, 503, 601, 701, 809]);
+// These observed seeds remain valid only for the 0.035 negative falsification.
+const WEAK_SIGNAL_HOLDOUT_SEEDS = Object.freeze([
+  1009, 1103, 1201, 1301, 1409, 1511, 1601, 1709, 1801, 1901, 2003, 2111,
+]);
+// These seeds were fixed before MDE tuning and are reserved for one positive holdout run.
+const FRESH_MDE_HOLDOUT_SEEDS = Object.freeze([
+  3001, 3011, 3023, 3037, 3049, 3061, 3079, 3089,
+  3109, 3121, 3137, 3163, 3181, 3191, 3203, 3221,
+  3251, 3271, 3299, 3301, 3323, 3343, 3361, 3373,
+]);
+// Set exactly once from the fixed-grid tuning result before any fresh holdout execution.
+const SELECTED_MDE_INTENSITY = 0.49;
+const NULL_LANE = process.env.LAI_V3_FALSIFICATION_NULL === "1";
+const NEGATIVE_LANE = process.env.LAI_V3_FALSIFICATION_NEGATIVE === "1";
+const SINGLE_DIAGNOSTIC_LANE = process.env.LAI_V3_FALSIFICATION_SINGLE_DIAGNOSTIC === "1";
+const MDE_TUNING_LANE = process.env.LAI_V3_FALSIFICATION_MDE_TUNING === "1";
+const MDE_HOLDOUT_LANE = process.env.LAI_V3_FALSIFICATION_MDE_HOLDOUT === "1";
 
 function weightedDraw({ weights, rng }) {
   const remaining = Array.from({ length: weights.length }, (_, index) => ({
@@ -40,108 +88,11 @@ function projectedProbabilities(weights) {
   return weights.map((value) => PICKS * value / total);
 }
 
-function calibrationError(probabilities, actualNumbers) {
-  const actual = new Set(actualNumbers);
-  const bins = Array.from({ length: 10 }, () => ({ count: 0, probability: 0, outcome: 0 }));
-  probabilities.forEach((probability, index) => {
-    const bin = bins[Math.min(9, Math.floor(probability * 10))];
-    bin.count += 1;
-    bin.probability += probability;
-    bin.outcome += actual.has(index + 1) ? 1 : 0;
-  });
-  return bins.reduce((total, bin) => {
-    if (bin.count === 0) return total;
-    return total + (bin.count / MAX_NUMBER)
-      * Math.abs((bin.probability / bin.count) - (bin.outcome / bin.count));
-  }, 0);
-}
-
-function normalCi(values) {
-  const point = mean(values);
-  if (values.length < 2) return null;
-  const variance = values.reduce((sum, value) => sum + ((value - point) ** 2), 0)
-    / (values.length - 1);
-  const margin = 1.959963984540054 * Math.sqrt(variance / values.length);
-  return { mean: point, lower95: point - margin, upper95: point + margin };
-}
-
-function normalCdf(value) {
-  const sign = value < 0 ? -1 : 1;
-  const x = Math.abs(value) / Math.sqrt(2);
-  const t = 1 / (1 + (0.3275911 * x));
-  const erf = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t
-    - 0.284496736) * t + 0.254829592) * t * Math.exp(-(x ** 2));
-  return 0.5 * (1 + (sign * erf));
-}
-
-function oneSidedP(values) {
-  const point = mean(values);
-  const ci = normalCi(values);
-  const standardError = (ci.upper95 - point) / 1.959963984540054;
-  if (standardError === 0) return point > 0 ? 0 : point < 0 ? 1 : 0.5;
-  return Math.max(0, Math.min(1, 1 - normalCdf(point / standardError)));
-}
-
-function buildSeries(actualDraws, candidateProbabilities) {
-  const baselineProbabilities = Array(MAX_NUMBER).fill(BASE_PROBABILITY);
-  return actualDraws.map((actualNumbers) => {
-    const candidateBrier = brierScore(candidateProbabilities, actualNumbers, MAX_NUMBER);
-    const baselineBrier = brierScore(baselineProbabilities, actualNumbers, MAX_NUMBER);
-    return {
-      brierSkill: 1 - (candidateBrier / baselineBrier),
-      excessLoss: candidateBrier - baselineBrier,
-      logLossDelta: logLoss(candidateProbabilities, actualNumbers, MAX_NUMBER)
-        - logLoss(baselineProbabilities, actualNumbers, MAX_NUMBER),
-      calibrationDelta: calibrationError(candidateProbabilities, actualNumbers)
-        - calibrationError(baselineProbabilities, actualNumbers),
-      coverageDelta: 0,
-    };
-  });
-}
-
-function evidenceFromSeries(series, sampleCount) {
-  const rows = series.slice(0, sampleCount);
-  const skills = rows.map((row) => row.brierSkill);
-  const calibration = rows.map((row) => row.calibrationDelta);
-  const coverage = rows.map((row) => row.coverageDelta);
-  return {
-    sampleCount: rows.length,
-    recent30Skill: mean(skills.slice(-30)),
-    recent100Skill: mean(skills.slice(-100)),
-    recent500Skill: mean(skills.slice(-500)),
-    brierSkill: mean(skills),
-    meanExcessLoss: mean(rows.map((row) => row.excessLoss)),
-    brierCi: normalCi(skills),
-    logLossDelta: mean(rows.map((row) => row.logLossDelta)),
-    calibrationDelta: mean(calibration),
-    calibrationCi: normalCi(calibration),
-    coverageDelta: mean(coverage),
-    coverageCi: normalCi(coverage),
-    permutationP: oneSidedP(skills),
-    adjustedQ: null,
-  };
-}
-
-function adjustedEvidence(seriesByFamily, sampleCount) {
-  const rows = FAMILY_NAMES.map((family) => ({
-    family,
-    evidence: evidenceFromSeries(seriesByFamily[family], sampleCount),
-  }));
-  const adjusted = benjaminiHochberg(rows.map((row) => row.evidence.permutationP));
-  return Object.fromEntries(rows.map((row, index) => [row.family, {
-    ...row.evidence,
-    adjustedQ: adjusted[index],
-  }]));
-}
-
-function randomModelWeights(seed, family) {
+function randomModelProbabilities(seed, family) {
   const rng = seededRandom(`model|${seed}|${family}`);
-  return Array.from({ length: MAX_NUMBER }, () => 0.95 + (0.10 * rng()));
-}
-
-function generateDraws({ seed, draws, weights }) {
-  const rng = seededRandom(`draws|${seed}`);
-  return Array.from({ length: draws }, () => weightedDraw({ weights, rng }));
+  return projectedProbabilities(
+    Array.from({ length: MAX_NUMBER }, () => 0.95 + (0.10 * rng())),
+  );
 }
 
 function biasedInclusionProbabilities(lift) {
@@ -172,161 +123,630 @@ function generateBiasedDraws({ seed, draws, lift }) {
   });
 }
 
-function gate(stage, evidence, seed, family, checkpoint, counters) {
+function structuredDriftProbabilities(intensity) {
+  const favoredUnits = Math.round(
+    BASE_PROBABILITY * (1 + intensity) * STRUCTURED_PROBABILITY_SCALE,
+  );
+  const otherCount = MAX_NUMBER - STRUCTURED_FAVORED_NUMBERS.length;
+  const remainingUnits = (PICKS * STRUCTURED_PROBABILITY_SCALE)
+    - (STRUCTURED_FAVORED_NUMBERS.length * favoredUnits);
+  const otherUnits = Math.floor(remainingUnits / otherCount);
+  let extraUnits = remainingUnits - (otherUnits * otherCount);
+  const favoredSet = new Set(STRUCTURED_FAVORED_NUMBERS);
+  return Array.from(
+    { length: MAX_NUMBER },
+    (_, index) => {
+      if (favoredSet.has(index + 1)) return favoredUnits / STRUCTURED_PROBABILITY_SCALE;
+      const units = otherUnits + (extraUnits > 0 ? 1 : 0);
+      extraUnits -= Number(extraUnits > 0);
+      return units / STRUCTURED_PROBABILITY_SCALE;
+    },
+  );
+}
+
+function systematicInclusionDraw(probabilities, rng) {
+  const selected = [];
+  const start = rng();
+  let threshold = start;
+  let cumulative = 0;
+  probabilities.forEach((probability, index) => {
+    cumulative += probability;
+    if (threshold < cumulative && selected.length < PICKS) {
+      selected.push(index + 1);
+      threshold = start + selected.length;
+    }
+  });
+  assert.equal(selected.length, PICKS);
+  return selected;
+}
+
+function generateStructuredDriftDraws({ seed, draws, intensity }) {
+  const rng = seededRandom(`structured-draws|${seed}`);
+  const probabilities = structuredDriftProbabilities(intensity);
+  return Array.from(
+    { length: draws },
+    () => systematicInclusionDraw(probabilities, rng),
+  );
+}
+
+function generateNullDraws({ seed, draws }) {
+  const rng = seededRandom(`null-draws|${seed}`);
+  return Array.from({ length: draws }, () => weightedDraw({
+    weights: Array(MAX_NUMBER).fill(1),
+    rng,
+  }));
+}
+
+function recommendationGroups(probabilities) {
+  const ranked = probabilities
+    .map((probability, index) => ({ number: index + 1, probability }))
+    .sort((left, right) => right.probability - left.probability || left.number - right.number)
+    .map((row) => row.number);
+  return {
+    combinations: {
+      primary: ranked.slice(0, PICKS),
+      secondary: ranked.slice(PICKS, PICKS * 2),
+    },
+  };
+}
+
+function forecastFor({ name, family, probabilities, withCoverage }) {
+  return {
+    name,
+    family,
+    probabilities,
+    ...(withCoverage ? { final_groups: recommendationGroups(probabilities) } : {}),
+  };
+}
+
+function drawRecord(numbers, index) {
+  return { draw_id: String(index + 1), numbers };
+}
+
+function scoreRows({ actualDraws, probabilities, family, seed, coverageSimulations = 1 }) {
+  const forecast = forecastFor({
+    name: `${family}-candidate`,
+    family,
+    probabilities,
+    withCoverage: true,
+  });
+  return actualDraws.map((numbers, index) => scoreEvidenceForecast({
+    forecast,
+    draw: drawRecord(numbers, index),
+    config: CONFIG,
+    seed: `${seed}|${family}|coverage`,
+    simulations: coverageSimulations,
+  }));
+}
+
+function baselineRows(actualDraws) {
+  const forecast = forecastFor({
+    name: "uniform-null",
+    family: "uniform-null",
+    probabilities: Array(MAX_NUMBER).fill(BASE_PROBABILITY),
+    withCoverage: false,
+  });
+  return actualDraws.map((numbers, index) => scoreEvidenceForecast({
+    forecast,
+    draw: drawRecord(numbers, index),
+    config: CONFIG,
+  }));
+}
+
+function modelProbabilities({ seed, signalProbabilities }) {
+  return {
+    "bayesian-drift": signalProbabilities
+      ?? randomModelProbabilities(seed, "bayesian-drift"),
+    "transition-regularized": randomModelProbabilities(seed, "transition-regularized"),
+    "sequence-challenger": randomModelProbabilities(seed, "sequence-challenger"),
+  };
+}
+
+function adjustedEvidenceAtCounts({
+  actualDraws,
+  seed,
+  signalProbabilities,
+  counts,
+  resampling,
+}) {
+  const baseline = baselineRows(actualDraws);
+  const byCount = Object.fromEntries(counts.map((count) => [count, {}]));
+  const probabilitiesByFamily = modelProbabilities({ seed, signalProbabilities });
+
+  for (const family of FAMILY_NAMES) {
+    const candidate = scoreRows({
+      actualDraws,
+      probabilities: probabilitiesByFamily[family],
+      family,
+      seed,
+    });
+    for (const count of counts) {
+      byCount[count][family] = evaluateCandidateSeries({
+        candidateRows: candidate.slice(0, count),
+        baselineRows: baseline.slice(0, count),
+        seed: `${seed}|${family}|${count}`,
+        resampling,
+      });
+    }
+  }
+
+  for (const count of counts) {
+    const adjusted = benjaminiHochberg(
+      FAMILY_NAMES.map((family) => byCount[count][family].permutationP),
+    );
+    FAMILY_NAMES.forEach((family, index) => {
+      byCount[count][family] = {
+        ...byCount[count][family],
+        adjustedQ: adjusted[index],
+      };
+    });
+  }
+  return byCount;
+}
+
+function digestEvidence({ family, sampleCount, evidence }) {
+  const payload = JSON.stringify({ family, sampleCount, evidence });
+  return createHash("sha256").update(payload).digest("hex");
+}
+
+function gate({ stage, evidence, family, sampleCount, previousEvidenceDigest, counters }) {
+  const evidenceDigest = digestEvidence({ family, sampleCount, evidence });
   return evaluatePromotionGate({
     stage,
     evidence,
-    evidenceDigest: `${seed}|${family}|${checkpoint}|${stage}`,
-    previousEvidenceDigest: null,
+    evidenceDigest,
+    previousEvidenceDigest,
     liveShadowDraws: counters.liveShadowDraws,
     canaryDraws: counters.canaryDraws,
     health: HEALTHY,
   });
 }
 
-function runNullExperiment(seed) {
-  const draws = generateDraws({ seed, draws: 550, weights: Array(MAX_NUMBER).fill(1) });
-  const seriesByFamily = Object.fromEntries(FAMILY_NAMES.map((family) => [
-    family,
-    buildSeries(draws, projectedProbabilities(randomModelWeights(seed, family))),
-  ]));
-  const historical = adjustedEvidence(seriesByFamily, 500);
-  const shadow = adjustedEvidence(seriesByFamily, 530);
-  const canary = adjustedEvidence(seriesByFamily, 550);
+function runNullExperiment(seed, resampling = SLOW_NULL_RESAMPLING) {
+  const checkpoints = [500, 530, 531, 550];
+  const evidenceByCount = adjustedEvidenceAtCounts({
+    actualDraws: generateNullDraws({ seed, draws: 550 }),
+    seed,
+    signalProbabilities: null,
+    counts: checkpoints,
+    resampling,
+  });
   const finalDecisions = {};
+  const digestChains = {};
 
   for (const family of FAMILY_NAMES) {
-    let decision = gate("registered", historical[family], seed, family, 500, {
-      liveShadowDraws: 0,
-      canaryDraws: 0,
-    });
-    if (decision.toStatus !== "historical_passed") {
-      finalDecisions[family] = decision;
-      continue;
+    let stage = "registered";
+    let previousEvidenceDigest = null;
+    let lastDecision = null;
+    const chain = [];
+    const steps = [
+      { count: 500, counters: { liveShadowDraws: 0, canaryDraws: 0 } },
+      { count: 530, counters: { liveShadowDraws: 30, canaryDraws: 0 } },
+      { count: 531, counters: { liveShadowDraws: 30, canaryDraws: 1 } },
+      { count: 550, counters: { liveShadowDraws: 30, canaryDraws: 20 } },
+    ];
+
+    for (const step of steps) {
+      const decision = gate({
+        stage,
+        evidence: evidenceByCount[step.count][family],
+        family,
+        sampleCount: step.count,
+        previousEvidenceDigest,
+        counters: step.counters,
+      });
+      lastDecision = decision;
+      chain.push({
+        sampleCount: step.count,
+        previousEvidenceDigest,
+        evidenceDigest: decision?.evidenceDigest ?? null,
+        fromStatus: stage,
+        toStatus: decision?.toStatus ?? null,
+      });
+      if (!decision || decision.decision !== "promote") {
+        finalDecisions[family] = decision;
+        break;
+      }
+      previousEvidenceDigest = decision.evidenceDigest;
+      stage = decision.toStatus;
+
+      if (step.count === 530) {
+        const duplicate = gate({
+          stage,
+          evidence: evidenceByCount[step.count][family],
+          family,
+          sampleCount: step.count,
+          previousEvidenceDigest,
+          counters: step.counters,
+        });
+        assert.equal(duplicate, null);
+      }
     }
-    decision = gate("historical_passed", shadow[family], seed, family, 530, {
-      liveShadowDraws: 30,
-      canaryDraws: 0,
-    });
-    if (decision.toStatus !== "shadow_verified") {
-      finalDecisions[family] = decision;
-      continue;
-    }
-    decision = gate("shadow_verified", shadow[family], seed, family, "530-canary", {
-      liveShadowDraws: 30,
-      canaryDraws: 0,
-    });
-    if (decision.toStatus !== "canary") {
-      finalDecisions[family] = decision;
-      continue;
-    }
-    finalDecisions[family] = gate("canary", canary[family], seed, family, 550, {
-      liveShadowDraws: 30,
-      canaryDraws: 20,
-    });
+    if (!Object.hasOwn(finalDecisions, family)) finalDecisions[family] = lastDecision;
+    digestChains[family] = chain;
   }
 
   return {
     seed,
-    bhFamilySizes: [Object.keys(historical).length, Object.keys(shadow).length, Object.keys(canary).length],
-    sampleCounts: [historical[FAMILY_NAMES[0]].sampleCount, shadow[FAMILY_NAMES[0]].sampleCount, canary[FAMILY_NAMES[0]].sampleCount],
+    sampleCounts: checkpoints,
+    bhFamilySizes: checkpoints.map((count) => Object.keys(evidenceByCount[count]).length),
+    digestChains,
     finalDecisions,
-    promoted: Object.values(finalDecisions).some((decision) => decision.toStatus === "champion"),
+    promoted: Object.values(finalDecisions).some((decision) => decision?.toStatus === "champion"),
   };
 }
 
-function biasedHistoricalOutcome({ seed, draws, lift }) {
-  const candidateProbabilities = biasedInclusionProbabilities(lift);
-  const actualDraws = generateBiasedDraws({ seed, draws, lift });
-  const seriesByFamily = {
-    "bayesian-drift": buildSeries(actualDraws, candidateProbabilities),
-    "transition-regularized": buildSeries(
-      actualDraws,
-      projectedProbabilities(randomModelWeights(seed, "transition-regularized")),
-    ),
-    "sequence-challenger": buildSeries(
-      actualDraws,
-      projectedProbabilities(randomModelWeights(seed, "sequence-challenger")),
-    ),
-  };
-  const evidence = adjustedEvidence(seriesByFamily, draws)["bayesian-drift"];
-  const decision = gate("registered", evidence, seed, "bayesian-drift", draws, {
-    liveShadowDraws: 0,
-    canaryDraws: 0,
+function historicalOutcomes({
+  seed,
+  counts,
+  alternative = "single-number",
+  intensity = WEAK_SIGNAL_LIFT,
+  resampling = SLOW_POWER_RESAMPLING,
+}) {
+  const maxCount = Math.max(...counts);
+  const signalProbabilities = alternative === "structured-drift"
+    ? structuredDriftProbabilities(intensity)
+    : biasedInclusionProbabilities(intensity);
+  const actualDraws = alternative === "structured-drift"
+    ? generateStructuredDriftDraws({ seed, draws: maxCount, intensity })
+    : generateBiasedDraws({ seed, draws: maxCount, lift: intensity });
+  const evidenceByCount = adjustedEvidenceAtCounts({
+    actualDraws,
+    seed,
+    signalProbabilities,
+    counts,
+    resampling,
   });
-  return { decision, evidence };
+  return Object.fromEntries(counts.map((count) => {
+    const evidence = evidenceByCount[count]["bayesian-drift"];
+    const decision = gate({
+      stage: "registered",
+      evidence,
+      family: "bayesian-drift",
+      sampleCount: count,
+      previousEvidenceDigest: null,
+      counters: { liveShadowDraws: 0, canaryDraws: 0 },
+    });
+    return [count, { decision, evidence }];
+  }));
 }
 
-function runPowerSweep(drawCounts) {
-  return drawCounts.map((draws) => {
-    const outcomes = POWER_SEEDS.map((seed) => biasedHistoricalOutcome({ seed, draws, lift: 0.035 }));
-    const passed = outcomes.filter((outcome) => outcome.decision.toStatus === "historical_passed").length;
-    return {
-      draws,
-      seeds: [...POWER_SEEDS],
-      passed,
-      total: outcomes.length,
-      historicalPassedRate: passed / outcomes.length,
-      reasons: Object.fromEntries(outcomes.map((outcome, index) => [
-        String(POWER_SEEDS[index]),
-        outcome.decision.reason,
-      ])),
-    };
-  });
-}
-
-test("200 independent pure-random experiments keep champion false promotion at or below alpha", () => {
-  const outcomes = Array.from({ length: 200 }, (_, seed) => runNullExperiment(seed));
-  assert.equal(new Set(outcomes.map((outcome) => outcome.seed)).size, 200);
-  assert.ok(outcomes.every((outcome) => outcome.bhFamilySizes.every((size) => size === FAMILY_NAMES.length)));
-  assert.ok(outcomes.every((outcome) => JSON.stringify(outcome.sampleCounts) === "[500,530,550]"));
-  const falsePromotionRate = outcomes.filter((outcome) => outcome.promoted).length / outcomes.length;
-  assert.ok(falsePromotionRate <= 0.05, `false promotion rate ${falsePromotionRate}`);
-});
-
-test("3.5 percent injected bias at 1200 draws remains insufficient evidence", () => {
-  const outcomes = POWER_SEEDS.map((seed) => biasedHistoricalOutcome({
-    seed,
-    draws: 1200,
-    lift: 0.035,
-  }));
-  assert.ok(outcomes.every((outcome) => outcome.decision.toStatus === "registered"));
-  assert.ok(outcomes.every((outcome) => outcome.decision.decision === "hold"));
-});
-
-test("3.5 percent injected bias has stable multi-seed power at 200000 draws", () => {
-  const outcomes = POWER_SEEDS.map((seed) => biasedHistoricalOutcome({
-    seed,
-    draws: 200000,
-    lift: 0.035,
-  }));
-  const passed = outcomes.filter(
-    (outcome) => outcome.decision.toStatus === "historical_passed",
-  ).length;
-
-  assert.equal(new Set(POWER_SEEDS).size, POWER_SEEDS.length);
-  assert.ok(
-    passed >= POWER_SEEDS.length / 2,
-    `historical_passed power ${passed}/${POWER_SEEDS.length}`,
+function wilson95(successes, total) {
+  const z = 1.959963984540054;
+  const estimate = successes / total;
+  const denominator = 1 + ((z ** 2) / total);
+  const center = (estimate + ((z ** 2) / (2 * total))) / denominator;
+  const margin = (z / denominator) * Math.sqrt(
+    (estimate * (1 - estimate) / total) + ((z ** 2) / (4 * (total ** 2))),
   );
-});
+  return {
+    estimate,
+    lower95: successes === 0 ? 0 : Math.max(0, center - margin),
+    upper95: successes === total ? 1 : Math.min(1, center + margin),
+  };
+}
+
+function summarizeMetric(values) {
+  const finite = values.filter(Number.isFinite);
+  return {
+    mean: finite.reduce((sum, value) => sum + value, 0) / finite.length,
+    min: Math.min(...finite),
+    max: Math.max(...finite),
+  };
+}
+
+function componentMetrics(evaluations) {
+  const evidence = evaluations.map((evaluation) => evaluation.evidence);
+  const fields = {
+    recent30Skill: (row) => row.recent30Skill,
+    recent100Skill: (row) => row.recent100Skill,
+    recent500Skill: (row) => row.recent500Skill,
+    brierSkill: (row) => row.brierSkill,
+    brierLower95: (row) => row.brierCi?.lower95,
+    logLossDelta: (row) => row.logLossDelta,
+    calibrationDelta: (row) => row.calibrationDelta,
+    calibrationLower95: (row) => row.calibrationCi?.lower95,
+    coverageDelta: (row) => row.coverageDelta,
+    coverageLower95: (row) => row.coverageCi?.lower95,
+    adjustedQ: (row) => row.adjustedQ,
+  };
+  return Object.fromEntries(Object.entries(fields).map(([name, read]) => [
+    name,
+    summarizeMetric(evidence.map(read)),
+  ]));
+}
+
+function failureHistogram(evaluations) {
+  return evaluations.reduce((histogram, evaluation) => {
+    const reason = evaluation.decision.reason;
+    histogram[reason] = (histogram[reason] ?? 0) + 1;
+    return histogram;
+  }, {});
+}
+
+function selectedGrid(grid, environmentName) {
+  const raw = process.env[environmentName];
+  if (raw == null) return grid;
+  const selected = Number(raw);
+  assert.ok(grid.includes(selected), `${environmentName} must select a pre-registered grid value`);
+  return [selected];
+}
 
 test("weak-bias generator matches its declared inclusion probabilities", () => {
-  const lift = 0.035;
-  const draws = generateBiasedDraws({ seed: 539, draws: 20000, lift });
-  const probabilities = biasedInclusionProbabilities(lift);
+  const draws = generateBiasedDraws({
+    seed: 539,
+    draws: MDE_CHECKPOINT,
+    lift: WEAK_SIGNAL_LIFT,
+  });
+  const probabilities = biasedInclusionProbabilities(WEAK_SIGNAL_LIFT);
   const observedFavored = draws.filter((draw) => draw.includes(7)).length / draws.length;
   assert.ok(Math.abs(observedFavored - probabilities[6]) < 0.006);
   assert.ok(Math.abs(probabilities.reduce((sum, value) => sum + value, 0) - PICKS) < 1e-12);
 });
 
-if (process.env.LAI_V3_POWER_SWEEP === "1") {
-  test("exploratory 3.5 percent injected-bias power sweep", () => {
-    const drawCounts = (process.env.LAI_V3_POWER_SWEEP_COUNTS ?? "5000,20000,50000,100000")
-      .split(",")
-      .map(Number);
-    const results = runPowerSweep(drawCounts);
-    process.stdout.write(`LAI_V3_POWER_SWEEP=${JSON.stringify(results)}\n`);
-    assert.equal(results.length, drawCounts.length);
+test("Wilson interval clamps exact binomial boundaries", () => {
+  assert.equal(wilson95(0, 12).lower95, 0);
+  assert.equal(wilson95(12, 12).upper95, 1);
+});
+
+test("synthetic MDE protocol fixes grid target checkpoint and disjoint holdout seeds", () => {
+  assert.deepEqual(SINGLE_NUMBER_LIFT_GRID, [0.035, 0.07, 0.14, 0.28, 0.56, 1.0]);
+  assert.deepEqual(
+    STRUCTURED_DRIFT_INTENSITY_GRID,
+    [0.07, 0.14, 0.21, 0.28, 0.35, 0.42, 0.49, 0.55],
+  );
+  assert.equal(MDE_TARGET_POWER, 0.80);
+  assert.equal(MDE_CHECKPOINT, 20000);
+  assert.equal(SELECTED_MDE_INTENSITY, 0.49);
+  assert.equal(FRESH_MDE_HOLDOUT_SEEDS.length, 24);
+  assert.equal(new Set(FRESH_MDE_HOLDOUT_SEEDS).size, FRESH_MDE_HOLDOUT_SEEDS.length);
+
+  const previouslyObserved = new Set([
+    ...Array.from({ length: 200 }, (_, seed) => seed),
+    ...TUNING_SEEDS,
+    ...WEAK_SIGNAL_HOLDOUT_SEEDS,
+  ]);
+  assert.equal(FRESH_MDE_HOLDOUT_SEEDS.some((seed) => previouslyObserved.has(seed)), false);
+});
+
+test("synthetic alternatives match the production scoring oracle contract", () => {
+  for (const intensity of STRUCTURED_DRIFT_INTENSITY_GRID) {
+    const probabilities = structuredDriftProbabilities(intensity);
+    assert.equal(probabilities.reduce((sum, probability) => sum + probability, 0), PICKS);
+    assert.ok(probabilities.every((probability) => Number.isInteger(probability * (2 ** 20))));
+  }
+
+  const alternatives = [
+    {
+      name: "single-number",
+      probabilities: biasedInclusionProbabilities(WEAK_SIGNAL_LIFT),
+      draws: generateBiasedDraws({ seed: 7019, draws: 20000, lift: WEAK_SIGNAL_LIFT }),
+    },
+    {
+      name: "structured-drift",
+      probabilities: structuredDriftProbabilities(0.42),
+      draws: generateStructuredDriftDraws({ seed: 7027, draws: 20000, intensity: 0.42 }),
+    },
+  ];
+
+  for (const alternative of alternatives) {
+    const observed = Array(MAX_NUMBER).fill(0);
+    for (const draw of alternative.draws) {
+      draw.forEach((number) => { observed[number - 1] += 1; });
+    }
+    observed.forEach((count, index) => {
+      assert.ok(
+        Math.abs((count / alternative.draws.length) - alternative.probabilities[index]) < 0.008,
+        `${alternative.name} number ${index + 1}`,
+      );
+    });
+  }
+
+  const probabilities = alternatives[1].probabilities;
+  const forecast = forecastFor({
+    name: "structured-drift-candidate",
+    family: "bayesian-drift",
+    probabilities,
+    withCoverage: true,
   });
-}
+  const draw = drawRecord(alternatives[1].draws[0], 0);
+  const seed = "oracle-contract";
+  const simulations = 31;
+  const snapshot = structuredClone(forecast);
+  const score = scoreEvidenceForecast({ forecast, draw, config: CONFIG, seed, simulations });
+  const groups = Object.values(forecast.final_groups.combinations);
+  const coverage = coverageMetrics(groups[0], groups[1], draw.numbers);
+  const matched = matchedRandomCoverage({
+    maxNumber: MAX_NUMBER,
+    picks: PICKS,
+    groupA: groups[0],
+    groupB: groups[1],
+    actualNumbers: draw.numbers,
+    simulations,
+    seed: `${seed}|${draw.draw_id}`,
+  });
+  const matchedMean = matched.samples.reduce((sum, value) => sum + value, 0)
+    / matched.samples.length;
+
+  assert.deepEqual(forecast, snapshot);
+  assert.deepEqual(score.main.calibrationObservations, calibrationObservations(
+    probabilities,
+    draw.numbers,
+    MAX_NUMBER,
+  ));
+  assert.equal(score.main.brier, brierScore(probabilities, draw.numbers, MAX_NUMBER));
+  assert.equal(score.main.logLoss, logLoss(probabilities, draw.numbers, MAX_NUMBER));
+  assert.equal(score.main.coverage.unionHits, coverage.union_hits);
+  assert.equal(score.main.coverageDelta, (coverage.union_hits - matchedMean) / PICKS);
+});
+
+test("fast smoke wires generated forecasts through the production evaluator and digest chain", () => {
+  const outcome = runNullExperiment(17, FAST_RESAMPLING);
+  assert.deepEqual(outcome.sampleCounts, [500, 530, 531, 550]);
+  assert.ok(outcome.bhFamilySizes.every((size) => size === FAMILY_NAMES.length));
+  for (const chain of Object.values(outcome.digestChains)) {
+    chain.slice(1).forEach((step, index) => {
+      assert.equal(step.previousEvidenceDigest, chain[index].evidenceDigest);
+    });
+  }
+});
+
+test("slow: 200 independent null experiments keep champion false promotion at or below alpha", {
+  skip: !NULL_LANE,
+}, () => {
+  const outcomes = Array.from({ length: 200 }, (_, seed) => runNullExperiment(seed));
+  const promoted = outcomes.filter((outcome) => outcome.promoted).length;
+  const rate = promoted / outcomes.length;
+  process.stdout.write(`LAI_V3_NULL=${JSON.stringify({ promoted, total: outcomes.length, rate })}\n`);
+  assert.equal(new Set(outcomes.map((outcome) => outcome.seed)).size, 200);
+  assert.ok(outcomes.every((outcome) => outcome.bhFamilySizes.every((size) => size === 3)));
+  assert.ok(rate <= 0.05, `champion false-promotion rate ${rate}`);
+});
+
+test("slow negative: 0.035 weak signal remains undetected at 1200 draws", {
+  skip: !NEGATIVE_LANE,
+}, () => {
+  const evaluations = TUNING_SEEDS.map((seed) => historicalOutcomes({
+    seed,
+    counts: [1200],
+    intensity: WEAK_SIGNAL_LIFT,
+  })[1200]);
+  const decisions = evaluations.map((evaluation) => evaluation.decision);
+  assert.ok(decisions.every((decision) => decision.toStatus === "registered"));
+  assert.ok(decisions.every((decision) => decision.decision === "hold"));
+});
+
+test("slow negative: 0.035 weak signal remains undetected at 20000 draws", {
+  skip: !NEGATIVE_LANE,
+}, () => {
+  const evaluations = WEAK_SIGNAL_HOLDOUT_SEEDS.map((seed) => historicalOutcomes({
+    seed,
+    counts: [MDE_CHECKPOINT],
+    intensity: WEAK_SIGNAL_LIFT,
+  })[MDE_CHECKPOINT]);
+  const decisions = evaluations.map((evaluation) => evaluation.decision);
+  const passed = decisions.filter((decision) => decision.toStatus === "historical_passed").length;
+  const interval = wilson95(passed, decisions.length);
+  const reasons = Object.fromEntries(WEAK_SIGNAL_HOLDOUT_SEEDS.map((seed, index) => [
+    String(seed),
+    decisions[index].reason,
+  ]));
+  process.stdout.write(`LAI_V3_WEAK_SIGNAL=${JSON.stringify({
+    checkpoint: MDE_CHECKPOINT,
+    lift: WEAK_SIGNAL_LIFT,
+    passed,
+    total: decisions.length,
+    ...interval,
+    reasons,
+  })}\n`);
+  assert.ok(decisions.every((decision) => decision.toStatus === "registered"));
+  assert.ok(decisions.every((decision) => decision.decision === "hold"));
+});
+
+test("slow diagnostic: single-number synthetic alternative reports gate components", {
+  skip: !SINGLE_DIAGNOSTIC_LANE,
+}, () => {
+  const results = [];
+  const selectedLifts = selectedGrid(
+    SINGLE_NUMBER_LIFT_GRID,
+    "LAI_V3_FALSIFICATION_SINGLE_LIFT",
+  );
+  for (const lift of selectedLifts) {
+    const evaluations = TUNING_SEEDS.map((seed) => historicalOutcomes({
+      seed,
+      counts: [MDE_CHECKPOINT],
+      intensity: lift,
+    })[MDE_CHECKPOINT]);
+    const decisions = evaluations.map((evaluation) => evaluation.decision);
+    const passed = decisions.filter((decision) => decision.toStatus === "historical_passed").length;
+    results.push({
+      lift,
+      checkpoint: MDE_CHECKPOINT,
+      passed,
+      total: decisions.length,
+      estimate: passed / decisions.length,
+      failureHistogram: failureHistogram(evaluations),
+      componentMetrics: componentMetrics(evaluations),
+    });
+  }
+  process.stdout.write(`LAI_V3_SINGLE_NUMBER_DIAGNOSTIC=${JSON.stringify({
+    grid: SINGLE_NUMBER_LIFT_GRID,
+    results,
+  })}\n`);
+  assert.equal(results.length, selectedLifts.length);
+});
+
+test("slow tuning: structured-drift synthetic MDE detector power selects minimum intensity", {
+  skip: !MDE_TUNING_LANE,
+}, () => {
+  const results = [];
+  let selectedIntensity = null;
+  for (const intensity of selectedGrid(
+    STRUCTURED_DRIFT_INTENSITY_GRID,
+    "LAI_V3_FALSIFICATION_MDE_INTENSITY",
+  )) {
+    const evaluations = TUNING_SEEDS.map((seed) => historicalOutcomes({
+      seed,
+      counts: [MDE_CHECKPOINT],
+      alternative: "structured-drift",
+      intensity,
+    })[MDE_CHECKPOINT]);
+    const decisions = evaluations.map((evaluation) => evaluation.decision);
+    const passed = decisions.filter((decision) => decision.toStatus === "historical_passed").length;
+    const estimate = passed / decisions.length;
+    results.push({
+      intensity,
+      checkpoint: MDE_CHECKPOINT,
+      passed,
+      total: decisions.length,
+      estimate,
+      failureHistogram: failureHistogram(evaluations),
+      componentMetrics: componentMetrics(evaluations),
+    });
+    if (estimate >= MDE_TARGET_POWER) {
+      selectedIntensity = intensity;
+      break;
+    }
+  }
+  process.stdout.write(`LAI_V3_STRUCTURED_MDE_TUNING=${JSON.stringify({
+    grid: STRUCTURED_DRIFT_INTENSITY_GRID,
+    targetPower: MDE_TARGET_POWER,
+    selectedIntensity,
+    results,
+  })}\n`);
+  assert.notEqual(selectedIntensity, null, JSON.stringify(results));
+});
+
+test("slow holdout: structured-drift synthetic MDE detector power clears one-shot acceptance", {
+  skip: !MDE_HOLDOUT_LANE,
+}, () => {
+  assert.ok(
+    Number.isFinite(SELECTED_MDE_INTENSITY),
+    "SELECTED_MDE_INTENSITY must be fixed after tuning",
+  );
+  assert.ok(STRUCTURED_DRIFT_INTENSITY_GRID.includes(SELECTED_MDE_INTENSITY));
+  const evaluations = FRESH_MDE_HOLDOUT_SEEDS.map((seed) => historicalOutcomes({
+    seed,
+    counts: [MDE_CHECKPOINT],
+    alternative: "structured-drift",
+    intensity: SELECTED_MDE_INTENSITY,
+  })[MDE_CHECKPOINT]);
+  const decisions = evaluations.map((evaluation) => evaluation.decision);
+  const passed = decisions.filter((decision) => decision.toStatus === "historical_passed").length;
+  const interval = wilson95(passed, decisions.length);
+  process.stdout.write(`LAI_V3_MDE_HOLDOUT=${JSON.stringify({
+    checkpoint: MDE_CHECKPOINT,
+    alternative: "structured-drift",
+    intensity: SELECTED_MDE_INTENSITY,
+    passed,
+    total: decisions.length,
+    ...interval,
+    reasons: Object.fromEntries(FRESH_MDE_HOLDOUT_SEEDS.map((seed, index) => [
+      String(seed),
+      decisions[index].reason,
+    ])),
+    componentMetrics: componentMetrics(evaluations),
+  })}\n`);
+  assert.ok(interval.estimate >= MDE_TARGET_POWER, JSON.stringify(interval));
+  assert.ok(interval.lower95 > 0.50, JSON.stringify(interval));
+});

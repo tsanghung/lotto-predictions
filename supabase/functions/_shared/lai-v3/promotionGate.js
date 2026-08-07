@@ -263,8 +263,18 @@ function normalizedApprovedWeights({ baselineName, currentChampion, approvedWeig
   return closeExactly(result, adjustmentName, total);
 }
 
-function validateApprovedFamilies({ approvedWeights, approvedFamilies, baselineName }) {
-  if (approvedWeights == null) return new Map([[baselineName, "uniform-null"]]);
+function validateApprovedFamilies({ approvedWeights, approvedFamilies, baselineName, currentChampion }) {
+  if (approvedWeights == null) {
+    const inferred = new Map([[baselineName, "uniform-null"]]);
+    if (currentChampion != null) {
+      const champion = assertModelIdentity(currentChampion, "currentChampion");
+      if (inferred.has(champion.family)) {
+        throw new RangeError(`duplicate active family representative: ${champion.family}`);
+      }
+      inferred.set(champion.family, champion.name);
+    }
+    return inferred;
+  }
   assertObject(approvedFamilies, "approvedFamilies");
   const weightNames = Object.keys(approvedWeights);
   const familyNames = Object.keys(approvedFamilies);
