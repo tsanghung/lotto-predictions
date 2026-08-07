@@ -37,15 +37,16 @@ function assertPositiveInteger(value, label) {
 function resolvedResampling(value) {
   if (value == null) return DEFAULT_EVALUATION_RESAMPLING;
   assertObject(value, "resampling");
+  const supported = new Set(["bootstrapIterations", "permutationIterations"]);
+  const unsupported = Object.keys(value).find((key) => !supported.has(key));
+  if (unsupported) throw new RangeError(`unsupported resampling option: ${unsupported}`);
   const bootstrapIterations = value.bootstrapIterations
     ?? DEFAULT_EVALUATION_RESAMPLING.bootstrapIterations;
   const permutationIterations = value.permutationIterations
     ?? DEFAULT_EVALUATION_RESAMPLING.permutationIterations;
-  const maxSamples = value.maxSamples ?? null;
   assertPositiveInteger(bootstrapIterations, "resampling.bootstrapIterations");
   assertPositiveInteger(permutationIterations, "resampling.permutationIterations");
-  if (maxSamples != null) assertPositiveInteger(maxSamples, "resampling.maxSamples");
-  return { bootstrapIterations, permutationIterations, maxSamples };
+  return { bootstrapIterations, permutationIterations };
 }
 
 function finiteNumber(value, label, { nonNegative = false, positive = false } = {}) {
@@ -501,16 +502,12 @@ function evidenceForArea(pairs, area, seed, resampling) {
       coverageDelta: coverageDelta ?? null,
     };
   });
-  const inferenceValues = resampling.maxSamples == null
-    ? values
-    : values.slice(-resampling.maxSamples);
   const brierSkills = values.map((row) => row.brierSkill);
-  const inferenceBrierSkills = inferenceValues.map((row) => row.brierSkill);
-  const inferenceCoverageDeltas = inferenceValues.map((row) => row.coverageDelta);
-  const hasCompleteCalibration = inferenceValues.every((row) => row.candidateObservations != null);
-  const hasCompleteCoverage = inferenceCoverageDeltas.every(Number.isFinite);
-  const calibrationDelta = inferenceValues.length && hasCompleteCalibration
-    ? calibrationDifference(inferenceValues)
+  const coverageDeltas = values.map((row) => row.coverageDelta);
+  const hasCompleteCalibration = values.every((row) => row.candidateObservations != null);
+  const hasCompleteCoverage = coverageDeltas.every(Number.isFinite);
+  const calibrationDelta = values.length && hasCompleteCalibration
+    ? calibrationDifference(values)
     : null;
 
   return {
@@ -518,39 +515,37 @@ function evidenceForArea(pairs, area, seed, resampling) {
     recent30Skill: recentMean(brierSkills, 30),
     recent100Skill: recentMean(brierSkills, 100),
     recent500Skill: recentMean(brierSkills, 500),
-    brierSkill: inferenceValues.length ? mean(inferenceBrierSkills) : null,
-    meanExcessLoss: inferenceValues.length
-      ? mean(inferenceValues.map((row) => row.excessLoss))
-      : null,
+    brierSkill: values.length ? mean(brierSkills) : null,
+    meanExcessLoss: values.length ? mean(values.map((row) => row.excessLoss)) : null,
     brierCi: bootstrap(
-      inferenceBrierSkills,
+      brierSkills,
       `${seed}|${area}|brier`,
       resampling.bootstrapIterations,
     ),
-    logLossDelta: inferenceValues.length
-      ? mean(inferenceValues.map((row) => row.logLossDelta))
+    logLossDelta: values.length
+      ? mean(values.map((row) => row.logLossDelta))
       : null,
     calibrationDelta,
-    calibrationCi: inferenceValues.length && hasCompleteCalibration
+    calibrationCi: values.length && hasCompleteCalibration
       ? pairedCalibrationBootstrap(
-        inferenceValues,
+        values,
         `${seed}|${area}|calibration`,
         resampling.bootstrapIterations,
       )
       : null,
-    coverageDelta: inferenceValues.length && hasCompleteCoverage
-      ? mean(inferenceCoverageDeltas)
+    coverageDelta: values.length && hasCompleteCoverage
+      ? mean(coverageDeltas)
       : null,
-    coverageCi: inferenceValues.length && hasCompleteCoverage
+    coverageCi: values.length && hasCompleteCoverage
       ? bootstrap(
-        inferenceCoverageDeltas,
+        coverageDeltas,
         `${seed}|${area}|coverage`,
         resampling.bootstrapIterations,
       )
       : null,
-    permutationP: inferenceValues.length >= 2 ? pairedPermutationTest({
-      deltas: inferenceBrierSkills,
-      blockLength: blockLengthFor(inferenceValues.length),
+    permutationP: values.length >= 2 ? pairedPermutationTest({
+      deltas: brierSkills,
+      blockLength: blockLengthFor(values.length),
       iterations: resampling.permutationIterations,
       seed: `${seed}|${area}|permutation`,
     }) : null,

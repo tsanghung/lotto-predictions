@@ -226,45 +226,13 @@ test("production evaluator accepts a deterministic test resampling budget", () =
   assert.ok(Math.abs((evidence.permutationP * 20) - Math.round(evidence.permutationP * 20)) < 1e-12);
 });
 
-test("test resampling can use a bounded tail without changing the complete sample count", () => {
-  const candidate = Array.from({ length: 30 }, (_, index) => ({
-    drawId: String(index + 1),
-    brier: 0.075 + ((index % 7) * 0.003),
-    logLoss: 0.20 + ((index % 5) * 0.002),
-    calibrationObservations: [{ probability: 0.55 + ((index % 4) * 0.05), outcome: index % 2 }],
-    coverageDelta: ((index % 5) - 2) / 10,
-  }));
-  const baseline = Array.from({ length: 30 }, (_, index) => ({
-    drawId: String(index + 1),
-    family: "uniform-null",
-    brier: 0.10,
-    logLoss: 0.25,
-    calibrationObservations: [{ probability: 0.50, outcome: index % 2 }],
-  }));
-  const resampling = { bootstrapIterations: 19, permutationIterations: 19 };
-  const bounded = evaluateCandidateSeries({
-    candidateRows: candidate,
-    baselineRows: baseline,
-    seed: "bounded-tail",
-    resampling: { ...resampling, maxSamples: 10 },
-  });
-  const tail = evaluateCandidateSeries({
-    candidateRows: candidate.slice(-10),
-    baselineRows: baseline.slice(-10),
-    seed: "bounded-tail",
-    resampling,
-  });
-
-  assert.equal(bounded.sampleCount, 30);
-  assert.equal(bounded.brierSkill, tail.brierSkill);
-  assert.equal(bounded.meanExcessLoss, tail.meanExcessLoss);
-  assert.equal(bounded.logLossDelta, tail.logLossDelta);
-  assert.equal(bounded.calibrationDelta, tail.calibrationDelta);
-  assert.equal(bounded.coverageDelta, tail.coverageDelta);
-  assert.deepEqual(bounded.brierCi, tail.brierCi);
-  assert.deepEqual(bounded.calibrationCi, tail.calibrationCi);
-  assert.deepEqual(bounded.coverageCi, tail.coverageCi);
-  assert.equal(bounded.permutationP, tail.permutationP);
+test("production evaluator rejects the removed maxSamples resampling option", () => {
+  assert.throws(() => evaluateCandidateSeries({
+    candidateRows: [],
+    baselineRows: [],
+    seed: "removed-max-samples",
+    resampling: { bootstrapIterations: 19, permutationIterations: 19, maxSamples: 10 },
+  }), /unsupported resampling option: maxSamples/);
 });
 
 test("calibration delta is ECE over preserved paired observations", () => {

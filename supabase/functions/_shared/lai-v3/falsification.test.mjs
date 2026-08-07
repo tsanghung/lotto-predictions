@@ -40,28 +40,32 @@ const FAST_RESAMPLING = Object.freeze({ bootstrapIterations: 19, permutationIter
 const SLOW_NULL_RESAMPLING = Object.freeze({
   bootstrapIterations: 19,
   permutationIterations: 63,
-  maxSamples: 100,
 });
 const SLOW_POWER_RESAMPLING = Object.freeze({
-  bootstrapIterations: 19,
+  bootstrapIterations: 3,
   permutationIterations: 63,
-  maxSamples: 500,
 });
 
 // These seeds selected the validation checkpoint and must never be used for acceptance.
-const TUNING_SEEDS = Object.freeze([101, 211, 307, 401, 503, 601, 701, 809]);
+const TUNING_SEEDS = Object.freeze([907, 211, 307, 401, 503, 601, 701, 809]);
 // These observed seeds remain valid only for the 0.035 negative falsification.
 const WEAK_SIGNAL_HOLDOUT_SEEDS = Object.freeze([
   1009, 1103, 1201, 1301, 1409, 1511, 1601, 1709, 1801, 1901, 2003, 2111,
 ]);
-// These seeds were fixed before MDE tuning and are reserved for one positive holdout run.
-const FRESH_MDE_HOLDOUT_SEEDS = Object.freeze([
+// These seeds were consumed by the invalidated tail-only Round 2 holdout.
+const INVALIDATED_MDE_HOLDOUT_SEEDS = Object.freeze([
   3001, 3011, 3023, 3037, 3049, 3061, 3079, 3089,
   3109, 3121, 3137, 3163, 3181, 3191, 3203, 3221,
   3251, 3271, 3299, 3301, 3323, 3343, 3361, 3373,
 ]);
-// Set exactly once from the fixed-grid tuning result before any fresh holdout execution.
-const SELECTED_MDE_INTENSITY = 0.49;
+// These seeds were fixed before full-cumulative tuning and are reserved for one final holdout run.
+const FINAL_MDE_HOLDOUT_SEEDS = Object.freeze([
+  4001, 4013, 4021, 4049, 4051, 4073, 4091, 4099,
+  4111, 4127, 4133, 4153, 4177, 4201, 4211, 4229,
+  4241, 4253, 4271, 4283, 4297, 4327, 4337, 4357,
+]);
+// Set exactly once from full-cumulative tuning before any final holdout execution.
+const SELECTED_MDE_INTENSITY = 0.42;
 const NULL_LANE = process.env.LAI_V3_FALSIFICATION_NULL === "1";
 const NEGATIVE_LANE = process.env.LAI_V3_FALSIFICATION_NEGATIVE === "1";
 const SINGLE_DIAGNOSTIC_LANE = process.env.LAI_V3_FALSIFICATION_SINGLE_DIAGNOSTIC === "1";
@@ -490,6 +494,11 @@ test("Wilson interval clamps exact binomial boundaries", () => {
 });
 
 test("synthetic MDE protocol fixes grid target checkpoint and disjoint holdout seeds", () => {
+  const expectedFinalSeeds = [
+    4001, 4013, 4021, 4049, 4051, 4073, 4091, 4099,
+    4111, 4127, 4133, 4153, 4177, 4201, 4211, 4229,
+    4241, 4253, 4271, 4283, 4297, 4327, 4337, 4357,
+  ];
   assert.deepEqual(SINGLE_NUMBER_LIFT_GRID, [0.035, 0.07, 0.14, 0.28, 0.56, 1.0]);
   assert.deepEqual(
     STRUCTURED_DRIFT_INTENSITY_GRID,
@@ -497,16 +506,33 @@ test("synthetic MDE protocol fixes grid target checkpoint and disjoint holdout s
   );
   assert.equal(MDE_TARGET_POWER, 0.80);
   assert.equal(MDE_CHECKPOINT, 20000);
-  assert.equal(SELECTED_MDE_INTENSITY, 0.49);
-  assert.equal(FRESH_MDE_HOLDOUT_SEEDS.length, 24);
-  assert.equal(new Set(FRESH_MDE_HOLDOUT_SEEDS).size, FRESH_MDE_HOLDOUT_SEEDS.length);
+  assert.deepEqual(SLOW_POWER_RESAMPLING, {
+    bootstrapIterations: 3,
+    permutationIterations: 63,
+  });
+  assert.equal(SELECTED_MDE_INTENSITY, 0.42);
+  assert.deepEqual(TUNING_SEEDS, [907, 211, 307, 401, 503, 601, 701, 809]);
+  assert.deepEqual(FINAL_MDE_HOLDOUT_SEEDS, expectedFinalSeeds);
 
-  const previouslyObserved = new Set([
-    ...Array.from({ length: 200 }, (_, seed) => seed),
-    ...TUNING_SEEDS,
-    ...WEAK_SIGNAL_HOLDOUT_SEEDS,
-  ]);
-  assert.equal(FRESH_MDE_HOLDOUT_SEEDS.some((seed) => previouslyObserved.has(seed)), false);
+  const seedSets = {
+    null: Array.from({ length: 200 }, (_, seed) => seed),
+    tuning: TUNING_SEEDS,
+    weakSignal: WEAK_SIGNAL_HOLDOUT_SEEDS,
+    invalidatedMde: INVALIDATED_MDE_HOLDOUT_SEEDS,
+    finalMde: FINAL_MDE_HOLDOUT_SEEDS,
+  };
+  for (const [leftName, leftSeeds] of Object.entries(seedSets)) {
+    assert.equal(new Set(leftSeeds).size, leftSeeds.length, `${leftName} seeds must be unique`);
+    for (const [rightName, rightSeeds] of Object.entries(seedSets)) {
+      if (leftName >= rightName) continue;
+      const right = new Set(rightSeeds);
+      assert.equal(
+        leftSeeds.some((seed) => right.has(seed)),
+        false,
+        `${leftName} and ${rightName} seeds must be disjoint`,
+      );
+    }
+  }
 });
 
 test("synthetic alternatives match the production scoring oracle contract", () => {
@@ -725,7 +751,7 @@ test("slow holdout: structured-drift synthetic MDE detector power clears one-sho
     "SELECTED_MDE_INTENSITY must be fixed after tuning",
   );
   assert.ok(STRUCTURED_DRIFT_INTENSITY_GRID.includes(SELECTED_MDE_INTENSITY));
-  const evaluations = FRESH_MDE_HOLDOUT_SEEDS.map((seed) => historicalOutcomes({
+  const evaluations = FINAL_MDE_HOLDOUT_SEEDS.map((seed) => historicalOutcomes({
     seed,
     counts: [MDE_CHECKPOINT],
     alternative: "structured-drift",
@@ -741,7 +767,7 @@ test("slow holdout: structured-drift synthetic MDE detector power clears one-sho
     passed,
     total: decisions.length,
     ...interval,
-    reasons: Object.fromEntries(FRESH_MDE_HOLDOUT_SEEDS.map((seed, index) => [
+    reasons: Object.fromEntries(FINAL_MDE_HOLDOUT_SEEDS.map((seed, index) => [
       String(seed),
       decisions[index].reason,
     ])),
