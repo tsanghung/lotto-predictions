@@ -8,6 +8,11 @@ import {
   combinedAreaBrier,
   logLoss,
 } from "../../lotto-predict-notify/lib/scoring.js";
+import {
+  createInitialEvidenceState,
+  finalizeEvidenceRun,
+  walkForwardEvidenceChunk,
+} from "./evidenceTraining.js";
 
 const RECENT_SCORE_LIMIT = 500;
 
@@ -344,9 +349,43 @@ function checkpointSummary(run, result, startedCursor, snapshotCount, snapshotCr
       from_cursor: startedCursor,
       to_cursor: result.nextCursor,
       processed: result.steps.length,
-      last_draw_id: result.steps.at(-1)?.target_draw_id ?? null,
+      last_draw_id: result.steps.at(-1)?.target_draw_id ?? result.steps.at(-1)?.targetDrawId ?? null,
     },
   };
+}
+
+function assertV3Experiment(experiment, claimed) {
+  if (!experiment || typeof experiment !== "object") {
+    throw new Error("LAI v3 experiment run was not found");
+  }
+  if (experiment.id !== claimed.experiment_run_id) {
+    throw new Error("LAI v3 experiment id does not match the training run");
+  }
+  if (experiment.game_name !== claimed.game_name) {
+    throw new Error("LAI v3 experiment game_name does not match the training run");
+  }
+  if (!Number.isInteger(experiment.checkpoint_cursor)
+    || experiment.checkpoint_cursor !== claimed.checkpoint_cursor) {
+    throw new Error("LAI v3 experiment checkpoint cursor does not match the training run");
+  }
+  if (!['queued', 'running'].includes(experiment.status)) {
+    throw new Error("LAI v3 experiment status must be queued or running");
+  }
+}
+
+function requireV3Repository(repository) {
+  for (const name of [
+    "fetchExperiment",
+    "fetchRegistration",
+    "fetchUniformBaseline",
+    "saveExperimentCheckpoint",
+    "completeExperiment",
+    "failExperiment",
+  ]) {
+    if (typeof repository[name] !== "function") {
+      throw new TypeError(`repository.${name} is required for LAI v3 training`);
+    }
+  }
 }
 
 export async function executeTrainingRun({
@@ -354,6 +393,12 @@ export async function executeTrainingRun({
   repository,
   now = () => new Date().toISOString(),
   token = () => crypto.randomUUID(),
+  processors = {
+    walkForwardV2Chunk: walkForwardChunk,
+    walkForwardEvidenceChunk,
+    createInitialEvidenceState,
+    finalizeEvidenceRun,
+  },
 }) {
   const request = validateTrainingRequest(input);
   if (!repository || typeof repository.fetchRun !== "function") {
@@ -369,9 +414,24 @@ export async function executeTrainingRun({
   const lease = { token: token(), claimed_at: claimedAt };
   const claimed = await repository.claimRun(run, lease);
   if (!claimed) throw new Error("Training run is already claimed by another invocation");
+  const isV3 = claimed.algorithm_version === "lai-v3";
+
+  let experiment = null;
+  let experimentCompleted = false;
 
   try {
     const gameType = GAME_TYPES_BY_NAME[claimed.game_name];
+    if (isV3) {
+      requireV3Repository(repository);
+      if (typeof claimed.experiment_run_id !== "string" || !claimed.experiment_run_id) {
+        throw new Error("LAI v3 training run requires an experiment_run_id");
+      }
+      experiment = await repository.fetchExperiment(claimed.experiment_run_id);
+      assertV3Experiment(experiment, claimed);
+      if (request.chunkSize > 25) {
+        throw new RangeError("LAI v3 chunk_size must be from 1 through 25");
+      }
+    }
     if (typeof repository.ensureSnapshot !== "function") {
       throw new TypeError("repository.ensureSnapshot is required");
     }
@@ -385,14 +445,38 @@ export async function executeTrainingRun({
     }
     const boundedDraws = draws.slice(0, claimed.range_end);
     const cursor = Math.max(claimed.checkpoint_cursor, claimed.range_start);
-    const state = claimed.summary?.state || createInitialTrainingState(gameType);
-    const result = walkForwardChunk({
-      gameType,
-      draws: boundedDraws,
-      cursor,
-      chunkSize: request.chunkSize,
-      state,
-    });
+    let result;
+    let v3Context = null;
+    if (isV3) {
+      const registration = await repository.fetchRegistration(experiment.registry_id);
+      if (!registration || registration.id !== experiment.registry_id) {
+        throw new Error("LAI v3 experiment candidate registration was not found");
+      }
+      const baselineRegistration = await repository.fetchUniformBaseline(claimed.game_name);
+      const state = claimed.summary?.state || processors.createInitialEvidenceState(
+        registration,
+        baselineRegistration,
+      );
+      result = processors.walkForwardEvidenceChunk({
+        gameType,
+        draws: boundedDraws,
+        cursor,
+        chunkSize: request.chunkSize,
+        state,
+        registration,
+        baselineRegistration,
+      });
+      v3Context = { registration, baselineRegistration };
+    } else {
+      const state = claimed.summary?.state || createInitialTrainingState(gameType);
+      result = processors.walkForwardV2Chunk({
+        gameType,
+        draws: boundedDraws,
+        cursor,
+        chunkSize: request.chunkSize,
+        state,
+      });
+    }
     if (!result.done && result.nextCursor <= cursor) {
       throw new Error("Training checkpoint made no progress");
     }
@@ -405,16 +489,50 @@ export async function executeTrainingRun({
       error_text: null,
       completed_at: completed ? now() : null,
     };
+    if (isV3) {
+      const experimentSaved = await repository.saveExperimentCheckpoint(experiment, {
+        checkpoint_cursor: result.nextCursor,
+        status: "running",
+        error_text: null,
+      });
+      if (!experimentSaved) throw new Error("LAI v3 experiment checkpoint lost its concurrency lease");
+      if (completed) {
+        const evidence = await processors.finalizeEvidenceRun({
+          draws: boundedDraws,
+          registration: v3Context.registration,
+          baselineRegistration: v3Context.baselineRegistration,
+          state: result.state,
+        });
+        const completedExperiment = await repository.completeExperiment(experimentSaved, evidence);
+        if (!completedExperiment) throw new Error("LAI v3 experiment completion lost its concurrency lease");
+        experimentCompleted = true;
+      }
+    }
     const saved = await repository.saveCheckpoint(claimed, checkpoint);
     if (!saved) throw new Error("Training checkpoint lost its concurrency lease");
     return saved;
   } catch (error) {
+    if (isV3 && experiment && !experimentCompleted && typeof repository.failExperiment === "function") {
+      try {
+        await repository.failExperiment(experiment, {
+          status: "failed",
+          error_text: error instanceof Error ? error.message : String(error),
+          completed_at: now(),
+        });
+      } catch {
+        // Preserve the original processing error while making failure marking best effort.
+      }
+    }
     if (typeof repository.markFailed === "function") {
-      await repository.markFailed(claimed, {
-        status: "failed",
-        error_text: error instanceof Error ? error.message : String(error),
-        completed_at: now(),
-      });
+      try {
+        await repository.markFailed(claimed, {
+          status: "failed",
+          error_text: error instanceof Error ? error.message : String(error),
+          completed_at: now(),
+        });
+      } catch {
+        // Preserve the original processing error while making failure marking best effort.
+      }
     }
     throw error;
   }

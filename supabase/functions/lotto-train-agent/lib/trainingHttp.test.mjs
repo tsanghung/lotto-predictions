@@ -132,3 +132,61 @@ test("handler maps lease conflicts to 409 and does not claim completion", async 
   assert.equal(response.status, 409);
   assert.match((await json(response)).root_cause, /active processing lease/);
 });
+
+test("repository reads and checkpoints a v3 experiment with exactly one uniform baseline", async () => {
+  const urls = [];
+  const experiment = {
+    id: "experiment-1", registry_id: "registry-1", game_name: "\u4eca\u5f69539",
+    status: "running", checkpoint_cursor: 25, updated_at: "2026-08-09T00:00:00Z",
+  };
+  const registration = { id: "registry-1", model_family: "bayesian-drift" };
+  const baseline = { id: "uniform-1", model_family: "uniform-null", status: "baseline" };
+  const fetchFn = async (value, options = {}) => {
+    const url = String(value);
+    urls.push({ url, method: options.method || "GET", body: options.body || null });
+    if (url.includes("lai_experiment_runs?id=eq.experiment-1")) {
+      if (options.method === "PATCH") return new Response(JSON.stringify([{ ...experiment, ...JSON.parse(options.body) }]));
+      return new Response(JSON.stringify([experiment]));
+    }
+    if (url.includes("lai_model_registry?id=eq.registry-1")) {
+      return new Response(JSON.stringify([registration]));
+    }
+    if (url.includes("model_family=eq.uniform-null")) {
+      return new Response(JSON.stringify([baseline]));
+    }
+    throw new Error(`Unexpected URL ${url}`);
+  };
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL,
+    serviceKey: SECRET,
+    fetchFn,
+    now: () => new Date("2026-08-09T01:00:00Z"),
+  });
+
+  assert.deepEqual(await repository.fetchExperiment("experiment-1"), experiment);
+  assert.deepEqual(await repository.fetchRegistration("registry-1"), registration);
+  assert.deepEqual(await repository.fetchUniformBaseline("\u4eca\u5f69539"), baseline);
+  const checkpoint = await repository.saveExperimentCheckpoint(experiment, {
+    checkpoint_cursor: 50,
+    status: "running",
+  });
+  await repository.completeExperiment(checkpoint, {
+    metrics: { sampleCount: 50 }, replayDigest: "a".repeat(64),
+  });
+  await repository.failExperiment(experiment, { status: "failed", error_text: "failed" });
+
+  assert.ok(urls.some(({ url }) => url.includes("lai_experiment_runs?id=eq.experiment-1")));
+  assert.ok(urls.some(({ url }) => url.includes("lai_model_registry?id=eq.registry-1")));
+  assert.ok(urls.some(({ url }) => url.includes("model_family=eq.uniform-null") && url.includes("limit=2")));
+  assert.equal(urls.filter(({ method }) => method === "PATCH").length, 3);
+  assert.ok(urls.every(({ url }) => !url.includes("/lotto_draws?")));
+});
+
+test("repository rejects a missing or ambiguous uniform baseline", async () => {
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL,
+    serviceKey: SECRET,
+    fetchFn: async () => new Response(JSON.stringify([])),
+  });
+  await assert.rejects(repository.fetchUniformBaseline("\u4eca\u5f69539"), /exactly one uniform-null baseline/);
+});

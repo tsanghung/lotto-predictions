@@ -10,6 +10,11 @@ import {
 } from "./trainingCore.js";
 import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
 import { scoreModelForecast } from "../../lotto-update/lib/lottoCore.js";
+import {
+  createInitialEvidenceState,
+  finalizeEvidenceRun,
+  walkForwardEvidenceChunk,
+} from "./evidenceTraining.js";
 
 function dailyDraws(count = 10) {
   return Array.from({ length: count }, (_, index) => ({
@@ -334,4 +339,142 @@ test("checkpoint keeps a bounded recent score window for promotion metrics", () 
   assert.equal(result.state.metrics.recent_model_scores.length, 500);
   assert.equal(result.state.metrics.recent_model_scores.at(-1).draw_id, draws[9].draw_id);
   assert.equal(result.state.metrics.recent_model_scores[0].draw_id, "old-1");
+});
+
+function v3Registration() {
+  return {
+    id: "registry-539-bayes",
+    game_name: GAME_CONFIG["539"].name,
+    model_name: "bayesian-drift",
+    model_family: "bayesian-drift",
+    model_version: "bayesian-drift-v1",
+    feature_version: "weighted-counts-v1",
+    parameters: { halfLifeDraws: 100, priorStrength: 100, random_seed: "training-proof" },
+    code_commit: "0123456789abcdef0123456789abcdef01234567",
+    status: "registered",
+  };
+}
+
+function uniformBaseline() {
+  return {
+    id: "registry-539-uniform",
+    game_name: GAME_CONFIG["539"].name,
+    model_name: "uniform-null",
+    model_family: "uniform-null",
+    model_version: "uniform-null-v1",
+    feature_version: "none-v1",
+    parameters: { random_seed: "uniform-null-v1" },
+    code_commit: "0123456789abcdef0123456789abcdef01234567",
+    status: "baseline",
+  };
+}
+
+function makeInMemoryV3Repository({ draws, registration, baselineRegistration }) {
+  const experiment = {
+    id: "experiment-run-v3",
+    registry_id: registration.id,
+    game_name: registration.game_name,
+    status: "queued",
+    checkpoint_cursor: 100,
+  };
+  const run = {
+    id: "training-run-v3",
+    algorithm_version: "lai-v3",
+    experiment_run_id: experiment.id,
+    game_name: registration.game_name,
+    status: "queued",
+    range_start: 100,
+    range_end: 110,
+    checkpoint_cursor: 100,
+    summary: {},
+    updated_at: "v1",
+  };
+  return {
+    current: structuredClone(run),
+    currentExperiment: structuredClone(experiment),
+    calls: { activateAgentState: 0, completeExperiment: 0 },
+    async fetchRun() { return structuredClone(this.current); },
+    async claimRun(value, lease) {
+      this.current = { ...value, status: "running", summary: { ...value.summary, lease }, updated_at: "v2" };
+      return structuredClone(this.current);
+    },
+    async ensureSnapshot(value) { return value.range_end; },
+    async fetchDraws() { return structuredClone(draws.slice(0, 110)); },
+    async fetchExperiment() { return structuredClone(this.currentExperiment); },
+    async fetchRegistration() { return structuredClone(registration); },
+    async fetchUniformBaseline() { return structuredClone(baselineRegistration); },
+    async saveExperimentCheckpoint(_value, checkpoint) {
+      this.currentExperiment = { ...this.currentExperiment, ...checkpoint };
+      return structuredClone(this.currentExperiment);
+    },
+    async saveCheckpoint(_value, checkpoint) {
+      this.current = { ...this.current, ...checkpoint, updated_at: "v3" };
+      return structuredClone(this.current);
+    },
+    async completeExperiment(_experimentRunId, evidence) {
+      this.calls.completeExperiment += 1;
+      this.currentExperiment = {
+        ...this.currentExperiment,
+        status: "completed",
+        metrics: evidence.metrics,
+        replay_digest: evidence.replayDigest,
+      };
+      return structuredClone(this.currentExperiment);
+    },
+    async markFailed() { assert.fail("v3 happy path must not fail"); },
+    async failExperiment() { assert.fail("v3 happy path must not fail"); },
+  };
+}
+
+test("v3 completed run never activates agent state", async () => {
+  const draws = Array.from({ length: 140 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: Array.from({ length: 5 }, (__, offset) => ((index * 5 + offset) % 39) + 1)
+      .sort((left, right) => left - right),
+  }));
+  const registration = v3Registration();
+  const baselineRegistration = uniformBaseline();
+  const repository = makeInMemoryV3Repository({ draws, registration, baselineRegistration });
+  const processors = {
+    walkForwardEvidenceChunk,
+    walkForwardV2Chunk: walkForwardChunk,
+    createInitialEvidenceState,
+    finalizeEvidenceRun,
+  };
+  const result = await executeTrainingRun({
+    input: { run_id: "training-run-v3", chunk_size: 25 }, repository, processors,
+  });
+  assert.equal(result.status, "completed");
+  assert.equal(repository.calls.activateAgentState, 0);
+  assert.equal(repository.calls.completeExperiment, 1);
+  assert.match(repository.currentExperiment.replay_digest, /^[0-9a-f]{64}$/);
+});
+
+test("v3 rejects chunk sizes above 25 before evidence checkpointing", async () => {
+  const registration = v3Registration();
+  const baselineRegistration = uniformBaseline();
+  const repository = makeInMemoryV3Repository({
+    draws: Array.from({ length: 140 }, (_, index) => ({
+      draw_id: String(index + 1), draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+      numbers: [1, 2, 3, 4, 5],
+    })),
+    registration,
+    baselineRegistration,
+  });
+  let markedFailed = 0;
+  let failedExperiment = null;
+  repository.markFailed = async () => { markedFailed += 1; };
+  repository.failExperiment = async (_experiment, failure) => { failedExperiment = failure; };
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 26 }, repository }),
+    /LAI v3 chunk_size must be from 1 through 25/,
+  );
+  assert.equal(repository.calls.completeExperiment, 0);
+  assert.equal(markedFailed, 1);
+  assert.deepEqual(failedExperiment, {
+    status: "failed",
+    error_text: "LAI v3 chunk_size must be from 1 through 25",
+    completed_at: failedExperiment.completed_at,
+  });
 });

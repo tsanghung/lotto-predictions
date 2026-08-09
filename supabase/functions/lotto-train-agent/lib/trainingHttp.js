@@ -72,6 +72,17 @@ function assertRows(value) {
 }
 
 export function makeTrainingRepository({ supabaseUrl, serviceKey, fetchFn = fetch, now = () => new Date() }) {
+  async function fetchRows(query) {
+    const response = await fetchFn(`${supabaseUrl}/rest/v1/${query}`, {
+      headers: headersFor(serviceKey),
+    });
+    return assertRows(await responseJson(response));
+  }
+
+  async function fetchOne(query) {
+    return (await fetchRows(query))[0] ?? null;
+  }
+
   async function patchRun(run, body) {
     const query = [
       `id=eq.${encodeURIComponent(String(run.id))}`,
@@ -86,13 +97,23 @@ export function makeTrainingRepository({ supabaseUrl, serviceKey, fetchFn = fetc
     return assertRows(await responseJson(response))[0] ?? null;
   }
 
+  async function patchExperiment(experiment, body) {
+    const query = [
+      `id=eq.${encodeURIComponent(String(experiment.id))}`,
+      `updated_at=eq.${encodeURIComponent(String(experiment.updated_at))}`,
+      "select=*",
+    ].join("&");
+    const response = await fetchFn(`${supabaseUrl}/rest/v1/lai_experiment_runs?${query}`, {
+      method: "PATCH",
+      headers: headersFor(serviceKey, "return=representation"),
+      body: JSON.stringify(body),
+    });
+    return assertRows(await responseJson(response))[0] ?? null;
+  }
+
   return {
     async fetchRun(runId) {
-      const query = `id=eq.${encodeURIComponent(runId)}&select=*&limit=1`;
-      const response = await fetchFn(`${supabaseUrl}/rest/v1/lotto_training_runs?${query}`, {
-        headers: headersFor(serviceKey),
-      });
-      return assertRows(await responseJson(response))[0] ?? null;
+      return fetchOne(`lotto_training_runs?id=eq.${encodeURIComponent(runId)}&select=*&limit=1`);
     },
 
     async claimRun(run, lease) {
@@ -147,8 +168,52 @@ export function makeTrainingRepository({ supabaseUrl, serviceKey, fetchFn = fetc
       return draws;
     },
 
+    async fetchExperiment(experimentRunId) {
+      return fetchOne(`lai_experiment_runs?id=eq.${encodeURIComponent(experimentRunId)}&select=*&limit=1`);
+    },
+
+    async fetchRegistration(registryId) {
+      return fetchOne(`lai_model_registry?id=eq.${encodeURIComponent(registryId)}&select=*&limit=1`);
+    },
+
+    async fetchUniformBaseline(gameName) {
+      const rows = await fetchRows(
+        `lai_model_registry?game_name=eq.${encodeURIComponent(gameName)}&model_family=eq.uniform-null&status=eq.baseline&select=*&limit=2`,
+      );
+      if (rows.length !== 1) throw new Error("exactly one uniform-null baseline is required");
+      return rows[0];
+    },
+
     saveCheckpoint(run, checkpoint) {
       return patchRun(run, checkpoint);
+    },
+
+    saveExperimentCheckpoint(experiment, checkpoint) {
+      return patchExperiment(experiment, checkpoint);
+    },
+
+    async completeExperiment(experiment, evidence) {
+      if (!experiment || typeof experiment.id !== "string" || !experiment.id) {
+        throw new Error("LAI v3 experiment run was not found");
+      }
+      if (experiment.status !== "running") {
+        throw new Error("LAI v3 experiment run must be running before completion");
+      }
+      return patchExperiment(experiment, {
+        status: "completed",
+        metrics: evidence.metrics,
+        replay_digest: evidence.replayDigest,
+        error_text: null,
+        completed_at: now().toISOString(),
+      });
+    },
+
+    async failExperiment(experiment, failure) {
+      const current = await fetchOne(
+        `lai_experiment_runs?id=eq.${encodeURIComponent(experiment.id)}&select=*&limit=1`,
+      );
+      if (!current || !["queued", "running"].includes(current.status)) return null;
+      return patchExperiment(current, failure);
     },
 
     markFailed(run, failure) {
