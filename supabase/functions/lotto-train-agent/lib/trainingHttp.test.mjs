@@ -93,6 +93,42 @@ test("repository CAS returns null when another invocation wins the claim", async
   assert.match(url, /updated_at=eq\.2026-07-15T09%3A00%3A00Z/);
 });
 
+test("repository persists versioned v3 failure evidence before follower reconciliation", async () => {
+  let request;
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL,
+    serviceKey: SECRET,
+    fetchFn: async (value, options = {}) => {
+      request = { url: String(value), body: JSON.parse(options.body) };
+      return new Response(JSON.stringify([{ id: "run-1", ...request.body }]));
+    },
+  });
+  const terminal = {
+    version: "lai-v3-failure-v1",
+    experimentId: "experiment-1",
+    experimentUpdatedAt: "2026-08-09T00:00:00Z",
+    followerRequired: true,
+    failure: {
+      status: "failed",
+      error_text: "processor failed",
+      completed_at: "2026-08-09T00:01:00Z",
+    },
+  };
+
+  await repository.markFailed({
+    id: "run-1",
+    status: "running",
+    updated_at: "2026-08-09T00:00:00Z",
+    summary: { lease: { token: "claim-1" } },
+  }, {
+    ...terminal.failure,
+    summary: { lease: { token: "claim-1" }, v3_failure_terminal: terminal },
+  });
+
+  assert.deepEqual(request.body.summary, { v3_failure_terminal: terminal });
+  assert.match(request.url, /updated_at=eq\.2026-08-09T00%3A00%3A00Z/);
+});
+
 test("repository initializes and reads the immutable draw snapshot in pages", async () => {
   const urls = [];
   const draw = (index) => ({

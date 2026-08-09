@@ -1,8 +1,11 @@
 import { evaluateCandidateSeries, scoreEvidenceForecast } from "../../_shared/lai-v3/evaluation.js";
 import { buildEvidenceForecasts } from "../../_shared/lai-v3/models.js";
+import { seededRandom } from "../../_shared/lai-v3/statistics.js";
 import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
 
 const RECENT_ROW_LIMIT = 500;
+const EVALUATION_RESERVOIR_LIMIT = 500;
+const RESERVOIR_METHOD = "deterministic-bottom-k-reservoir-v1";
 
 function clone(value) {
   return structuredClone(value);
@@ -81,11 +84,13 @@ function assertState(state, registration, baselineRegistration, context = null) 
   if (!Array.isArray(state.scoreRows) || !Array.isArray(state.recentRows)) {
     throw new TypeError("state score rows must be arrays");
   }
-  if (!Array.isArray(state.evaluationRows)) {
-    throw new TypeError("state.evaluationRows must preserve the full evaluation population");
+  if (Object.hasOwn(state, "evaluationRows")) {
+    throw new RangeError("state.evaluationRows is an unbounded legacy evidence population");
   }
-  if (state.evaluationRows.length !== state.processedDraws) {
-    throw new RangeError("state evaluation population is not continuous");
+  if (!Array.isArray(state.evaluationReservoir)
+    || state.evaluationReservoir.length > EVALUATION_RESERVOIR_LIMIT
+    || state.evaluationReservoir.length > state.processedDraws) {
+    throw new RangeError("state evaluation reservoir is outside its bounded population");
   }
   if (state.recentRows.length > RECENT_ROW_LIMIT) {
     throw new RangeError(`state.recentRows cannot exceed ${RECENT_ROW_LIMIT} rows`);
@@ -94,6 +99,18 @@ function assertState(state, registration, baselineRegistration, context = null) 
     throw new RangeError("state running sums do not match processedDraws");
   }
   assertFiniteNumbers(state.runningSums, "state.runningSums");
+  for (const entry of state.evaluationReservoir) {
+    if (!entry || typeof entry !== "object" || !/^[0-9a-f]{16}$/.test(entry.priority)) {
+      throw new TypeError("state evaluation reservoir priorities must be 16 lowercase hex characters");
+    }
+    if (entry.priority !== reservoirPriority(entry.row, state.randomSeed)) {
+      throw new RangeError("state evaluation reservoir priority does not match its score row");
+    }
+  }
+  const sortedReservoir = [...state.evaluationReservoir].sort(compareReservoirEntries);
+  if (canonicalJson(sortedReservoir) !== canonicalJson(state.evaluationReservoir)) {
+    throw new RangeError("state evaluation reservoir must remain canonically ordered");
+  }
   if (!context) return;
   const { rangeStart, draws, cursor } = context;
   if (state.rangeStart !== rangeStart || state.rangeEnd !== draws.length) {
@@ -139,7 +156,7 @@ function addToRunningSums(current, pair) {
   return next;
 }
 
-function appendEvidencePair(state, pair) {
+function evidenceRow(pair) {
   if (pair.candidate.drawId !== pair.baseline.drawId) {
     throw new Error("candidate and baseline must score the same target draw");
   }
@@ -150,21 +167,56 @@ function appendEvidencePair(state, pair) {
     baseline: pair.baseline,
   };
   assertFiniteNumbers(row, "evidence score row");
+  return row;
+}
+
+function reservoirPriority(row, seed) {
+  const rng = seededRandom(`${seed}|${RESERVOIR_METHOD}|${canonicalJson(row)}`);
+  const high = Math.floor(rng() * 0x100000000).toString(16).padStart(8, "0");
+  const low = Math.floor(rng() * 0x100000000).toString(16).padStart(8, "0");
+  return `${high}${low}`;
+}
+
+function compareReservoirEntries(left, right) {
+  return left.priority.localeCompare(right.priority)
+    || left.row.drawDate.localeCompare(right.row.drawDate)
+    || left.row.drawId.localeCompare(right.row.drawId, undefined, { numeric: true });
+}
+
+function compareEvidenceRows(left, right) {
+  return left.drawDate.localeCompare(right.drawDate)
+    || left.drawId.localeCompare(right.drawId, undefined, { numeric: true });
+}
+
+function nextReservoir(current, row, seed) {
+  return [...current, { priority: reservoirPriority(row, seed), row }]
+    .sort(compareReservoirEntries)
+    .slice(0, EVALUATION_RESERVOIR_LIMIT);
+}
+
+export function accumulateEvidencePair(state, pair) {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    throw new TypeError("state must be an object");
+  }
+  const row = evidenceRow(pair);
   return {
-    ...clone(state),
+    ...state,
     processedDraws: state.processedDraws + 1,
-    scoreRows: [...state.scoreRows, row],
-    evaluationRows: [...state.evaluationRows, row],
+    scoreRows: [],
+    recentRows: [...state.recentRows, row].slice(-RECENT_ROW_LIMIT),
+    evaluationReservoir: nextReservoir(state.evaluationReservoir, row, state.randomSeed),
     runningSums: addToRunningSums(state.runningSums, pair),
   };
 }
 
 function compactState(state) {
-  const recentRows = [...state.recentRows, ...state.scoreRows].slice(-RECENT_ROW_LIMIT);
   return {
     ...clone(state),
     scoreRows: [],
-    recentRows,
+    recentRows: [...state.recentRows].slice(-RECENT_ROW_LIMIT),
+    evaluationReservoir: [...state.evaluationReservoir]
+      .sort(compareReservoirEntries)
+      .slice(0, EVALUATION_RESERVOIR_LIMIT),
     runningSums: clone(state.runningSums ?? emptyRunningSums()),
   };
 }
@@ -189,7 +241,7 @@ export function createInitialEvidenceState(registration, baselineRegistration) {
     processedDraws: 0,
     scoreRows: [],
     recentRows: [],
-    evaluationRows: [],
+    evaluationReservoir: [],
     randomSeed: registration.parameters.random_seed,
     runningSums: emptyRunningSums(),
     rangeStart: null,
@@ -262,7 +314,7 @@ export function walkForwardEvidenceChunk({
       (row) => row.registryId === registration.id,
       "candidate",
     );
-    next = appendEvidencePair(next, {
+    next = accumulateEvidencePair(next, {
       baseline: scoreEvidenceForecast({ forecast: baseline, draw: target, config: GAME_CONFIG[gameType] }),
       candidate: scoreEvidenceForecast({ forecast: candidate, draw: target, config: GAME_CONFIG[gameType] }),
     });
@@ -309,6 +361,7 @@ export async function digestReplay(value) {
 
 export async function finalizeEvidenceRun({
   draws,
+  snapshot,
   registration,
   baselineRegistration,
   state,
@@ -319,20 +372,42 @@ export async function finalizeEvidenceRun({
   assertRegistration(baselineRegistration, "uniform-null", "baselineRegistration");
   assertState(state, registration, baselineRegistration);
   const compact = compactState(state);
+  const evaluationRows = compact.evaluationReservoir
+    .map((entry) => entry.row)
+    .sort(compareEvidenceRows);
   const fullRun = evaluateCandidateSeries({
-    candidateRows: compact.evaluationRows.map((row) => row.candidate),
-    baselineRows: compact.evaluationRows.map((row) => row.baseline),
+    candidateRows: evaluationRows.map((row) => row.candidate),
+    baselineRows: evaluationRows.map((row) => row.baseline),
     seed: compact.randomSeed,
     resampling,
   });
+  const statisticalPopulation = {
+    method: RESERVOIR_METHOD,
+    populationSampleCount: compact.processedDraws,
+    evaluatorSampleCount: fullRun.sampleCount,
+    capacity: EVALUATION_RESERVOIR_LIMIT,
+    exact: compact.processedDraws <= EVALUATION_RESERVOIR_LIMIT,
+    sampleDigest: await digestReplay(evaluationRows),
+  };
   const detailWindow = evaluateCandidateSeries({
     candidateRows: compact.recentRows.map((row) => row.candidate),
     baselineRows: compact.recentRows.map((row) => row.baseline),
     seed: compact.randomSeed,
     resampling,
   });
+  const frozenSnapshot = snapshot
+    ? clone(snapshot)
+    : {
+      frozen: true,
+      version: "lai-training-snapshot-v1",
+      digest: await digestReplay(draws),
+      draw_count: draws.length,
+    };
+  if (frozenSnapshot.draw_count !== draws.length || !/^[0-9a-f]{64}$/.test(frozenSnapshot.digest)) {
+    throw new Error("frozen snapshot descriptor does not match the final evidence population");
+  }
   const replay = {
-    frozenSnapshot: clone(draws),
+    frozenSnapshot,
     registration: clone(registration),
     baselineRegistration: clone(baselineRegistration),
     state: compact,
@@ -340,7 +415,8 @@ export async function finalizeEvidenceRun({
   return {
     metrics: {
       ...fullRun,
-      fullRun,
+      statisticalPopulation,
+      fullRun: { ...fullRun, statisticalPopulation },
       detailWindow: { ...detailWindow, retainedRows: compact.recentRows.length },
       recent: detailWindow,
       aggregates: compact.runningSums,

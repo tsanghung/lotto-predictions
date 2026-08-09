@@ -219,6 +219,41 @@ test("executeTrainingRun marks incomplete draw ranges failed", async () => {
   assert.match(failure[1].error_text, /incomplete/);
 });
 
+test("v2 non-zero range_start resumes from range_start when checkpoint_cursor is lower", async () => {
+  const run = {
+    id: "v2-non-zero-range",
+    algorithm_version: "lai-v2",
+    game_name: "\u4eca\u5f69539",
+    status: "queued",
+    range_start: 3,
+    range_end: 5,
+    checkpoint_cursor: 0,
+    summary: { state: createInitialTrainingState("539") },
+    updated_at: "v1",
+  };
+  let claimed = 0;
+  const repository = {
+    async fetchRun() { return structuredClone(run); },
+    async claimRun(value, lease) {
+      claimed += 1;
+      return { ...value, status: "running", summary: { ...value.summary, lease }, updated_at: "v2" };
+    },
+    async ensureSnapshot() { return 5; },
+    async fetchDraws() { return dailyDraws(5); },
+    async saveCheckpoint(value, checkpoint) { return { ...value, ...checkpoint }; },
+    async markFailed() { assert.fail("compatible v2 range must not fail"); },
+  };
+
+  const result = await executeTrainingRun({
+    input: { run_id: run.id, chunk_size: 1 },
+    repository,
+  });
+  assert.equal(claimed, 1);
+  assert.equal(result.checkpoint_cursor, 4);
+  assert.equal(result.summary.last_chunk.from_cursor, 3);
+  assert.equal(result.summary.last_chunk.last_draw_id, "539-004");
+});
+
 test("the final chunk persists completed status at range_end", async () => {
   const run = {
     id: "final", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "running", range_start: 0, range_end: 4,
@@ -718,4 +753,124 @@ test("v3 terminal completion recovers idempotently after a lost experiment respo
   assert.equal(recovered.status, "completed");
   assert.equal(recovered.summary.v3_terminal.version, "lai-v3-terminal-v1");
   assert.equal(completionAttempts, 1);
+});
+
+test("v3 failed run reconciles an unfinished experiment after markFailed response loss", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const repository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  let markAttempts = 0;
+  let experimentFailureCalls = 0;
+  repository.markFailed = async function markFailed(value, failure) {
+    markAttempts += 1;
+    this.current = { ...value, ...failure, summary: failure.summary ?? value.summary, updated_at: "failed-v1" };
+    throw new Error("training failure response was lost");
+  };
+  repository.failExperiment = async function failExperiment(_value, failure) {
+    experimentFailureCalls += 1;
+    this.currentExperiment = { ...this.currentExperiment, ...failure, updated_at: "experiment-failed-v2" };
+    return structuredClone(this.currentExperiment);
+  };
+
+  await assert.rejects(
+    executeTrainingRun({
+      input: { run_id: "training-run-v3", chunk_size: 1 },
+      repository,
+      processors: {
+        createInitialEvidenceState,
+        finalizeEvidenceRun,
+        walkForwardV2Chunk: walkForwardChunk,
+        walkForwardEvidenceChunk() { throw new Error("evidence processing failed"); },
+      },
+    }),
+    /failure write lost its concurrency lease/i,
+  );
+  assert.equal(repository.current.status, "failed");
+  assert.equal(repository.currentExperiment.status, "queued");
+
+  const recovered = await executeTrainingRun({
+    input: { run_id: "training-run-v3", chunk_size: 1 },
+    repository,
+  });
+  assert.equal(recovered.status, "failed");
+  assert.equal(repository.currentExperiment.status, "failed");
+  assert.equal(markAttempts, 1);
+  assert.equal(experimentFailureCalls, 1);
+});
+
+test("v3 failed-run reconciliation rejects a stale experiment follower version", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const repository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  let experimentFailureCalls = 0;
+  repository.markFailed = async function markFailed(value, failure) {
+    this.current = { ...value, ...failure, summary: failure.summary ?? value.summary, updated_at: "failed-v1" };
+    throw new Error("training failure response was lost");
+  };
+  repository.failExperiment = async () => { experimentFailureCalls += 1; return {}; };
+
+  await assert.rejects(executeTrainingRun({
+    input: { run_id: "training-run-v3", chunk_size: 1 },
+    repository,
+    processors: {
+      createInitialEvidenceState,
+      finalizeEvidenceRun,
+      walkForwardV2Chunk: walkForwardChunk,
+      walkForwardEvidenceChunk() { throw new Error("evidence processing failed"); },
+    },
+  }), /failure write lost its concurrency lease/i);
+  repository.currentExperiment.updated_at = "winner-version";
+
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 1 }, repository }),
+    /experiment failure.*concurrency lease/i,
+  );
+  assert.equal(experimentFailureCalls, 0);
+});
+
+test("v3 completed-run reconciliation rejects matching digest with mismatched metrics", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const repository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  repository.completeExperiment = async function completeExperiment(_experiment, evidence) {
+    this.currentExperiment = {
+      ...this.currentExperiment,
+      status: "completed",
+      checkpoint_cursor: evidence.checkpointCursor,
+      metrics: { ...evidence.metrics, brierSkill: -999 },
+      replay_digest: evidence.replayDigest,
+      updated_at: "experiment-v2",
+    };
+    throw new Error("experiment completion response was lost");
+  };
+
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 25 }, repository }),
+    /response was lost/,
+  );
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 25 }, repository }),
+    /terminal metrics conflict/i,
+  );
 });

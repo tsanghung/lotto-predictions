@@ -338,7 +338,7 @@ function assertTrainingRun(run) {
     }
   }
   if (run.range_start > run.range_end) throw new RangeError("Training run range_start exceeds range_end");
-  if (run.checkpoint_cursor < run.range_start) {
+  if (run.algorithm_version === "lai-v3" && run.checkpoint_cursor < run.range_start) {
     throw new RangeError("Training run checkpoint_cursor precedes range_start");
   }
   if (run.checkpoint_cursor > run.range_end) {
@@ -541,6 +541,9 @@ async function reconcileCompletedV3Run(run, repository) {
       || experiment.replay_digest !== terminal.evidence.replayDigest) {
       throw new Error("LAI v3 completed terminal evidence conflicts with the experiment");
     }
+    if (canonicalJson(experiment.metrics) !== canonicalJson(terminal.evidence.metrics)) {
+      throw new Error("LAI v3 completed terminal metrics conflict with the experiment");
+    }
     return clone(run);
   }
   if (!["queued", "running"].includes(experiment.status)
@@ -552,6 +555,43 @@ async function reconcileCompletedV3Run(run, repository) {
     checkpointCursor: run.range_end,
   });
   if (!completed) throw new Error("LAI v3 experiment completion lost its concurrency lease");
+  return clone(run);
+}
+
+async function reconcileFailedV3Run(run, repository) {
+  requireV3Repository(repository);
+  const terminal = run.summary?.v3_failure_terminal;
+  if (!terminal || terminal.version !== "lai-v3-failure-v1"
+    || terminal.experimentId !== run.experiment_run_id
+    || !terminal.failure
+    || terminal.failure.status !== "failed") {
+    throw new Error("Failed LAI v3 training run is missing recoverable terminal evidence");
+  }
+  if (!terminal.followerRequired) return clone(run);
+  if (!terminal.experimentUpdatedAt) {
+    throw new Error("LAI v3 experiment failure terminal is missing its owned version");
+  }
+  const experiment = await repository.fetchExperiment(run.experiment_run_id);
+  if (!experiment || experiment.id !== terminal.experimentId) {
+    throw new Error("LAI v3 failed terminal experiment was not found");
+  }
+  if (experiment.status === "failed") {
+    const actual = {
+      status: experiment.status,
+      error_text: experiment.error_text,
+      completed_at: experiment.completed_at,
+    };
+    if (canonicalJson(actual) !== canonicalJson(terminal.failure)) {
+      throw new Error("LAI v3 failed terminal evidence conflicts with the experiment");
+    }
+    return clone(run);
+  }
+  if (!["queued", "running"].includes(experiment.status)
+    || experiment.updated_at !== terminal.experimentUpdatedAt) {
+    throw new Error("LAI v3 experiment failure write lost its concurrency lease");
+  }
+  const failed = await repository.failExperiment(experiment, terminal.failure);
+  if (!failed) throw new Error("LAI v3 experiment failure write lost its concurrency lease");
   return clone(run);
 }
 
@@ -579,6 +619,9 @@ export async function executeTrainingRun({
     return run.algorithm_version === "lai-v3"
       ? reconcileCompletedV3Run(run, repository)
       : clone(run);
+  }
+  if (run.status === "failed" && run.algorithm_version === "lai-v3") {
+    return reconcileFailedV3Run(run, repository);
   }
   assertTrainingRun(run);
 
@@ -618,7 +661,9 @@ export async function executeTrainingRun({
     }
     const boundedDraws = clone(draws);
     assertDraws(boundedDraws, gameType);
-    const cursor = claimed.checkpoint_cursor;
+    const cursor = isV3
+      ? claimed.checkpoint_cursor
+      : Math.max(claimed.checkpoint_cursor, claimed.range_start);
     const snapshot = isV3
       ? await frozenSnapshotDescriptor(boundedDraws, claimed, claimedAt)
       : {
@@ -709,6 +754,7 @@ export async function executeTrainingRun({
     if (isV3 && completed) {
       evidence = await processors.finalizeEvidenceRun({
         draws: boundedDraws,
+        snapshot,
         registration: v3Context.registration,
         baselineRegistration: v3Context.baselineRegistration,
         state: result.state,
@@ -749,10 +795,19 @@ export async function executeTrainingRun({
       completed_at: now(),
     };
     if (isV3) {
+      const failureSummary = { ...(claimed.summary || {}) };
+      delete failureSummary.lease;
+      failureSummary.v3_failure_terminal = {
+        version: "lai-v3-failure-v1",
+        experimentId: claimed.experiment_run_id,
+        experimentUpdatedAt: experiment?.updated_at ?? null,
+        followerRequired: Boolean(experiment),
+        failure,
+      };
       let failedRun = null;
       try {
         failedRun = typeof repository.markFailed === "function"
-          ? await repository.markFailed(claimed, failure)
+          ? await repository.markFailed(claimed, { ...failure, summary: failureSummary })
           : null;
       } catch {
         throw new Error("LAI v3 failure write lost its concurrency lease", { cause: error });

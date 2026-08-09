@@ -215,7 +215,7 @@ export function makeTrainingRepository({ supabaseUrl, serviceKey, fetchFn = fetc
     },
 
     markFailed(run, failure) {
-      const summary = { ...(run.summary || {}) };
+      const summary = { ...(failure.summary || run.summary || {}) };
       delete summary.lease;
       return patchRun(run, { ...failure, summary });
     },

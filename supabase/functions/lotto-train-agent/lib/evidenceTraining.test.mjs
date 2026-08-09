@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  accumulateEvidencePair,
   canonicalJson,
   createInitialEvidenceState,
   digestReplay,
   finalizeEvidenceRun,
   walkForwardEvidenceChunk,
 } from "./evidenceTraining.js";
+import { evaluateCandidateSeries } from "../../_shared/lai-v3/evaluation.js";
 import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
 
 const draws = Array.from({ length: 140 }, (_, index) => ({
@@ -73,7 +75,7 @@ test("canonical replay JSON sorts object keys without changing array order", asy
   assert.equal(await digestReplay(left), await digestReplay(right));
 });
 
-test("compact evidence keeps 500 detail rows while final metrics use the full population", async () => {
+test("compact evidence keeps bounded detail and evaluator samples from the full population", async () => {
   const extendedDraws = Array.from({ length: 510 }, (_, index) => ({
     draw_id: String(index + 1),
     draw_date: new Date(Date.UTC(2024, 0, index + 1)).toISOString().slice(0, 10),
@@ -102,6 +104,8 @@ test("compact evidence keeps 500 detail rows while final metrics use the full po
   assert.equal(state.recentRows.length, 500);
   assert.equal(state.recentRows[0].drawId, "11");
   assert.equal(state.runningSums.sampleCount, 510);
+  assert.equal(state.evaluationReservoir.length, 500);
+  assert.equal(Object.hasOwn(state, "evaluationRows"), false);
   const evidence = await finalizeEvidenceRun({
     draws: extendedDraws,
     registration,
@@ -109,13 +113,67 @@ test("compact evidence keeps 500 detail rows while final metrics use the full po
     state,
     resampling: { bootstrapIterations: 20, permutationIterations: 20 },
   });
-  assert.equal(evidence.metrics.sampleCount, 510);
-  assert.equal(evidence.metrics.combined.sampleCount, 510);
-  assert.equal(evidence.metrics.main.sampleCount, 510);
+  assert.equal(evidence.metrics.sampleCount, 500);
+  assert.equal(evidence.metrics.combined.sampleCount, 500);
+  assert.equal(evidence.metrics.main.sampleCount, 500);
+  assert.deepEqual(evidence.metrics.statisticalPopulation, {
+    method: "deterministic-bottom-k-reservoir-v1",
+    populationSampleCount: 510,
+    evaluatorSampleCount: 500,
+    capacity: 500,
+    exact: false,
+    sampleDigest: evidence.metrics.statisticalPopulation.sampleDigest,
+  });
+  assert.match(evidence.metrics.statisticalPopulation.sampleDigest, /^[0-9a-f]{64}$/);
   assert.equal(evidence.metrics.detailWindow.sampleCount, 500);
+  const sampledRows = state.evaluationReservoir
+    .map((entry) => entry.row)
+    .sort((left, right) => left.drawDate.localeCompare(right.drawDate)
+      || left.drawId.localeCompare(right.drawId, undefined, { numeric: true }));
+  const expected = evaluateCandidateSeries({
+    candidateRows: sampledRows.map((row) => row.candidate),
+    baselineRows: sampledRows.map((row) => row.baseline),
+    seed: state.randomSeed,
+    resampling: { bootstrapIterations: 20, permutationIterations: 20 },
+  });
+  assert.deepEqual(
+    Object.fromEntries(Object.keys(expected).map((key) => [key, evidence.metrics.fullRun[key]])),
+    expected,
+  );
+  assert.equal(evidence.metrics.statisticalPopulation.sampleDigest, await digestReplay(sampledRows));
   assert.ok(Number.isFinite(evidence.metrics.brierSkill));
   assert.ok(Number.isFinite(evidence.metrics.logLossDelta));
   assert.ok(Number.isFinite(evidence.metrics.permutationP));
+});
+
+test("high-sample evidence state payload remains bounded", () => {
+  let state = createInitialEvidenceState(registration, baselineRegistration);
+  let sizeAtOneThousand = null;
+  for (let index = 0; index < 20_000; index += 1) {
+    const drawId = `high-${String(index).padStart(5, "0")}`;
+    const score = (registryId, family, brier) => ({
+      drawId,
+      drawDate: `sample-${String(index).padStart(5, "0")}`,
+      registryId,
+      family,
+      main: { brier, logLoss: brier + 0.1, calibrationObservations: null, coverageDelta: null },
+      special: null,
+      combined: { brier, logLoss: brier + 0.1, calibrationObservations: null, coverageDelta: null },
+    });
+    state = accumulateEvidencePair(state, {
+      candidate: score(registration.id, registration.model_family, 0.1),
+      baseline: score(baselineRegistration.id, "uniform-null", 0.2),
+    });
+    if (index === 999) sizeAtOneThousand = Buffer.byteLength(JSON.stringify(state));
+  }
+
+  const finalSize = Buffer.byteLength(JSON.stringify(state));
+  assert.equal(state.processedDraws, 20_000);
+  assert.equal(state.recentRows.length, 500);
+  assert.equal(state.evaluationReservoir.length, 500);
+  assert.equal(Object.hasOwn(state, "evaluationRows"), false);
+  assert.ok(finalSize <= sizeAtOneThousand + 100_000, `${finalSize} exceeded bounded payload growth`);
+  assert.ok(finalSize < 1_000_000, `${finalSize} exceeded the compact-state payload budget`);
 });
 
 test("final evidence is derived from the frozen snapshot and compact state", async () => {
@@ -177,7 +235,7 @@ test("v3 state rejects a duplicate resume target and non-finite aggregates", () 
       chunkSize: 1,
       state: duplicate,
     }),
-    /last target|continuity|continuous/i,
+    /last target|continuity|continuous|reservoir/i,
   );
 
   const poisoned = structuredClone(first.state);

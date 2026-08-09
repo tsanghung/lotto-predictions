@@ -93,3 +93,74 @@ git diff --check
 1. 現有 schema 沒有可同時更新兩張表的 Task 6 RPC；Supabase Data REST 的兩個 PATCH 無法形成單一跨 request transaction。因此 protocol 刻意以 training run 作為權威 terminal record，允許短暫存在 `training run = completed`、`experiment = running`，並以 versioned terminal evidence 在重試時恢復。它不允許反向的假 completed experiment，也不會在 conflict 後自動覆寫新版本。
 2. 為使 full-run bootstrap、permutation、calibration 與 coverage 使用同一母體，checkpoint state 會線性保留 compact evaluation rows；recent detail rows 仍限制為 500。極長歷史 replay 的 Edge memory 上限仍需在後續以 production-sized dry-run 驗證，但本輪未連線或部署 production。
 3. 未執行 live Supabase、migration 或 deployment 驗證，符合本輪「不得部署或連 production」限制。完整 local Supabase Function tests 已通過；6 個標示 `slow` 的既有 stochastic tests 依原設定跳過。
+
+## Fix Round 2
+
+### Scope
+
+本輪只修正 `task-6-r1-review.md` 的 4 個 open Important。沒有新增 migration/schema，沒有連線、部署或修改 production，也沒有加入 promotion、activation、production prediction、LINE、Gemini 或 frontend。LAI v3 仍為 shadow-only、chunk `1..25`、frozen snapshot 與 prefix-only；Round 1 已關閉的 7 項均保留。
+
+### Finding Mapping
+
+#### Important 1：Bounded Full-run CandidateEvidence
+
+- 移除 checkpoint state 的無上限 `evaluationRows`，改用容量固定為 `500` 的 `deterministic-bottom-k-reservoir-v1`；`recentRows` 也維持最多 `500`，running sums 則保留完整母體的 deterministic aggregates。
+- 每筆 reservoir entry 都保存可重算的 deterministic priority；state validation 拒絕 legacy `evaluationRows`、超限 reservoir、錯誤 priority、非 canonical 排序與非 finite aggregates。
+- finalization 只建立固定上限 `500` 的 evaluator rows，並先恢復 draw chronology，再由同一組實際 evaluator rows 一次產出 point estimates、CI、calibration、coverage 與 permutation p-value。這可保留 Task 4 的 paired evaluator 與 block-resampling 時序語意。
+- `metrics.statisticalPopulation` 與 `metrics.fullRun.statisticalPopulation` 明確記錄 `populationSampleCount`、實際 `evaluatorSampleCount`、`capacity`、`exact`、方法與實際 evaluator rows 的 SHA-256 `sampleDigest`。超過 `500` 筆時 `exact: false`；`metrics.sampleCount` 只回報 evaluator 實際收到的樣本數，不冒充 full population count。
+- frozen replay 不再複製完整 draws，僅保存既有 frozen snapshot descriptor。20,000 筆對抗測試證明 state 的 recent rows 與 reservoir 都固定 `500`，序列化 payload 在 1,000 筆後不再隨母體線性成長。
+- 此 bounded design 也避免逼近 Supabase Edge Function 官方列出的 `256 MB` memory limit：<https://supabase.com/docs/guides/functions/limits>。
+
+#### Important 2：Failure PATCH Response-loss Reconciliation
+
+- run failure CAS 現在先把 `lai-v3-failure-v1` terminal evidence 寫入 authoritative training-run summary，包含 experiment id、worker 原持有的 experiment `updated_at`、follower requirement 與 canonical failure payload。
+- 若 `markFailed` 已提交但 response 遺失，下一次 retry 會辨識 `run.status = failed`，以 terminal evidence reconcile 尚未 failed 的 experiment follower。
+- follower 已是相同 failure 時視為冪等成功；experiment version 或 terminal failure payload 不一致時 fail closed，且不覆寫 stale/newer row。
+- HTTP repository boundary test 證明 failure PATCH 會保存 terminal evidence、移除 lease，並持續以原 run `updated_at` 執行 CAS。
+
+#### Important 3：Completed Follower Metrics Reconciliation
+
+- completed experiment reconciliation 除既有 cursor 與 replay digest 外，新增 `experiment.metrics` 與 `run.summary.v3_terminal.evidence.metrics` 的 canonical JSON equality check。
+- matching cursor/digest 但 metrics 被竄改的 completed follower 現在會拒絕，不會被當成冪等完成。
+
+#### Important 4：LAI v2 Non-zero Range Compatibility
+
+- `checkpoint_cursor < range_start` 的嚴格 continuity validation 只套用於 LAI v3。
+- LAI v2 恢復既有 cursor 計算：`Math.max(checkpoint_cursor, range_start)`。新增測試證明 non-zero `range_start` 且較低 checkpoint cursor 時，processor 從 `range_start` 開始。
+- LAI v2 request/response、chunk 上限與 `walkForwardChunk` 均未修改。
+
+### TDD Evidence
+
+#### RED
+
+1. bounded evidence tests 先因舊模組沒有 `accumulateEvidencePair` export 而失敗：`SyntaxError: evidenceTraining.js does not provide an export named accumulateEvidencePair`。
+2. 4 個 core adversarial tests 在修正前為 `0/4`：v2 non-zero range 被 `Training run checkpoint_cursor precedes range_start` 拒絕；failed-run retries 被 `Training run status must be queued or running` 阻擋；completed follower metrics mismatch 則出現 `Missing expected rejection`。
+3. 額外 chronology/digest 測試先以 sample digest mismatch 失敗，證明舊 finalization digest 的不是 evaluator 實際收到的時間序 rows。
+
+#### GREEN
+
+```powershell
+node --test supabase/functions/lotto-train-agent/lib/evidenceTraining.test.mjs supabase/functions/lotto-train-agent/lib/trainingCore.test.mjs supabase/functions/lotto-train-agent/lib/trainingHttp.test.mjs
+```
+
+- Node test summary：`60` tests、`60` pass、`0` fail、`0` skipped。
+
+```powershell
+$allSupabaseTests = @(rg --files supabase/functions | Where-Object { $_ -like '*.test.mjs' })
+node --test $allSupabaseTests
+```
+
+- Node test summary：`306` tests、`300` pass、`0` fail、`6` skipped。
+- 6 項 skipped 均為既有明確標記的 slow stochastic tests。
+
+```powershell
+git diff --check
+```
+
+- Exit `0`，沒有 whitespace error；Git 僅顯示 Windows CRLF normalization warning。
+
+### Residual Risks
+
+1. 當 full population 超過 `500` 時，CandidateEvidence 是 deterministic bottom-k sample approximation，不是 exact full-population evaluator；輸出以 `exact: false`、population/evaluator counts 與 sample digest 明確揭露。所有統計量仍由同一 evaluator sample 產出，沒有混用 full aggregates 與 sampled CI/p-value。
+2. 現有 schema 沒有跨 training run 與 experiment 的單一 transaction RPC；failure protocol 仍可能短暫存在 `run = failed`、`experiment = queued/running`，但 versioned terminal evidence 可在 retry 冪等收斂，stale version 只會 conflict。
+3. 本輪依限制未執行 production-sized Edge invocation、live Supabase 或 deployment。完整 local `supabase/functions` tests 已通過；既有 6 個 slow stochastic tests 未執行。
