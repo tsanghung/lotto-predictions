@@ -4,6 +4,61 @@ import { readFile } from "node:fs/promises";
 
 import * as lottoCore from "./lottoCore.js";
 
+test("canonical draw revision ignores source identity for an unchanged official payload", async () => {
+  const fromOfficial = {
+    game_name: "今彩539",
+    draw_id: "539-20260805",
+    draw_date: "2026-08-05",
+    numbers: [39, 1, 25, 7, 13],
+    special_number: null,
+    raw: { source: "official" },
+  };
+  const fromSecondary = {
+    ...fromOfficial,
+    numbers: [1, 7, 13, 25, 39],
+    raw: { source: "secondary" },
+  };
+
+  assert.equal(
+    await lottoCore.buildDrawRevision(fromOfficial),
+    await lottoCore.buildDrawRevision(fromSecondary),
+  );
+  assert.equal(lottoCore.drawPayloadChanged(fromOfficial, fromSecondary), false);
+});
+
+test("stored canonical revision does not turn an unchanged payload into a correction", async () => {
+  const draw = {
+    game_name: "今彩539",
+    draw_id: "539-20260805",
+    draw_date: "2026-08-05",
+    numbers: [1, 7, 13, 25, 39],
+    special_number: null,
+  };
+  const revision = await lottoCore.buildDrawRevision(draw);
+  const existing = { ...draw, raw: { source: "legacy-official" } };
+  const incoming = { ...draw, raw: { source_revision: revision, source_revision_kind: "canonical" } };
+
+  assert.equal(lottoCore.drawPayloadChanged(existing, incoming), false);
+  assert.equal(await lottoCore.buildDrawRevision(existing), revision);
+});
+
+test("draw payload change detects numbers, special number, and explicit official revision", async () => {
+  const original = {
+    game_name: "今彩539",
+    draw_id: "539-20260805",
+    draw_date: "2026-08-05",
+    numbers: [1, 7, 13, 25, 39],
+    special_number: null,
+  };
+
+  assert.equal(lottoCore.drawPayloadChanged(original, { ...original, numbers: [2, 8, 14, 26, 38] }), true);
+  assert.equal(lottoCore.drawPayloadChanged(original, { ...original, special_number: 1 }), true);
+  assert.equal(lottoCore.drawPayloadChanged(
+    { ...original, raw: { source_revision: "official-r1" } },
+    { ...original, raw: { source_revision: "official-r2" } },
+  ), true);
+});
+
 import {
   buildAsiLearningRecord,
   buildLaiLearningEvidence,

@@ -166,6 +166,56 @@ export function toLottoDrawRow(gameType, draw) {
   };
 }
 
+export function canonicalDrawPayload(draw) {
+  return {
+    game_name: draw?.game_name,
+    draw_id: String(draw?.draw_id),
+    draw_date: draw?.draw_date ?? draw?.date,
+    sorted_numbers: normalizeNumbers(draw?.numbers || []),
+    special_number: draw?.special_number ?? null,
+  };
+}
+
+function explicitDrawRevision(draw) {
+  const raw = draw?.raw && typeof draw.raw === "object" ? draw.raw : {};
+  const payload = raw.payload && typeof raw.payload === "object" ? raw.payload : {};
+  const storedRevision = raw.source_revision_kind === "canonical"
+    ? null
+    : (draw?.source_revision
+    ?? draw?.sourceRevision
+    ?? raw.source_revision
+    ?? raw.sourceRevision);
+  const value = storedRevision
+    ?? payload.revision_id
+    ?? payload.revisionId
+    ?? payload.revision;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+export function hasExplicitDrawRevision(draw) {
+  return explicitDrawRevision(draw) != null;
+}
+
+export function drawPayloadChanged(existing, incoming) {
+  const left = canonicalDrawPayload(existing);
+  const right = canonicalDrawPayload(incoming);
+  return JSON.stringify(left) !== JSON.stringify(right)
+    || explicitDrawRevision(existing) !== explicitDrawRevision(incoming);
+}
+
+export async function buildDrawRevision(draw) {
+  const raw = draw?.raw && typeof draw.raw === "object" ? draw.raw : {};
+  if (raw.source_revision_kind === "canonical"
+    && typeof raw.source_revision === "string" && raw.source_revision.trim()) {
+    return raw.source_revision.trim();
+  }
+  const explicitRevision = explicitDrawRevision(draw);
+  if (explicitRevision) return explicitRevision;
+  const bytes = new TextEncoder().encode(JSON.stringify(canonicalDrawPayload(draw)));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
 function uniqueSortedNumbers(numbers) {
   return normalizeNumbers(
     [...new Set((numbers || []).map((value) => Number(value)).filter(Number.isFinite))]

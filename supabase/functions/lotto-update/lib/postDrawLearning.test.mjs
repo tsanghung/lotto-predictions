@@ -1,7 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 
 import * as lottoCore from "./lottoCore.js";
+
+test("lotto-update runs v3 only after v2 and isolates v3 failures", async () => {
+  const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
+  const evaluationSource = source.slice(source.indexOf("async function evaluateReadyPredictions"));
+
+  assert.match(source, /import \{ runEvidenceLearning \} from "\.\/lib\/evidenceLearning\.js"/);
+  assert.match(evaluationSource, /await runPostDrawLearning\([\s\S]+?await runEvidenceLearningIsolated\(/);
+  assert.match(source, /async function runEvidenceLearningIsolated[\s\S]+?await runEvidenceLearningForDraw\(/);
+  assert.match(source, /v3Result = \{ status: "failed_isolated", root_cause: errorMessage\(error\) \}/);
+});
+
+test("lotto-update reads the full valid v3 score history before evaluating gates", async () => {
+  const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
+  const v3History = source.slice(
+    source.indexOf("async function fetchV3ValidScoreHistory"),
+    source.indexOf("async function insertV3ScoresIdempotently"),
+  );
+
+  assert.match(v3History, /const pageSize = 1000/);
+  assert.match(v3History, /offset: String\(offset\)/);
+  assert.match(v3History, /if \(page\.length < pageSize\) break/);
+});
 
 const DRAW = {
   draw_id: "115000160",
