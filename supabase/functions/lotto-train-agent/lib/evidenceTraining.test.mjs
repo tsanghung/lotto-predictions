@@ -44,6 +44,37 @@ const baselineRegistration = {
 };
 
 const input = { gameType: "539", draws, registration, baselineRegistration };
+const quickResampling = { bootstrapIterations: 1, permutationIterations: 1 };
+
+function compactPair(index) {
+  const drawId = `cardinality-${String(index).padStart(4, "0")}`;
+  const drawDate = `sample-${String(index).padStart(4, "0")}`;
+  const score = (registryId, family, brier) => ({
+    drawId,
+    drawDate,
+    registryId,
+    family,
+    main: { brier, logLoss: brier + 0.1, calibrationObservations: null, coverageDelta: null },
+    special: null,
+    combined: { brier, logLoss: brier + 0.1, calibrationObservations: null, coverageDelta: null },
+  });
+  return {
+    candidate: score(registration.id, registration.model_family, 0.1),
+    baseline: score(baselineRegistration.id, "uniform-null", 0.2),
+  };
+}
+
+function stateWithRows(count) {
+  let state = createInitialEvidenceState(registration, baselineRegistration);
+  for (let index = 0; index < count; index += 1) {
+    state = accumulateEvidencePair(state, compactPair(index));
+  }
+  return state;
+}
+
+function snapshotRows(count) {
+  return Array.from({ length: count }, (_, index) => ({ draw_id: String(index + 1) }));
+}
 
 test("two v3 chunks equal one combined chunk", async () => {
   const initial = createInitialEvidenceState(registration, baselineRegistration);
@@ -174,6 +205,51 @@ test("high-sample evidence state payload remains bounded", () => {
   assert.equal(Object.hasOwn(state, "evaluationRows"), false);
   assert.ok(finalSize <= sizeAtOneThousand + 100_000, `${finalSize} exceeded bounded payload growth`);
   assert.ok(finalSize < 1_000_000, `${finalSize} exceeded the compact-state payload budget`);
+});
+
+test("finalization rejects a 37-row state missing one reservoir entry", async () => {
+  const state = stateWithRows(37);
+  state.evaluationReservoir.splice(12, 1);
+
+  await assert.rejects(finalizeEvidenceRun({
+    draws: snapshotRows(37),
+    registration,
+    baselineRegistration,
+    state,
+    resampling: quickResampling,
+  }), /reservoir.*cardinality|cardinality.*reservoir/i);
+});
+
+test("a 500-row population retains every evaluator row and is exact", async () => {
+  const state = stateWithRows(500);
+  const evidence = await finalizeEvidenceRun({
+    draws: snapshotRows(500),
+    registration,
+    baselineRegistration,
+    state,
+    resampling: quickResampling,
+  });
+
+  assert.equal(state.evaluationReservoir.length, 500);
+  assert.equal(evidence.metrics.statisticalPopulation.populationSampleCount, 500);
+  assert.equal(evidence.metrics.statisticalPopulation.evaluatorSampleCount, 500);
+  assert.equal(evidence.metrics.statisticalPopulation.exact, true);
+});
+
+test("a 501-row population retains 500 evaluator rows and is approximate", async () => {
+  const state = stateWithRows(501);
+  const evidence = await finalizeEvidenceRun({
+    draws: snapshotRows(501),
+    registration,
+    baselineRegistration,
+    state,
+    resampling: quickResampling,
+  });
+
+  assert.equal(state.evaluationReservoir.length, 500);
+  assert.equal(evidence.metrics.statisticalPopulation.populationSampleCount, 501);
+  assert.equal(evidence.metrics.statisticalPopulation.evaluatorSampleCount, 500);
+  assert.equal(evidence.metrics.statisticalPopulation.exact, false);
 });
 
 test("final evidence is derived from the frozen snapshot and compact state", async () => {

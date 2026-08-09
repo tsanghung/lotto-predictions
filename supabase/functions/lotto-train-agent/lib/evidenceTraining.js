@@ -87,10 +87,10 @@ function assertState(state, registration, baselineRegistration, context = null) 
   if (Object.hasOwn(state, "evaluationRows")) {
     throw new RangeError("state.evaluationRows is an unbounded legacy evidence population");
   }
+  const expectedReservoirSize = Math.min(state.processedDraws, EVALUATION_RESERVOIR_LIMIT);
   if (!Array.isArray(state.evaluationReservoir)
-    || state.evaluationReservoir.length > EVALUATION_RESERVOIR_LIMIT
-    || state.evaluationReservoir.length > state.processedDraws) {
-    throw new RangeError("state evaluation reservoir is outside its bounded population");
+    || state.evaluationReservoir.length !== expectedReservoirSize) {
+    throw new RangeError("state evaluation reservoir cardinality does not match its bounded population");
   }
   if (state.recentRows.length > RECENT_ROW_LIMIT) {
     throw new RangeError(`state.recentRows cannot exceed ${RECENT_ROW_LIMIT} rows`);
@@ -375,18 +375,29 @@ export async function finalizeEvidenceRun({
   const evaluationRows = compact.evaluationReservoir
     .map((entry) => entry.row)
     .sort(compareEvidenceRows);
+  const populationSampleCount = compact.processedDraws;
+  const expectedEvaluatorSampleCount = Math.min(
+    populationSampleCount,
+    EVALUATION_RESERVOIR_LIMIT,
+  );
+  if (evaluationRows.length !== expectedEvaluatorSampleCount) {
+    throw new RangeError("evaluation reservoir cardinality does not match the evidence population");
+  }
   const fullRun = evaluateCandidateSeries({
     candidateRows: evaluationRows.map((row) => row.candidate),
     baselineRows: evaluationRows.map((row) => row.baseline),
     seed: compact.randomSeed,
     resampling,
   });
+  if (fullRun.sampleCount !== expectedEvaluatorSampleCount) {
+    throw new RangeError("evaluator sample count does not match the retained evidence population");
+  }
   const statisticalPopulation = {
     method: RESERVOIR_METHOD,
-    populationSampleCount: compact.processedDraws,
+    populationSampleCount,
     evaluatorSampleCount: fullRun.sampleCount,
     capacity: EVALUATION_RESERVOIR_LIMIT,
-    exact: compact.processedDraws <= EVALUATION_RESERVOIR_LIMIT,
+    exact: fullRun.sampleCount === populationSampleCount,
     sampleDigest: await digestReplay(evaluationRows),
   };
   const detailWindow = evaluateCandidateSeries({

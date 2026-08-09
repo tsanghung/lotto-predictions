@@ -164,3 +164,62 @@ git diff --check
 1. 當 full population 超過 `500` 時，CandidateEvidence 是 deterministic bottom-k sample approximation，不是 exact full-population evaluator；輸出以 `exact: false`、population/evaluator counts 與 sample digest 明確揭露。所有統計量仍由同一 evaluator sample 產出，沒有混用 full aggregates 與 sampled CI/p-value。
 2. 現有 schema 沒有跨 training run 與 experiment 的單一 transaction RPC；failure protocol 仍可能短暫存在 `run = failed`、`experiment = queued/running`，但 versioned terminal evidence 可在 retry 冪等收斂，stale version 只會 conflict。
 3. 本輪依限制未執行 production-sized Edge invocation、live Supabase 或 deployment。完整 local `supabase/functions` tests 已通過；既有 6 個 slow stochastic tests 未執行。
+
+## Fix Round 3
+
+### Scope
+
+本輪只修正 `task-6-r2-review.md` 唯一 open Important：缺筆 `evaluationReservoir` 可產生錯誤 `exact: true` metrics。沒有修改 schema/migration、production、promotion、activation、prediction、LINE、Gemini 或 frontend；Round 1 與 Round 2 已關閉的 11 項行為均保留。
+
+### Finding Mapping
+
+#### Important 1：Reservoir Cardinality 與 Exact Consistency
+
+- `assertState` 現在強制 `evaluationReservoir.length === Math.min(processedDraws, 500)`；少 1 筆、超出母體或超過容量都會在 evaluator 執行前 fail closed。
+- `finalizeEvidenceRun` 重新計算 `expectedEvaluatorSampleCount = Math.min(populationSampleCount, 500)`，先驗證 retained rows 數量，再驗證 Task 4 evaluator 回傳的 `fullRun.sampleCount`。任何 cardinality mismatch 都不會產生 metrics。
+- `statisticalPopulation.exact` 改為只在 `fullRun.sampleCount === populationSampleCount` 時為 `true`。因此 500 筆母體為 `500/500, exact: true`；501 筆母體為 `500/501, exact: false`。
+- 新增 reviewer 的 37 筆 state 移除 1 筆反例，以及 500、501 筆容量邊界測試。
+
+### TDD Evidence
+
+#### RED
+
+```powershell
+node --test --test-name-pattern="37-row|500-row|501-row" supabase/functions/lotto-train-agent/lib/evidenceTraining.test.mjs
+```
+
+- Node test summary：`3` tests、`2` pass、`1` fail。
+- 37 筆移除 1 筆案例失敗訊息：`AssertionError: Missing expected rejection.`；500 與 501 筆既有正常邊界通過。
+
+#### GREEN
+
+```powershell
+node --test --test-name-pattern="37-row|500-row|501-row" supabase/functions/lotto-train-agent/lib/evidenceTraining.test.mjs
+```
+
+- Node test summary：`3` tests、`3` pass、`0` fail。
+
+```powershell
+node --test supabase/functions/lotto-train-agent/lib/evidenceTraining.test.mjs supabase/functions/lotto-train-agent/lib/trainingCore.test.mjs supabase/functions/lotto-train-agent/lib/trainingHttp.test.mjs
+```
+
+- Node test summary：`63` tests、`63` pass、`0` fail、`0` skipped。
+
+```powershell
+$allSupabaseTests = @(rg --files supabase/functions | Where-Object { $_ -like '*.test.mjs' })
+node --test $allSupabaseTests
+```
+
+- Node test summary：`309` tests、`303` pass、`0` fail、`6` skipped。
+- 6 項 skipped 均為既有明確標記的 slow stochastic tests。
+
+```powershell
+git diff --check
+```
+
+- Exit `0`，沒有 whitespace error；Git 僅顯示 Windows CRLF normalization warning。
+
+### Residual Risks
+
+1. 本輪未執行 live Supabase、production-sized Edge invocation 或 deployment，符合不得接觸 production 的限制。
+2. CandidateEvidence 在母體超過 500 筆時仍是已揭露的 deterministic bounded approximation；本輪新增 cardinality checks，確保 sample 完整保留至容量上限且不會誤標為 exact。
