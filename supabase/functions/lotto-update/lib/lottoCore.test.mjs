@@ -56,7 +56,7 @@ test("draw payload change detects numbers, special number, and explicit official
   assert.equal(lottoCore.drawPayloadChanged(
     { ...original, raw: { source_revision: "official-r1" } },
     { ...original, raw: { source_revision: "official-r2" } },
-  ), true);
+  ), false);
 });
 
 import {

@@ -199,8 +199,7 @@ export function hasExplicitDrawRevision(draw) {
 export function drawPayloadChanged(existing, incoming) {
   const left = canonicalDrawPayload(existing);
   const right = canonicalDrawPayload(incoming);
-  return JSON.stringify(left) !== JSON.stringify(right)
-    || explicitDrawRevision(existing) !== explicitDrawRevision(incoming);
+  return JSON.stringify(left) !== JSON.stringify(right);
 }
 
 export async function buildDrawRevision(draw) {

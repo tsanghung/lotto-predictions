@@ -21,9 +21,26 @@ test("lotto-update reads the full valid v3 score history before evaluating gates
     source.indexOf("async function insertV3ScoresIdempotently"),
   );
 
-  assert.match(v3History, /const pageSize = 1000/);
-  assert.match(v3History, /offset: String\(offset\)/);
-  assert.match(v3History, /if \(page\.length < pageSize\) break/);
+  assert.match(v3History, /order: "draw_date\.asc,draw_id\.asc,id\.asc"/);
+  assert.match(v3History, /Prefer: "count=exact"/);
+  assert.match(v3History, /Content-Range/);
+  assert.match(v3History, /MAX_V3_HISTORY_ROWS/);
+  assert.match(v3History, /MAX_V3_HISTORY_PAGES/);
+  assert.match(v3History, /offset \+= page\.length/);
+  assert.match(v3History, /missing page/);
+});
+
+test("confirmed draws have a v3 entry point independent of ready predictions and activation is disabled", async () => {
+  const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
+  const evidenceSource = await readFile(new URL("./evidenceLearning.js", import.meta.url), "utf8");
+  const handler = source.slice(source.indexOf("async function handleRequest"));
+
+  assert.match(handler, /for \(const confirmedDraw of confirmedDraws\)/);
+  assert.match(source, /activationAuthorized: false/);
+  assert.doesNotMatch(source, /candidateEvidence\.sampleCount,\s*canaryDraws/);
+  assert.match(evidenceSource, /persisted\?\.authorized === true/);
+  assert.match(evidenceSource, /LAI v3 activation requires a complete active-state claim contract/);
+  assert.match(evidenceSource, /liveShadowDraws: Number\.isInteger\(lifecycle\.liveShadowDraws\)/);
 });
 
 const DRAW = {

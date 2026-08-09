@@ -34,9 +34,9 @@ type UpdateResult = {
   status: "updated" | "unchanged" | "dry_run";
   inserted_count: number;
   inserted_draw_ids: string[];
+  confirmed_draw_ids: string[];
   latest_official_draw: LottoDraw | null;
   secondary_draw: LottoDraw | null;
-  corrections: EvidenceCorrectionContext[];
 };
 
 type PredictionRow = {
@@ -58,14 +58,6 @@ type DrawRow = {
   raw?: Record<string, unknown>;
 };
 
-type EvidenceCorrectionContext = {
-  gameName: string;
-  drawId: string;
-  sourceRevision: string;
-  previousRevision: string;
-  previousDraw: DrawRow;
-};
-
 type ModelForecastRow = {
   id: string;
   game_name: string;
@@ -83,6 +75,13 @@ type ModelForecastRow = {
   random_seed?: string | null;
   code_commit?: string | null;
   replay_digest?: string | null;
+  registry?: {
+    id: string;
+    game_name: string;
+    model_name: string;
+    model_family: string;
+    status: string;
+  } | null;
 };
 
 type ModelScoreRow = {
@@ -719,7 +718,7 @@ async function fetchV3Forecasts(
   targetDrawDate: string,
 ): Promise<ModelForecastRow[]> {
   const params = new URLSearchParams({
-    select: "id,game_name,target_draw_date,model_name,model_version,forecast_mode,probabilities,special_probabilities,final_groups,agent_state_version,registry_id,experiment_run_id,feature_version,random_seed,code_commit,replay_digest",
+    select: "id,game_name,target_draw_date,model_name,model_version,forecast_mode,probabilities,special_probabilities,final_groups,agent_state_version,registry_id,experiment_run_id,feature_version,random_seed,code_commit,replay_digest,registry:lai_model_registry!inner(id,game_name,model_name,model_family,status)",
     game_name: `eq.${gameName}`,
     target_draw_date: `eq.${targetDrawDate}`,
     registry_id: "not.is.null",
@@ -740,32 +739,50 @@ async function fetchV3ValidScoreHistory(
   gameName: string,
   throughDrawDate: string,
 ): Promise<Record<string, unknown>[]> {
+  const MAX_V3_HISTORY_ROWS = 100000;
+  const MAX_V3_HISTORY_PAGES = 200;
   const rows: Record<string, unknown>[] = [];
   const pageSize = 1000;
   let offset = 0;
-  while (true) {
+  let total: number | null = null;
+  for (let pageNumber = 0; pageNumber < MAX_V3_HISTORY_PAGES; pageNumber += 1) {
     const params = new URLSearchParams({
-      select: "id,forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,source_revision,is_valid,supersedes_score_id,forecast:lotto_model_forecasts!inner(registry_id,model_name,forecast_mode,experiment_run_id,registry:lai_model_registry!inner(model_family))",
+      select: "id,forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,source_revision,is_valid,supersedes_score_id,forecast:lotto_model_forecasts!inner(registry_id,model_name,forecast_mode,experiment_run_id,registry:lai_model_registry!inner(id,game_name,model_name,model_family,status))",
       game_name: `eq.${gameName}`,
       draw_date: `lte.${throughDrawDate}`,
       is_valid: "eq.true",
       "forecast.registry_id": "not.is.null",
-      order: "draw_date.asc,draw_id.asc",
+      order: "draw_date.asc,draw_id.asc,id.asc",
       limit: String(pageSize),
       offset: String(offset),
     });
     const response = await fetch(`${supabaseUrl}/rest/v1/lotto_model_scores?${params}`, {
-      headers: supabaseHeaders(serviceRoleKey),
+      headers: { ...supabaseHeaders(serviceRoleKey), Prefer: "count=exact" },
     });
     if (!response.ok) {
       throw new Error(`Supabase LAI v3 score history query failed: ${response.status} ${await response.text()}`);
     }
     const page = await response.json() as Record<string, unknown>[];
+    const contentRange = response.headers.get("content-range");
+    const totalMatch = contentRange?.match(/^(?:\d+-\d+|\*)\/(\d+)$/);
+    if (!totalMatch) {
+      throw new Error("Supabase LAI v3 score history query did not provide an exact Content-Range total");
+    }
+    const pageTotal = Number(totalMatch[1]);
+    if (!Number.isSafeInteger(pageTotal) || pageTotal > MAX_V3_HISTORY_ROWS) {
+      throw new Error("Supabase LAI v3 score history exceeds the bounded evidence limit");
+    }
+    if (total != null && total !== pageTotal) {
+      throw new Error("Supabase LAI v3 score history total changed during pagination");
+    }
+    total = pageTotal;
     rows.push(...page);
-    if (page.length < pageSize) break;
-    offset += pageSize;
+    if (rows.length > total) throw new Error("Supabase LAI v3 score history pagination exceeded Content-Range total");
+    if (rows.length === total) return rows;
+    if (!page.length) throw new Error("Supabase LAI v3 score history has a missing page");
+    offset += page.length;
   }
-  return rows;
+  throw new Error("Supabase LAI v3 score history exceeded the bounded page limit");
 }
 
 async function insertV3ScoresIdempotently(
@@ -1062,21 +1079,15 @@ async function runEvidenceLearningForDraw(
   supabaseUrl: string,
   serviceRoleKey: string,
   draw: DrawRow,
-  correction: EvidenceCorrectionContext | null = null,
 ): Promise<Record<string, unknown>> {
-  const sourceRevision = correction?.sourceRevision ?? await buildDrawRevision(draw);
+  const sourceRevision = await buildDrawRevision(draw);
   return runEvidenceLearning({
     gameName: draw.game_name,
     draw,
     config: gameConfigForName(draw.game_name),
     sourceRevision,
-    ...(correction ? {
-      correction: {
-        previousRevision: correction.previousRevision,
-        previousDraw: correction.previousDraw,
-        reason: "official_draw_payload_changed",
-      },
-    } : {}),
+    // All candidates are shadow-only. No runtime path may activate v3 without an explicit future authorization boundary.
+    activationAuthorized: false,
   }, {
     fetchV3Forecasts: (gameName: string, drawDate: string) =>
       fetchV3Forecasts(supabaseUrl, serviceRoleKey, gameName, drawDate),
@@ -1098,11 +1109,10 @@ async function runEvidenceLearningIsolated(
   supabaseUrl: string,
   serviceRoleKey: string,
   draw: DrawRow,
-  correction: EvidenceCorrectionContext | null = null,
 ): Promise<Record<string, unknown>> {
   let v3Result: Record<string, unknown> = { status: "disabled" };
   try {
-    v3Result = await runEvidenceLearningForDraw(supabaseUrl, serviceRoleKey, draw, correction);
+    v3Result = await runEvidenceLearningForDraw(supabaseUrl, serviceRoleKey, draw);
   } catch (error) {
     try {
       await recordV3Failure(supabaseUrl, serviceRoleKey, { message: errorMessage(error) });
@@ -1144,8 +1154,6 @@ async function evaluateReadyPredictions(
   supabaseUrl: string,
   serviceRoleKey: string,
   targetDate: string,
-  correctionsByDraw = new Map<string, EvidenceCorrectionContext>(),
-  v3Evidence: Record<string, unknown>[] = [],
 ): Promise<Array<{ source_key: string; game_name: string; target_draw_date: string; draw_id: string }>> {
   const predictions = await fetchReadyPredictions(supabaseUrl, serviceRoleKey, targetDate);
   const evaluated = [];
@@ -1217,14 +1225,6 @@ async function evaluateReadyPredictions(
       continue;
     }
 
-    const correction = correctionsByDraw.get(`${draw.game_name}|${draw.draw_id}`) ?? null;
-    const v3Result = await runEvidenceLearningIsolated(supabaseUrl, serviceRoleKey, draw, correction);
-    v3Evidence.push({
-      game_name: draw.game_name,
-      draw_id: draw.draw_id,
-      ...v3Result,
-    });
-
     const asiLearningRecord = buildAsiLearningRecord(prediction, draw, evaluation);
     const laiEvidence = buildLaiLearningEvidence(learningResult);
     if (laiEvidence) {
@@ -1284,10 +1284,8 @@ async function updateGame(
     }
   }
 
-  // Backfill every draw newer than the current latest draw, while also retaining
-  // correction context for an existing draw whose authoritative payload changed.
+  // Backfill every draw newer than the current latest draw, including canonical-payload corrections.
   const rows: DrawRow[] = [];
-  const corrections: EvidenceCorrectionContext[] = [];
   const orderedCandidates = [...candidates]
     .sort((left, right) => String(left.draw_id).localeCompare(String(right.draw_id), undefined, { numeric: true }));
   for (const candidate of orderedCandidates) {
@@ -1305,15 +1303,6 @@ async function updateGame(
       row.draw_id,
     );
     const isCorrection = existingDraw != null && drawPayloadChanged(existingDraw, row);
-    if (isCorrection) {
-      corrections.push({
-        gameName: row.game_name,
-        drawId: row.draw_id,
-        sourceRevision,
-        previousRevision: await buildDrawRevision(existingDraw),
-        previousDraw: existingDraw,
-      });
-    }
     if (isDrawNewerThanExisting(candidate, existing) || isCorrection) {
       rows.push(row);
     }
@@ -1328,9 +1317,9 @@ async function updateGame(
     status: options.dryRun ? "dry_run" : rows.length ? "updated" : "unchanged",
     inserted_count: rows.length,
     inserted_draw_ids: rows.map((r) => String(r.draw_id)),
+    confirmed_draw_ids: rows.map((r) => String(r.draw_id)),
     latest_official_draw: latestOfficial,
     secondary_draw: secondaryDraw,
-    corrections,
   };
 }
 
@@ -1372,23 +1361,23 @@ async function handleRequest(request: Request): Promise<Response> {
       }));
     }
 
-    const correctionsByDraw = new Map<string, EvidenceCorrectionContext>(
-      results.flatMap((result) => result.corrections)
-        .map((correction) => [`${correction.gameName}|${correction.drawId}`, correction]),
-    );
     const v3_evidence: Record<string, unknown>[] = [];
     const evaluated_predictions = dryRun
       ? []
-      : await evaluateReadyPredictions(supabaseUrl, serviceRoleKey, targetDate, correctionsByDraw, v3_evidence);
+      : await evaluateReadyPredictions(supabaseUrl, serviceRoleKey, targetDate);
 
     if (!dryRun) {
-      const processedDraws = new Set(v3_evidence.map((result) => `${result.game_name}|${result.draw_id}`));
-      for (const correction of correctionsByDraw.values()) {
-        const key = `${correction.gameName}|${correction.drawId}`;
-        if (processedDraws.has(key)) continue;
-        const draw = await fetchExistingDraw(supabaseUrl, serviceRoleKey, correction.gameName, correction.drawId);
-        if (!draw) continue;
-        const v3Result = await runEvidenceLearningIsolated(supabaseUrl, serviceRoleKey, draw, correction);
+      const confirmedDraws = results.flatMap((result) => result.confirmed_draw_ids.map((drawId) => ({
+        game_name: GAME_NAMES[result.game],
+        draw_id: drawId,
+      })));
+      for (const confirmedDraw of confirmedDraws) {
+        const draw = await fetchExistingDraw(supabaseUrl, serviceRoleKey, confirmedDraw.game_name, confirmedDraw.draw_id);
+        if (!draw) {
+          v3_evidence.push({ ...confirmedDraw, status: "failed_isolated", root_cause: "confirmed draw was not readable after upsert" });
+          continue;
+        }
+        const v3Result = await runEvidenceLearningIsolated(supabaseUrl, serviceRoleKey, draw);
         v3_evidence.push({ game_name: draw.game_name, draw_id: draw.draw_id, ...v3Result });
       }
     }

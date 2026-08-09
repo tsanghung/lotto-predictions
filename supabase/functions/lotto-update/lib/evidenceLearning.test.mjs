@@ -77,8 +77,8 @@ function makeEvidenceLearningDeps({
   forecasts = [validUniform, validBayesian],
   activeState = baselineState,
   registry = [
-    { id: "registry-uniform", model_name: "uniform", model_family: "uniform-null", status: "baseline" },
-    { id: "registry-bayesian", model_name: "bayesian", model_family: "bayesian-drift", status: "registered" },
+    { id: "registry-uniform", game_name: input.gameName, model_name: "uniform", model_family: "uniform-null", status: "baseline" },
+    { id: "registry-bayesian", game_name: input.gameName, model_name: "bayesian", model_family: "bayesian-drift", status: "registered" },
   ],
 } = {}) {
   const insertedScores = [];
@@ -87,6 +87,15 @@ function makeEvidenceLearningDeps({
   const activations = [];
   const failures = [];
   const db = { scores: [] };
+  const historyRow = (row) => ({
+    ...clone(row),
+    forecast: {
+      registry_id: row.registry_id,
+      model_name: row.model_name,
+      forecast_mode: row.forecast_mode,
+      registry: clone(registry.find((entry) => entry.id === row.registry_id)),
+    },
+  });
   const deps = {
     insertedScores,
     corrections,
@@ -98,9 +107,11 @@ function makeEvidenceLearningDeps({
     fetchValidScoreHistory: async () => clone(db.scores.filter((row) => row.is_valid !== false)),
     insertScoresIdempotently: async (rows) => {
       for (const row of rows) {
+        assert.equal(row.source_revision, "original", "upsert_lotto_model_scores accepts original rows only");
+        assert.equal(row.supersedes_score_id, undefined, "upsert_lotto_model_scores rejects correction rows");
         if (!db.scores.some((stored) => stored.forecast_id === row.forecast_id
           && stored.draw_id === row.draw_id && stored.is_valid !== false)) {
-          const persisted = { ...clone(row), id: `score-${row.forecast_id}-${row.source_revision}` };
+          const persisted = historyRow({ ...clone(row), id: `score-${row.forecast_id}-${row.source_revision}` });
           db.scores.push(persisted);
           insertedScores.push(persisted);
         }
@@ -119,13 +130,16 @@ function makeEvidenceLearningDeps({
     },
     recordFailure: async (failure) => failures.push(clone(failure)),
     recordCorrection: async (correction) => {
+      assert.ok(correction.invalidated_score_ids.length > 0, "correction RPC requires invalidations");
+      assert.equal(correction.invalidated_score_ids.length, correction.replacement_scores.length, "correction RPC requires one replacement per invalidation");
+      assert.ok(correction.replacement_scores.every((row) => row.source_revision === correction.corrected_revision && row.supersedes_score_id), "correction RPC requires corrected revision and supersession claim");
       corrections.push(clone(correction));
       const invalidated = new Set(correction.invalidated_score_ids);
       db.scores.forEach((row) => {
         if (invalidated.has(row.id)) row.is_valid = false;
       });
       correction.replacement_scores.forEach((row) => {
-        db.scores.push({ ...clone(row), id: `score-${row.forecast_id}-${row.source_revision}` });
+        db.scores.push(historyRow({ ...clone(row), id: `score-${row.forecast_id}-${row.source_revision}` }));
       });
       return { id: `correction-${corrections.length}` };
     },
@@ -159,19 +173,15 @@ test("official correction invalidates and replaces scores", async () => {
     ...input,
     draw: { ...input.draw, numbers: [2, 8, 14, 26, 38] },
     sourceRevision: "official-r2",
-    correction: {
-      previousRevision: "official-r1",
-      previousDraw: input.draw,
-      reason: "official_draw_payload_changed",
-    },
   };
 
   const result = await runEvidenceLearning(correctedInput, correctionDeps);
-  const oldScores = correctionDeps.db.scores.filter((row) => row.source_revision === "official-r1");
+  const oldScores = correctionDeps.db.scores.filter((row) => row.source_revision === "original");
   const newScores = correctionDeps.db.scores.filter((row) => row.source_revision === "official-r2");
 
   assert.equal(result.status, "corrected");
   assert.equal(correctionDeps.corrections.length, 1);
+  assert.equal(correctionDeps.corrections[0].previous_revision, "original");
   assert.ok(oldScores.every((row) => row.is_valid === false));
   assert.ok(newScores.every((row) => row.source_revision === "official-r2"));
 });
@@ -184,4 +194,62 @@ test("FDR adjusts all candidate p-values as one draw family before gate evaluati
 
   assert.equal(evidence["registry-a"].adjustedQ, 0.02);
   assert.equal(evidence["registry-b"].adjustedQ, 0.04);
+});
+
+test("repository-shaped forecasts inherit family identity only from their matching registry", async () => {
+  const restUniform = structuredClone(validUniform);
+  const restBayesian = structuredClone(validBayesian);
+  delete restUniform.model_family;
+  delete restBayesian.model_family;
+  restUniform.registry = { id: "registry-uniform", game_name: input.gameName, model_name: "uniform", model_family: "uniform-null", status: "baseline" };
+  restBayesian.registry = { id: "registry-bayesian", game_name: input.gameName, model_name: "bayesian", model_family: "bayesian-drift", status: "registered" };
+  const deps = makeEvidenceLearningDeps({ forecasts: [restUniform, restBayesian] });
+
+  const result = await runEvidenceLearning(input, deps);
+
+  assert.equal(result.status, "learned");
+  assert.equal(result.failures.length, 0);
+  assert.ok(deps.insertedScores.every((row) => row.source_revision === "original"));
+});
+
+test("correction derives original revision and stale actual numbers from valid score history", async () => {
+  const deps = makeEvidenceLearningDeps();
+  await runEvidenceLearning(input, deps);
+  const corrected = await runEvidenceLearning({
+    ...input,
+    draw: { ...input.draw, numbers: [2, 8, 14, 26, 38] },
+    sourceRevision: "draw-canonical-r2",
+  }, deps);
+
+  assert.equal(corrected.status, "corrected");
+  assert.equal(deps.corrections.length, 1);
+  assert.equal(deps.corrections[0].previous_revision, "original");
+  assert.equal(deps.corrections[0].corrected_revision, "draw-canonical-r2");
+});
+
+test("a stale valid score without replacement forecasts fails closed", async () => {
+  const deps = makeEvidenceLearningDeps();
+  await runEvidenceLearning(input, deps);
+  deps.fetchV3Forecasts = async () => [];
+
+  await assert.rejects(
+    runEvidenceLearning({
+      ...input,
+      draw: { ...input.draw, numbers: [2, 8, 14, 26, 38] },
+      sourceRevision: "draw-canonical-r2",
+    }, deps),
+    /replacement forecasts/i,
+  );
+});
+
+test("missing same-game uniform baseline blocks scoring and decision persistence", async () => {
+  const deps = makeEvidenceLearningDeps({
+    registry: [{ id: "registry-bayesian", game_name: input.gameName, model_name: "bayesian", model_family: "bayesian-drift", status: "registered" }],
+  });
+
+  const result = await runEvidenceLearning(input, deps);
+
+  assert.equal(result.status, "blocked_registry");
+  assert.equal(deps.insertedScores.length, 0);
+  assert.equal(deps.decisions.length, 0);
 });
