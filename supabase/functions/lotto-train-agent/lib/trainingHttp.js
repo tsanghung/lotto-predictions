@@ -97,10 +97,11 @@ export function makeTrainingRepository({ supabaseUrl, serviceKey, fetchFn = fetc
     return assertRows(await responseJson(response))[0] ?? null;
   }
 
-  async function patchExperiment(experiment, body) {
+  async function patchExperiment(experiment, body, allowedStatuses = null) {
     const query = [
       `id=eq.${encodeURIComponent(String(experiment.id))}`,
       `updated_at=eq.${encodeURIComponent(String(experiment.updated_at))}`,
+      ...(allowedStatuses ? [`status=in.(${allowedStatuses.map(encodeURIComponent).join("%2C")})`] : []),
       "select=*",
     ].join("&");
     const response = await fetchFn(`${supabaseUrl}/rest/v1/lai_experiment_runs?${query}`, {
@@ -189,31 +190,28 @@ export function makeTrainingRepository({ supabaseUrl, serviceKey, fetchFn = fetc
     },
 
     saveExperimentCheckpoint(experiment, checkpoint) {
-      return patchExperiment(experiment, checkpoint);
+      return patchExperiment(experiment, checkpoint, ["queued", "running"]);
     },
 
     async completeExperiment(experiment, evidence) {
       if (!experiment || typeof experiment.id !== "string" || !experiment.id) {
         throw new Error("LAI v3 experiment run was not found");
       }
-      if (experiment.status !== "running") {
-        throw new Error("LAI v3 experiment run must be running before completion");
+      if (!["queued", "running"].includes(experiment.status)) {
+        throw new Error("LAI v3 experiment run must be queued or running before completion");
       }
       return patchExperiment(experiment, {
+        checkpoint_cursor: evidence.checkpointCursor,
         status: "completed",
         metrics: evidence.metrics,
         replay_digest: evidence.replayDigest,
         error_text: null,
         completed_at: now().toISOString(),
-      });
+      }, ["queued", "running"]);
     },
 
-    async failExperiment(experiment, failure) {
-      const current = await fetchOne(
-        `lai_experiment_runs?id=eq.${encodeURIComponent(experiment.id)}&select=*&limit=1`,
-      );
-      if (!current || !["queued", "running"].includes(current.status)) return null;
-      return patchExperiment(current, failure);
+    failExperiment(experiment, failure) {
+      return patchExperiment(experiment, failure, ["queued", "running"]);
     },
 
     markFailed(run, failure) {

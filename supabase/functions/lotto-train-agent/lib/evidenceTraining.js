@@ -20,6 +20,12 @@ function assertCursor(cursor, draws) {
   }
 }
 
+function assertRangeStart(rangeStart, cursor) {
+  if (!Number.isInteger(rangeStart) || rangeStart < 0 || rangeStart > cursor) {
+    throw new RangeError("rangeStart must be an integer from 0 through cursor");
+  }
+}
+
 function assertChunkSize(chunkSize) {
   if (!Number.isInteger(chunkSize) || chunkSize < 1 || chunkSize > 25) {
     throw new RangeError("chunkSize must be an integer from 1 through 25");
@@ -38,7 +44,31 @@ function assertRegistration(registration, expectedFamily, label) {
   }
 }
 
-function assertState(state, registration, baselineRegistration) {
+function assertFiniteNumbers(value, label) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new TypeError(`${label} must contain only finite numbers`);
+    return;
+  }
+  if (value == null || typeof value === "string" || typeof value === "boolean") return;
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => assertFiniteNumbers(entry, `${label}[${index}]`));
+    return;
+  }
+  if (typeof value === "object") {
+    Object.entries(value).forEach(([key, entry]) => assertFiniteNumbers(entry, `${label}.${key}`));
+  }
+}
+
+function targetIdentity(draw) {
+  return canonicalJson({
+    drawId: String(draw.draw_id),
+    drawDate: draw.draw_date,
+    numbers: draw.numbers,
+    specialNumber: draw.special_number ?? null,
+  });
+}
+
+function assertState(state, registration, baselineRegistration, context = null) {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
     throw new TypeError("state must be an object");
   }
@@ -51,6 +81,36 @@ function assertState(state, registration, baselineRegistration) {
   if (!Array.isArray(state.scoreRows) || !Array.isArray(state.recentRows)) {
     throw new TypeError("state score rows must be arrays");
   }
+  if (!Array.isArray(state.evaluationRows)) {
+    throw new TypeError("state.evaluationRows must preserve the full evaluation population");
+  }
+  if (state.evaluationRows.length !== state.processedDraws) {
+    throw new RangeError("state evaluation population is not continuous");
+  }
+  if (state.recentRows.length > RECENT_ROW_LIMIT) {
+    throw new RangeError(`state.recentRows cannot exceed ${RECENT_ROW_LIMIT} rows`);
+  }
+  if (state.runningSums?.sampleCount !== state.processedDraws) {
+    throw new RangeError("state running sums do not match processedDraws");
+  }
+  assertFiniteNumbers(state.runningSums, "state.runningSums");
+  if (!context) return;
+  const { rangeStart, draws, cursor } = context;
+  if (state.rangeStart !== rangeStart || state.rangeEnd !== draws.length) {
+    throw new RangeError("state range does not match the frozen experiment range");
+  }
+  if (state.nextCursor !== cursor || state.processedDraws !== cursor - rangeStart) {
+    throw new RangeError("state cursor continuity does not match the requested cursor");
+  }
+  const priorTarget = cursor > rangeStart ? draws[cursor - 1] : null;
+  if (priorTarget) {
+    if (state.lastTargetDrawId !== String(priorTarget.draw_id)
+      || state.lastTargetIdentity !== targetIdentity(priorTarget)) {
+      throw new RangeError("state last target continuity does not match the frozen snapshot");
+    }
+  } else if (state.lastTargetDrawId != null || state.lastTargetIdentity != null) {
+    throw new RangeError("state last target must be empty at rangeStart");
+  }
 }
 
 function emptyRunningSums() {
@@ -62,7 +122,8 @@ function emptyRunningSums() {
 }
 
 function numeric(value) {
-  return Number.isFinite(value) ? value : 0;
+  if (!Number.isFinite(value)) throw new TypeError("evidence scores must be finite numbers");
+  return value;
 }
 
 function addToRunningSums(current, pair) {
@@ -88,10 +149,12 @@ function appendEvidencePair(state, pair) {
     candidate: pair.candidate,
     baseline: pair.baseline,
   };
+  assertFiniteNumbers(row, "evidence score row");
   return {
     ...clone(state),
     processedDraws: state.processedDraws + 1,
     scoreRows: [...state.scoreRows, row],
+    evaluationRows: [...state.evaluationRows, row],
     runningSums: addToRunningSums(state.runningSums, pair),
   };
 }
@@ -126,14 +189,21 @@ export function createInitialEvidenceState(registration, baselineRegistration) {
     processedDraws: 0,
     scoreRows: [],
     recentRows: [],
+    evaluationRows: [],
     randomSeed: registration.parameters.random_seed,
     runningSums: emptyRunningSums(),
+    rangeStart: null,
+    rangeEnd: null,
+    nextCursor: null,
+    lastTargetDrawId: null,
+    lastTargetIdentity: null,
   };
 }
 
 export function walkForwardEvidenceChunk({
   gameType,
   draws,
+  rangeStart = 0,
   cursor,
   chunkSize,
   state,
@@ -143,6 +213,7 @@ export function walkForwardEvidenceChunk({
   assertGameType(gameType);
   if (!Array.isArray(draws)) throw new TypeError("draws must be an array");
   assertCursor(cursor, draws);
+  assertRangeStart(rangeStart, cursor);
   assertChunkSize(chunkSize);
   assertRegistration(registration, registration?.model_family, "registration");
   assertRegistration(baselineRegistration, "uniform-null", "baselineRegistration");
@@ -152,10 +223,22 @@ export function walkForwardEvidenceChunk({
   }
 
   const immutableDraws = clone(draws);
+  if (!state && cursor !== rangeStart) {
+    throw new Error("checkpoint state is required when cursor is advanced beyond rangeStart");
+  }
   let next = state
     ? clone(state)
     : createInitialEvidenceState(registration, baselineRegistration);
-  assertState(next, registration, baselineRegistration);
+  if (next.rangeStart == null && next.processedDraws === 0) {
+    next.rangeStart = rangeStart;
+    next.rangeEnd = immutableDraws.length;
+    next.nextCursor = cursor;
+  }
+  assertState(next, registration, baselineRegistration, {
+    rangeStart,
+    draws: immutableDraws,
+    cursor,
+  });
   const end = Math.min(cursor + chunkSize, immutableDraws.length);
   const steps = [];
 
@@ -183,6 +266,9 @@ export function walkForwardEvidenceChunk({
       baseline: scoreEvidenceForecast({ forecast: baseline, draw: target, config: GAME_CONFIG[gameType] }),
       candidate: scoreEvidenceForecast({ forecast: candidate, draw: target, config: GAME_CONFIG[gameType] }),
     });
+    next.nextCursor = targetIndex + 1;
+    next.lastTargetDrawId = String(target.draw_id);
+    next.lastTargetIdentity = targetIdentity(target);
     steps.push({
       targetDrawId: target.draw_id,
       historySize: history.length,
@@ -226,16 +312,24 @@ export async function finalizeEvidenceRun({
   registration,
   baselineRegistration,
   state,
+  resampling,
 } = {}) {
   if (!Array.isArray(draws)) throw new TypeError("draws must be the frozen snapshot array");
   assertRegistration(registration, registration?.model_family, "registration");
   assertRegistration(baselineRegistration, "uniform-null", "baselineRegistration");
   assertState(state, registration, baselineRegistration);
   const compact = compactState(state);
-  const recent = evaluateCandidateSeries({
+  const fullRun = evaluateCandidateSeries({
+    candidateRows: compact.evaluationRows.map((row) => row.candidate),
+    baselineRows: compact.evaluationRows.map((row) => row.baseline),
+    seed: compact.randomSeed,
+    resampling,
+  });
+  const detailWindow = evaluateCandidateSeries({
     candidateRows: compact.recentRows.map((row) => row.candidate),
     baselineRows: compact.recentRows.map((row) => row.baseline),
     seed: compact.randomSeed,
+    resampling,
   });
   const replay = {
     frozenSnapshot: clone(draws),
@@ -245,9 +339,11 @@ export async function finalizeEvidenceRun({
   };
   return {
     metrics: {
-      sampleCount: compact.runningSums.sampleCount,
-      fullRun: compact.runningSums,
-      recent,
+      ...fullRun,
+      fullRun,
+      detailWindow: { ...detailWindow, retainedRows: compact.recentRows.length },
+      recent: detailWindow,
+      aggregates: compact.runningSums,
     },
     replayDigest: await digestReplay(replay),
   };

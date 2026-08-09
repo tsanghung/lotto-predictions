@@ -190,3 +190,37 @@ test("repository rejects a missing or ambiguous uniform baseline", async () => {
   });
   await assert.rejects(repository.fetchUniformBaseline("\u4eca\u5f69539"), /exactly one uniform-null baseline/);
 });
+
+test("stale experiment failure stays bound to the worker version and never re-reads a winner", async () => {
+  const requests = [];
+  const original = {
+    id: "experiment-1",
+    status: "running",
+    updated_at: "2026-08-09T00:00:00Z",
+  };
+  const repository = makeTrainingRepository({
+    supabaseUrl: ENV.SUPABASE_URL,
+    serviceKey: SECRET,
+    fetchFn: async (value, options = {}) => {
+      requests.push({ url: String(value), method: options.method || "GET", body: options.body });
+      if (!options.method) {
+        return new Response(JSON.stringify([{
+          ...original,
+          status: "completed",
+          updated_at: "2026-08-09T00:01:00Z",
+          replay_digest: "a".repeat(64),
+        }]));
+      }
+      return new Response("[]", { status: 200 });
+    },
+  });
+
+  assert.equal(await repository.failExperiment(original, {
+    status: "failed",
+    error_text: "stale worker",
+  }), null);
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].method, "PATCH");
+  assert.match(requests[0].url, /updated_at=eq\.2026-08-09T00%3A00%3A00Z/);
+  assert.match(requests[0].url, /status=in\.\(queued%2Crunning\)/);
+});

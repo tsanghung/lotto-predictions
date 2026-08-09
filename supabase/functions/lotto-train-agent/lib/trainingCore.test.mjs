@@ -132,7 +132,7 @@ test("service-role auth requires an exact configured secret and rejects unsigned
 test("executeTrainingRun claims, loads, advances, and saves one checkpoint", async () => {
   const calls = [];
   const run = {
-    id: "run-1", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 6,
+    id: "run-1", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 6,
     checkpoint_cursor: 2, summary: { state: createInitialTrainingState("539") },
     started_at: null, updated_at: "2026-07-15T00:00:00Z",
   };
@@ -168,7 +168,10 @@ test("executeTrainingRun claims, loads, advances, and saves one checkpoint", asy
 });
 
 test("executeTrainingRun leaves completed runs unchanged", async () => {
-  const run = { id: "done", status: "completed", checkpoint_cursor: 8, range_end: 8, summary: {} };
+  const run = {
+    id: "done", algorithm_version: "lai-v2", status: "completed",
+    checkpoint_cursor: 8, range_end: 8, summary: {},
+  };
   const repository = {
     async fetchRun() { return run; },
     async claimRun() { assert.fail("completed run must not be claimed"); },
@@ -180,7 +183,7 @@ test("executeTrainingRun leaves completed runs unchanged", async () => {
 
 test("executeTrainingRun rejects a lost claim before reading draws", async () => {
   const run = {
-    id: "busy", game_name: "\u4eca\u5f69539", status: "running", range_start: 0, range_end: 3,
+    id: "busy", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "running", range_start: 0, range_end: 3,
     checkpoint_cursor: 1, summary: { state: createInitialTrainingState("539") }, updated_at: "old",
   };
   const repository = {
@@ -197,7 +200,7 @@ test("executeTrainingRun rejects a lost claim before reading draws", async () =>
 test("executeTrainingRun marks incomplete draw ranges failed", async () => {
   let failure = null;
   const run = {
-    id: "short", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 4,
+    id: "short", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 4,
     checkpoint_cursor: 1, summary: { state: createInitialTrainingState("539") }, updated_at: "old",
   };
   const repository = {
@@ -218,7 +221,7 @@ test("executeTrainingRun marks incomplete draw ranges failed", async () => {
 
 test("the final chunk persists completed status at range_end", async () => {
   const run = {
-    id: "final", game_name: "\u4eca\u5f69539", status: "running", range_start: 0, range_end: 4,
+    id: "final", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "running", range_start: 0, range_end: 4,
     checkpoint_cursor: 3, summary: { state: createInitialTrainingState("539") }, updated_at: "old",
   };
   const repository = {
@@ -242,7 +245,7 @@ test("a frozen snapshot keeps checkpoint continuation stable after live backfill
   const snapshot = dailyDraws(6);
   const liveRows = [...snapshot];
   const run = {
-    id: "frozen", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 6,
+    id: "frozen", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 6,
     checkpoint_cursor: 0, summary: { state: createInitialTrainingState("539") }, updated_at: "v1",
   };
   const repository = {
@@ -276,7 +279,7 @@ test("a frozen snapshot keeps checkpoint continuation stable after live backfill
 test("a lost checkpoint CAS never reports a successful training step", async () => {
   let failureAttempted = false;
   const run = {
-    id: "lost-save", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 3,
+    id: "lost-save", algorithm_version: "lai-v2", game_name: "\u4eca\u5f69539", status: "queued", range_start: 0, range_end: 3,
     checkpoint_cursor: 1, summary: { state: createInitialTrainingState("539") }, updated_at: "v1",
   };
   const repository = {
@@ -374,8 +377,16 @@ function makeInMemoryV3Repository({ draws, registration, baselineRegistration })
     id: "experiment-run-v3",
     registry_id: registration.id,
     game_name: registration.game_name,
+    run_mode: "historical",
     status: "queued",
+    range_start: 100,
+    range_end: 110,
     checkpoint_cursor: 100,
+    data_cutoff: draws[109].draw_date,
+    random_seed: registration.parameters.random_seed,
+    code_commit: registration.code_commit,
+    feature_version: registration.feature_version,
+    updated_at: "experiment-v1",
   };
   const run = {
     id: "training-run-v3",
@@ -386,12 +397,16 @@ function makeInMemoryV3Repository({ draws, registration, baselineRegistration })
     range_start: 100,
     range_end: 110,
     checkpoint_cursor: 100,
-    summary: {},
+    summary: { registry_id: registration.id, experiment_run_id: experiment.id },
     updated_at: "v1",
   };
   return {
     current: structuredClone(run),
     currentExperiment: structuredClone(experiment),
+    candidate: structuredClone(registration),
+    baseline: structuredClone(baselineRegistration),
+    draws: structuredClone(draws.slice(0, 110)),
+    callOrder: [],
     calls: { activateAgentState: 0, completeExperiment: 0 },
     async fetchRun() { return structuredClone(this.current); },
     async claimRun(value, lease) {
@@ -399,19 +414,22 @@ function makeInMemoryV3Repository({ draws, registration, baselineRegistration })
       return structuredClone(this.current);
     },
     async ensureSnapshot(value) { return value.range_end; },
-    async fetchDraws() { return structuredClone(draws.slice(0, 110)); },
+    async fetchDraws() { return structuredClone(this.draws); },
     async fetchExperiment() { return structuredClone(this.currentExperiment); },
-    async fetchRegistration() { return structuredClone(registration); },
-    async fetchUniformBaseline() { return structuredClone(baselineRegistration); },
+    async fetchRegistration() { return structuredClone(this.candidate); },
+    async fetchUniformBaseline() { return structuredClone(this.baseline); },
     async saveExperimentCheckpoint(_value, checkpoint) {
+      this.callOrder.push("saveExperimentCheckpoint");
       this.currentExperiment = { ...this.currentExperiment, ...checkpoint };
       return structuredClone(this.currentExperiment);
     },
     async saveCheckpoint(_value, checkpoint) {
+      this.callOrder.push("saveCheckpoint");
       this.current = { ...this.current, ...checkpoint, updated_at: "v3" };
       return structuredClone(this.current);
     },
     async completeExperiment(_experimentRunId, evidence) {
+      this.callOrder.push("completeExperiment");
       this.calls.completeExperiment += 1;
       this.currentExperiment = {
         ...this.currentExperiment,
@@ -421,8 +439,14 @@ function makeInMemoryV3Repository({ draws, registration, baselineRegistration })
       };
       return structuredClone(this.currentExperiment);
     },
-    async markFailed() { assert.fail("v3 happy path must not fail"); },
-    async failExperiment() { assert.fail("v3 happy path must not fail"); },
+    async markFailed(value, failure) {
+      this.current = { ...this.current, ...failure };
+      return structuredClone(this.current);
+    },
+    async failExperiment(_value, failure) {
+      this.currentExperiment = { ...this.currentExperiment, ...failure };
+      return structuredClone(this.currentExperiment);
+    },
   };
 }
 
@@ -464,8 +488,8 @@ test("v3 rejects chunk sizes above 25 before evidence checkpointing", async () =
   });
   let markedFailed = 0;
   let failedExperiment = null;
-  repository.markFailed = async () => { markedFailed += 1; };
-  repository.failExperiment = async (_experiment, failure) => { failedExperiment = failure; };
+  repository.markFailed = async () => { markedFailed += 1; return {}; };
+  repository.failExperiment = async (_experiment, failure) => { failedExperiment = failure; return {}; };
   await assert.rejects(
     executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 26 }, repository }),
     /LAI v3 chunk_size must be from 1 through 25/,
@@ -477,4 +501,221 @@ test("v3 rejects chunk sizes above 25 before evidence checkpointing", async () =
     error_text: "LAI v3 chunk_size must be from 1 through 25",
     completed_at: failedExperiment.completed_at,
   });
+});
+
+test("unknown algorithm versions fail closed before either processor runs", async () => {
+  let processorCalls = 0;
+  const run = {
+    id: "unknown-version",
+    algorithm_version: "lai-v4",
+    game_name: GAME_CONFIG["539"].name,
+    status: "queued",
+    range_start: 0,
+    range_end: 1,
+    checkpoint_cursor: 0,
+    summary: {},
+    updated_at: "v1",
+  };
+  const repository = {
+    async fetchRun() { return structuredClone(run); },
+    async claimRun(value, lease) { return { ...value, summary: { ...value.summary, lease } }; },
+    async ensureSnapshot() { return 1; },
+    async fetchDraws() { return dailyDraws(1); },
+    async saveCheckpoint(value, checkpoint) { return { ...value, ...checkpoint }; },
+    async markFailed() {},
+  };
+  await assert.rejects(
+    executeTrainingRun({
+      input: { run_id: run.id, chunk_size: 1 },
+      repository,
+      processors: {
+        walkForwardV2Chunk() {
+          processorCalls += 1;
+          return { nextCursor: 1, done: true, state: {}, steps: [] };
+        },
+        walkForwardEvidenceChunk() {
+          processorCalls += 1;
+          return { nextCursor: 1, done: true, state: {}, steps: [] };
+        },
+      },
+    }),
+    /algorithm_version.*lai-v2.*lai-v3/i,
+  );
+  assert.equal(processorCalls, 0);
+});
+
+test("v3 provenance rejects mismatched experiment, candidate, and baseline before processing", async (t) => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const cases = [
+    ["candidate family", (repository) => { repository.candidate.model_family = "uniform-null"; }],
+    ["candidate status", (repository) => { repository.candidate.status = "disabled"; }],
+    ["candidate and baseline identity", (repository) => { repository.baseline.id = repository.candidate.id; }],
+    ["candidate seed", (repository) => { repository.currentExperiment.random_seed = "different-seed"; }],
+    ["candidate commit", (repository) => { repository.currentExperiment.code_commit = "abcdef0123456789"; }],
+    ["candidate feature", (repository) => { repository.currentExperiment.feature_version = "different-feature"; }],
+    ["baseline commit", (repository) => { repository.baseline.code_commit = "abcdef0123456789"; }],
+    ["experiment range", (repository) => { repository.currentExperiment.range_start = 99; }],
+    ["experiment cutoff", (repository) => { repository.currentExperiment.data_cutoff = draws[108].draw_date; }],
+  ];
+
+  for (const [name, mutate] of cases) {
+    await t.test(name, async () => {
+      const repository = makeInMemoryV3Repository({
+        draws,
+        registration: v3Registration(),
+        baselineRegistration: uniformBaseline(),
+      });
+      mutate(repository);
+      let processorCalls = 0;
+      await assert.rejects(
+        executeTrainingRun({
+          input: { run_id: "training-run-v3", chunk_size: 1 },
+          repository,
+          processors: {
+            createInitialEvidenceState,
+            finalizeEvidenceRun,
+            walkForwardV2Chunk: walkForwardChunk,
+            walkForwardEvidenceChunk() {
+              processorCalls += 1;
+              return { nextCursor: 101, done: false, state: {}, steps: [{ targetDrawId: "101" }] };
+            },
+          },
+        }),
+        /provenance|candidate|baseline|range|cutoff|seed|commit|feature/i,
+      );
+      assert.equal(processorCalls, 0);
+    });
+  }
+});
+
+test("v3 rejects stale checkpoint summaries and frozen snapshot drift", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const staleRepository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  await executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 5 }, repository: staleRepository });
+  staleRepository.current.summary.last_chunk.to_cursor = 104;
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 1 }, repository: staleRepository }),
+    /stale.*summary|summary.*cursor/i,
+  );
+
+  const driftRepository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  await executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 5 }, repository: driftRepository });
+  driftRepository.draws[0].numbers = [6, 7, 8, 9, 10];
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 1 }, repository: driftRepository }),
+    /snapshot.*drift|digest/i,
+  );
+});
+
+test("v3 final chunk cannot complete the experiment before training-run CAS", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const repository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  let failedWrites = 0;
+  repository.saveCheckpoint = async function saveCheckpoint() {
+    this.callOrder.push("saveCheckpoint");
+    return null;
+  };
+  repository.failExperiment = async () => { failedWrites += 1; return null; };
+  repository.markFailed = async () => { failedWrites += 1; return null; };
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 25 }, repository }),
+    /Training checkpoint lost its concurrency lease/,
+  );
+  assert.equal(repository.calls.completeExperiment, 0);
+  assert.notEqual(repository.currentExperiment.status, "completed");
+  assert.equal(failedWrites, 0);
+  assert.deepEqual(repository.callOrder, ["saveCheckpoint"]);
+});
+
+test("stale v3 worker cannot fail an experiment after losing run ownership", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const repository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  let experimentFailureCalls = 0;
+  repository.markFailed = async () => null;
+  repository.failExperiment = async () => { experimentFailureCalls += 1; return {}; };
+
+  await assert.rejects(
+    executeTrainingRun({
+      input: { run_id: "training-run-v3", chunk_size: 1 },
+      repository,
+      processors: {
+        createInitialEvidenceState,
+        finalizeEvidenceRun,
+        walkForwardV2Chunk: walkForwardChunk,
+        walkForwardEvidenceChunk() { throw new Error("stale worker processing failure"); },
+      },
+    }),
+    /failure write lost its concurrency lease/i,
+  );
+  assert.equal(experimentFailureCalls, 0);
+});
+
+test("v3 terminal completion recovers idempotently after a lost experiment response", async () => {
+  const draws = Array.from({ length: 110 }, (_, index) => ({
+    draw_id: String(index + 1),
+    draw_date: new Date(Date.UTC(2025, 0, index + 1)).toISOString().slice(0, 10),
+    numbers: [1, 2, 3, 4, 5],
+  }));
+  const repository = makeInMemoryV3Repository({
+    draws,
+    registration: v3Registration(),
+    baselineRegistration: uniformBaseline(),
+  });
+  let completionAttempts = 0;
+  repository.completeExperiment = async function completeExperiment(_experiment, evidence) {
+    completionAttempts += 1;
+    this.currentExperiment = {
+      ...this.currentExperiment,
+      status: "completed",
+      checkpoint_cursor: evidence.checkpointCursor,
+      metrics: evidence.metrics,
+      replay_digest: evidence.replayDigest,
+      updated_at: "experiment-v2",
+    };
+    throw new Error("experiment completion response was lost");
+  };
+
+  await assert.rejects(
+    executeTrainingRun({ input: { run_id: "training-run-v3", chunk_size: 25 }, repository }),
+    /response was lost/,
+  );
+  const recovered = await executeTrainingRun({
+    input: { run_id: "training-run-v3", chunk_size: 25 },
+    repository,
+  });
+  assert.equal(recovered.status, "completed");
+  assert.equal(recovered.summary.v3_terminal.version, "lai-v3-terminal-v1");
+  assert.equal(completionAttempts, 1);
 });
