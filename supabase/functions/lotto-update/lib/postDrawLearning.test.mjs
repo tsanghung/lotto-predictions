@@ -8,7 +8,7 @@ test("lotto-update runs v3 only after v2 and isolates v3 failures", async () => 
   const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
   const evaluationSource = source.slice(source.indexOf("async function evaluateReadyPredictions"));
 
-  assert.match(source, /import \{ runEvidenceLearning \} from "\.\/lib\/evidenceLearning\.js"/);
+  assert.match(source, /import \{[\s\S]*?runEvidenceLearning[\s\S]*?\} from "\.\/lib\/evidenceLearning\.js"/);
   assert.match(evaluationSource, /await runPostDrawLearning\([\s\S]+?await runEvidenceLearningIsolated\(/);
   assert.match(source, /async function runEvidenceLearningIsolated[\s\S]+?await runEvidenceLearningForDraw\(/);
   assert.match(source, /v3Result = \{ status: "failed_isolated", root_cause: errorMessage\(error\) \}/);
@@ -21,13 +21,23 @@ test("lotto-update reads the full valid v3 score history before evaluating gates
     source.indexOf("async function insertV3ScoresIdempotently"),
   );
 
+  assert.match(source, /readStablePaginatedRows/);
+  assert.match(v3History, /fetchStableV3RestRows/);
   assert.match(v3History, /order: "draw_date\.asc,draw_id\.asc,id\.asc"/);
-  assert.match(v3History, /Prefer: "count=exact"/);
-  assert.match(v3History, /Content-Range/);
-  assert.match(v3History, /MAX_V3_HISTORY_ROWS/);
-  assert.match(v3History, /MAX_V3_HISTORY_PAGES/);
-  assert.match(v3History, /offset \+= page\.length/);
-  assert.match(v3History, /missing page/);
+  assert.match(v3History, /snapshotColumn: "evaluated_at"/);
+});
+
+test("every invocation merges bounded durable v3 pending work after v2", async () => {
+  const source = await readFile(new URL("../index.ts", import.meta.url), "utf8");
+  const handler = source.slice(source.indexOf("async function handleRequest"));
+  const v2Offset = handler.indexOf("await evaluateReadyPredictions");
+  const durableOffset = handler.indexOf("await fetchDurableV3PendingDraws");
+
+  assert.match(source, /async function fetchDurableV3PendingDraws/);
+  assert.match(source, /buildV3PendingWorklist/);
+  assert.ok(v2Offset >= 0 && durableOffset > v2Offset, "durable v3 work must run after v2");
+  assert.match(handler, /confirmedDrawRows[\s\S]+?durablePendingDraws[\s\S]+?buildV3PendingWorklist/);
+  assert.match(handler, /for \(const pendingDraw of v3Worklist\)/);
 });
 
 test("confirmed draws have a v3 entry point independent of ready predictions and activation is disabled", async () => {
@@ -35,7 +45,7 @@ test("confirmed draws have a v3 entry point independent of ready predictions and
   const evidenceSource = await readFile(new URL("./evidenceLearning.js", import.meta.url), "utf8");
   const handler = source.slice(source.indexOf("async function handleRequest"));
 
-  assert.match(handler, /for \(const confirmedDraw of confirmedDraws\)/);
+  assert.match(handler, /for \(const pendingDraw of v3Worklist\)/);
   assert.match(source, /activationAuthorized: false/);
   assert.doesNotMatch(source, /candidateEvidence\.sampleCount,\s*canaryDraws/);
   assert.match(evidenceSource, /persisted\?\.authorized === true/);

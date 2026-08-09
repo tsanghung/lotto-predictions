@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyFamilyFdr, runEvidenceLearning } from "./evidenceLearning.js";
+import * as evidenceLearning from "./evidenceLearning.js";
+
+const { applyFamilyFdr, runEvidenceLearning } = evidenceLearning;
 
 const input = {
   gameName: "今彩539",
@@ -252,4 +254,245 @@ test("missing same-game uniform baseline blocks scoring and decision persistence
   assert.equal(result.status, "blocked_registry");
   assert.equal(deps.insertedScores.length, 0);
   assert.equal(deps.decisions.length, 0);
+});
+
+test("malformed durable actual numbers fail closed before correction persistence", async () => {
+  const deps = makeEvidenceLearningDeps();
+  await runEvidenceLearning(input, deps);
+  deps.db.scores[0].metrics.actual_numbers = [1, 2];
+
+  await assert.rejects(
+    runEvidenceLearning({
+      ...input,
+      draw: { ...input.draw, numbers: [2, 8, 14, 26, 38] },
+      sourceRevision: "draw-canonical-r2",
+    }, deps),
+    /actual_numbers.*count/i,
+  );
+  assert.equal(deps.corrections.length, 0);
+});
+
+test("durable actual numbers reject non-integers out-of-range values and duplicates", async (context) => {
+  const cases = [
+    { name: "non-integer", actual: [1, 7, 13, 25, 38.5], pattern: /integers/i },
+    { name: "out-of-range", actual: [1, 7, 13, 25, 40], pattern: /within 1\.\.39/i },
+    { name: "duplicate", actual: [1, 7, 13, 25, 25], pattern: /unique/i },
+  ];
+  for (const fixture of cases) {
+    await context.test(fixture.name, async () => {
+      const deps = makeEvidenceLearningDeps();
+      await runEvidenceLearning(input, deps);
+      deps.db.scores[0].metrics.actual_numbers = fixture.actual;
+      await assert.rejects(runEvidenceLearning(input, deps), fixture.pattern);
+      assert.equal(deps.corrections.length, 0);
+    });
+  }
+});
+
+test("stale rows for one previous revision require one canonical actual payload", async () => {
+  const deps = makeEvidenceLearningDeps();
+  await runEvidenceLearning(input, deps);
+  deps.db.scores[1].metrics.actual_numbers = [2, 8, 14, 26, 38];
+
+  await assert.rejects(
+    runEvidenceLearning({
+      ...input,
+      draw: { ...input.draw, numbers: [3, 9, 15, 27, 37] },
+      sourceRevision: "draw-canonical-r2",
+    }, deps),
+    /canonical actual payload/i,
+  );
+  assert.equal(deps.corrections.length, 0);
+});
+
+test("missing active state blocks every decision even while activation is disabled", async () => {
+  const deps = makeEvidenceLearningDeps({ activeState: null });
+
+  await assert.rejects(
+    runEvidenceLearning({ ...input, activationAuthorized: false }, deps),
+    /active state/i,
+  );
+  assert.equal(deps.decisions.length, 0);
+  assert.equal(deps.activations.length, 0);
+});
+
+test("malformed active model source blocks decision persistence", async () => {
+  const deps = makeEvidenceLearningDeps({ activeState: { ...baselineState, expert_weights: {} } });
+  await assert.rejects(runEvidenceLearning({ ...input, activationAuthorized: false }, deps), /active state.*model source/i);
+  assert.equal(deps.decisions.length, 0);
+});
+
+test("a late candidate is scored after the baseline draw score already exists", async () => {
+  const deps = makeEvidenceLearningDeps({ forecasts: [validUniform] });
+  const baseline = await runEvidenceLearning(input, deps);
+  deps.fetchV3Forecasts = async () => clone([validUniform, validBayesian]);
+
+  const candidate = await runEvidenceLearning(input, deps);
+  const replay = await runEvidenceLearning(input, deps);
+
+  assert.equal(baseline.scoresWritten, 1);
+  assert.equal(candidate.status, "learned");
+  assert.equal(candidate.scoresWritten, 1);
+  assert.equal(replay.status, "already_scored");
+  assert.deepEqual(deps.insertedScores.map((row) => row.forecast_id), ["forecast-uniform", "forecast-bayesian"]);
+});
+
+test("correction replaces stale scores and inserts a newly arrived candidate", async () => {
+  const deps = makeEvidenceLearningDeps({ forecasts: [validUniform] });
+  await runEvidenceLearning(input, deps);
+  deps.fetchV3Forecasts = async () => clone([validUniform, validBayesian]);
+
+  const result = await runEvidenceLearning({
+    ...input,
+    draw: { ...input.draw, numbers: [2, 8, 14, 26, 38] },
+    sourceRevision: "draw-canonical-r2",
+  }, deps);
+
+  assert.equal(result.status, "corrected");
+  assert.equal(deps.corrections[0].replacement_scores.length, 1);
+  assert.equal(deps.corrections[0].replacement_scores[0].forecast_id, "forecast-uniform");
+  assert.ok(deps.insertedScores.some((row) => row.forecast_id === "forecast-bayesian"));
+});
+
+test("durable worklist merges confirmed draws with missing and stale score work", () => {
+  assert.equal(typeof evidenceLearning.buildV3PendingWorklist, "function");
+  const draws = [
+    { game_name: input.gameName, draw_id: "draw-complete", draw_date: "2026-08-01", numbers: [1, 7, 13, 25, 39], special_number: null },
+    { game_name: input.gameName, draw_id: "draw-missing", draw_date: "2026-08-02", numbers: [2, 8, 14, 26, 38], special_number: null },
+    { game_name: input.gameName, draw_id: "draw-stale", draw_date: "2026-08-03", numbers: [3, 9, 15, 27, 37], special_number: null },
+    { game_name: input.gameName, draw_id: "draw-confirmed", draw_date: "2026-08-04", numbers: [4, 10, 16, 28, 36], special_number: null },
+  ];
+  const forecasts = [
+    { id: "forecast-complete", game_name: input.gameName, target_draw_date: "2026-08-01", registry_id: "registry-bayesian" },
+    { id: "forecast-missing", game_name: input.gameName, target_draw_date: "2026-08-02", registry_id: "registry-bayesian" },
+    { id: "forecast-stale", game_name: input.gameName, target_draw_date: "2026-08-03", registry_id: "registry-bayesian" },
+  ];
+  const scores = [
+    { id: "score-complete", forecast_id: "forecast-complete", draw_id: "draw-complete", game_name: input.gameName, is_valid: true, metrics: { actual_numbers: [1, 7, 13, 25, 39], actual_special_number: null } },
+    { id: "score-stale", forecast_id: "forecast-stale", draw_id: "draw-stale", game_name: input.gameName, is_valid: true, metrics: { actual_numbers: [5, 11, 17, 29, 35], actual_special_number: null } },
+  ];
+
+  const pending = evidenceLearning.buildV3PendingWorklist({
+    confirmedDraws: [draws[3], draws[1]],
+    draws,
+    forecasts,
+    scores,
+    configByGame: { [input.gameName]: input.config },
+  });
+
+  assert.deepEqual(pending.map((draw) => draw.draw_id), ["draw-missing", "draw-stale", "draw-confirmed"]);
+});
+
+test("a forecast arriving after an empty invocation becomes durable pending work", () => {
+  assert.equal(typeof evidenceLearning.buildV3PendingWorklist, "function");
+  const draw = { game_name: input.gameName, draw_id: "draw-late", draw_date: "2026-08-05", numbers: [1, 7, 13, 25, 39], special_number: null };
+  const empty = evidenceLearning.buildV3PendingWorklist({ confirmedDraws: [], draws: [draw], forecasts: [], scores: [], configByGame: { [input.gameName]: input.config } });
+  const late = evidenceLearning.buildV3PendingWorklist({
+    confirmedDraws: [],
+    draws: [draw],
+    forecasts: [{ id: "forecast-late", game_name: input.gameName, target_draw_date: draw.draw_date, registry_id: "registry-bayesian" }],
+    scores: [],
+    configByGame: { [input.gameName]: input.config },
+  });
+
+  assert.deepEqual(empty, []);
+  assert.deepEqual(late.map((row) => row.draw_id), ["draw-late"]);
+});
+
+function pagedRows(count) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `score-${String(index).padStart(4, "0")}`,
+    draw_date: `2026-08-${String(Math.floor(index / 100) + 1).padStart(2, "0")}`,
+    draw_id: `draw-${String(index).padStart(4, "0")}`,
+  }));
+}
+
+function cappedPageReader(sourceRows, { cap = 500, mutateSecondScan = null } = {}) {
+  return async ({ offset, requestedEnd, pass }) => {
+    const activeRows = pass === 2 && mutateSecondScan ? mutateSecondScan(sourceRows) : sourceRows;
+    const endExclusive = Math.min(offset + cap, requestedEnd + 1, activeRows.length);
+    const rows = activeRows.slice(offset, endExclusive);
+    return {
+      rows,
+      contentRange: rows.length ? `${offset}-${offset + rows.length - 1}/${activeRows.length}` : `*/${activeRows.length}`,
+    };
+  };
+}
+
+test("stable pagination reads all 1200 rows when the API caps pages at 500", async () => {
+  assert.equal(typeof evidenceLearning.readStablePaginatedRows, "function");
+  const rows = pagedRows(1200);
+  const result = await evidenceLearning.readStablePaginatedRows({
+    fetchPage: cappedPageReader(rows),
+    orderFields: ["draw_date", "draw_id", "id"],
+    pageSize: 1000,
+    maxRows: 2000,
+    maxPages: 10,
+  });
+  assert.equal(result.length, 1200);
+  assert.equal(result[1199].id, "score-1199");
+});
+
+test("stable pagination rejects wrong coordinates duplicate ids and non-increasing order", async () => {
+  assert.equal(typeof evidenceLearning.readStablePaginatedRows, "function");
+  const rows = pagedRows(3);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: async () => ({ rows, contentRange: "1-3/3" }),
+    orderFields: ["draw_date", "draw_id", "id"],
+    maxRows: 10,
+    maxPages: 2,
+  }), /coordinates/i);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: cappedPageReader([rows[0], { ...rows[1], id: rows[0].id }]),
+    orderFields: ["draw_date", "draw_id", "id"],
+    maxRows: 10,
+    maxPages: 2,
+  }), /duplicate id/i);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: cappedPageReader([rows[1], rows[0]]),
+    orderFields: ["draw_date", "draw_id", "id"],
+    maxRows: 10,
+    maxPages: 2,
+  }), /strictly increasing/i);
+});
+
+test("stable pagination rejects missing or changing totals overflow and same-total drift", async () => {
+  assert.equal(typeof evidenceLearning.readStablePaginatedRows, "function");
+  const rows = pagedRows(3);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: async () => ({ rows, contentRange: null }),
+    orderFields: ["draw_date", "draw_id", "id"],
+    maxRows: 10,
+    maxPages: 2,
+  }), /total/i);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: async ({ offset }) => offset === 0
+      ? { rows: rows.slice(0, 2), contentRange: "0-1/3" }
+      : { rows: rows.slice(2), contentRange: "2-2/4" },
+    orderFields: ["draw_date", "draw_id", "id"],
+    pageSize: 2,
+    maxRows: 10,
+    maxPages: 3,
+  }), /total changed/i);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: async ({ offset }) => offset === 0
+      ? { rows: rows.slice(0, 2), contentRange: "0-1/3" }
+      : { rows: [], contentRange: "*/3" },
+    orderFields: ["draw_date", "draw_id", "id"],
+    pageSize: 2,
+    maxRows: 10,
+    maxPages: 3,
+  }), /missing page/i);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: cappedPageReader(rows),
+    orderFields: ["draw_date", "draw_id", "id"],
+    maxRows: 2,
+    maxPages: 2,
+  }), /bounded row limit/i);
+  await assert.rejects(evidenceLearning.readStablePaginatedRows({
+    fetchPage: cappedPageReader(rows, { mutateSecondScan: (current) => current.map((row, index) => index === 1 ? { ...row, payload: "mutated" } : row) }),
+    orderFields: ["draw_date", "draw_id", "id"],
+    maxRows: 10,
+    maxPages: 2,
+  }), /drift/i);
 });

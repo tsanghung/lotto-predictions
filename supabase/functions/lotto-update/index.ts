@@ -15,7 +15,11 @@ import {
   taiwanDateParts,
   toLottoDrawRow,
 } from "./lib/lottoCore.js";
-import { runEvidenceLearning } from "./lib/evidenceLearning.js";
+import {
+  buildV3PendingWorklist,
+  readStablePaginatedRows,
+  runEvidenceLearning,
+} from "./lib/evidenceLearning.js";
 import { GAME_CONFIG } from "../lotto-predict-notify/lib/gameConfig.js";
 
 type GameType = "539" | "649" | "power";
@@ -733,56 +737,175 @@ async function fetchV3Forecasts(
   return response.json();
 }
 
+type StableV3RestRowsOptions = {
+  table: string;
+  select: string;
+  filters: Record<string, string>;
+  order: string;
+  orderFields: string[];
+  identityFields?: string[];
+  snapshotColumn: string;
+  pageSize: number;
+  maxRows: number;
+  maxPages: number;
+  errorLabel: string;
+};
+
+async function fetchStableV3RestRows(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  options: StableV3RestRowsOptions,
+): Promise<Record<string, unknown>[]> {
+  const identityFields = options.identityFields ?? ["id"];
+  const snapshotParams = new URLSearchParams({
+    select: options.select,
+    ...options.filters,
+    order: `${options.snapshotColumn}.desc,${identityFields.map((field) => `${field}.desc`).join(",")}`,
+    limit: "1",
+  });
+  const snapshotResponse = await fetch(`${supabaseUrl}/rest/v1/${options.table}?${snapshotParams}`, {
+    headers: supabaseHeaders(serviceRoleKey),
+  });
+  if (!snapshotResponse.ok) {
+    throw new Error(`${options.errorLabel} snapshot query failed: ${snapshotResponse.status} ${await snapshotResponse.text()}`);
+  }
+  const snapshotRows = await snapshotResponse.json() as Record<string, unknown>[];
+  const snapshotCutoff = snapshotRows[0]?.[options.snapshotColumn];
+  if (snapshotRows.length && (typeof snapshotCutoff !== "string" || !snapshotCutoff)) {
+    throw new Error(`${options.errorLabel} snapshot cutoff is missing`);
+  }
+
+  return readStablePaginatedRows({
+    orderFields: options.orderFields,
+    identityFields,
+    pageSize: options.pageSize,
+    maxRows: options.maxRows,
+    maxPages: options.maxPages,
+    fetchPage: async ({ offset, limit, requestedEnd }: { offset: number; limit: number; requestedEnd: number }) => {
+      const params = new URLSearchParams({
+        select: options.select,
+        ...options.filters,
+        ...(snapshotCutoff ? { [options.snapshotColumn]: `lte.${snapshotCutoff}` } : {}),
+        order: options.order,
+        limit: String(limit),
+        offset: String(offset),
+      });
+      const response = await fetch(`${supabaseUrl}/rest/v1/${options.table}?${params}`, {
+        headers: {
+          ...supabaseHeaders(serviceRoleKey),
+          Prefer: "count=exact",
+          "Range-Unit": "items",
+          Range: `${offset}-${requestedEnd}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`${options.errorLabel} page query failed: ${response.status} ${await response.text()}`);
+      }
+      return {
+        rows: await response.json() as Record<string, unknown>[],
+        contentRange: response.headers.get("content-range"),
+      };
+    },
+  });
+}
+
 async function fetchV3ValidScoreHistory(
   supabaseUrl: string,
   serviceRoleKey: string,
   gameName: string,
   throughDrawDate: string,
 ): Promise<Record<string, unknown>[]> {
-  const MAX_V3_HISTORY_ROWS = 100000;
-  const MAX_V3_HISTORY_PAGES = 200;
-  const rows: Record<string, unknown>[] = [];
-  const pageSize = 1000;
-  let offset = 0;
-  let total: number | null = null;
-  for (let pageNumber = 0; pageNumber < MAX_V3_HISTORY_PAGES; pageNumber += 1) {
-    const params = new URLSearchParams({
-      select: "id,forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,source_revision,is_valid,supersedes_score_id,forecast:lotto_model_forecasts!inner(registry_id,model_name,forecast_mode,experiment_run_id,registry:lai_model_registry!inner(id,game_name,model_name,model_family,status))",
+  return fetchStableV3RestRows(supabaseUrl, serviceRoleKey, {
+    table: "lotto_model_scores",
+    select: "id,forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,evaluated_at,source_revision,is_valid,supersedes_score_id,forecast:lotto_model_forecasts!inner(registry_id,model_name,forecast_mode,experiment_run_id,registry:lai_model_registry!inner(id,game_name,model_name,model_family,status))",
+    filters: {
       game_name: `eq.${gameName}`,
       draw_date: `lte.${throughDrawDate}`,
       is_valid: "eq.true",
       "forecast.registry_id": "not.is.null",
-      order: "draw_date.asc,draw_id.asc,id.asc",
-      limit: String(pageSize),
-      offset: String(offset),
-    });
-    const response = await fetch(`${supabaseUrl}/rest/v1/lotto_model_scores?${params}`, {
-      headers: { ...supabaseHeaders(serviceRoleKey), Prefer: "count=exact" },
-    });
-    if (!response.ok) {
-      throw new Error(`Supabase LAI v3 score history query failed: ${response.status} ${await response.text()}`);
-    }
-    const page = await response.json() as Record<string, unknown>[];
-    const contentRange = response.headers.get("content-range");
-    const totalMatch = contentRange?.match(/^(?:\d+-\d+|\*)\/(\d+)$/);
-    if (!totalMatch) {
-      throw new Error("Supabase LAI v3 score history query did not provide an exact Content-Range total");
-    }
-    const pageTotal = Number(totalMatch[1]);
-    if (!Number.isSafeInteger(pageTotal) || pageTotal > MAX_V3_HISTORY_ROWS) {
-      throw new Error("Supabase LAI v3 score history exceeds the bounded evidence limit");
-    }
-    if (total != null && total !== pageTotal) {
-      throw new Error("Supabase LAI v3 score history total changed during pagination");
-    }
-    total = pageTotal;
-    rows.push(...page);
-    if (rows.length > total) throw new Error("Supabase LAI v3 score history pagination exceeded Content-Range total");
-    if (rows.length === total) return rows;
-    if (!page.length) throw new Error("Supabase LAI v3 score history has a missing page");
-    offset += page.length;
-  }
-  throw new Error("Supabase LAI v3 score history exceeded the bounded page limit");
+    },
+    order: "draw_date.asc,draw_id.asc,id.asc",
+    orderFields: ["draw_date", "draw_id", "id"],
+    snapshotColumn: "evaluated_at",
+    pageSize: 1000,
+    maxRows: 100000,
+    maxPages: 200,
+    errorLabel: "Supabase LAI v3 score history",
+  });
+}
+
+async function fetchDurableV3PendingDraws(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  gameNames: string[],
+  throughDrawDate: string,
+): Promise<DrawRow[]> {
+  const gameFilter = `in.(${gameNames.map((name) => `"${name}"`).join(",")})`;
+  const forecasts = await fetchStableV3RestRows(supabaseUrl, serviceRoleKey, {
+    table: "lotto_model_forecasts",
+    select: "id,game_name,target_draw_date,registry_id,created_at",
+    filters: {
+      game_name: gameFilter,
+      target_draw_date: `lte.${throughDrawDate}`,
+      registry_id: "not.is.null",
+    },
+    order: "target_draw_date.asc,game_name.asc,id.asc",
+    orderFields: ["target_draw_date", "game_name", "id"],
+    snapshotColumn: "created_at",
+    pageSize: 1000,
+    maxRows: 10000,
+    maxPages: 40,
+    errorLabel: "Supabase LAI v3 durable forecast worklist",
+  });
+  if (!forecasts.length) return [];
+
+  const firstForecastDate = forecasts.reduce((earliest, row) => {
+    const date = String(row.target_draw_date ?? "");
+    return !earliest || date < earliest ? date : earliest;
+  }, "");
+  if (!firstForecastDate) throw new Error("Supabase LAI v3 durable forecast worklist has no target date");
+
+  const draws = await fetchStableV3RestRows(supabaseUrl, serviceRoleKey, {
+    table: "lotto_draws",
+    select: "game_name,draw_id,draw_date,numbers,special_number,raw,updated_at",
+    filters: {
+      game_name: gameFilter,
+      and: `(draw_date.gte.${firstForecastDate},draw_date.lte.${throughDrawDate})`,
+    },
+    order: "draw_date.asc,game_name.asc,draw_id.asc",
+    orderFields: ["draw_date", "game_name", "draw_id"],
+    identityFields: ["game_name", "draw_id"],
+    snapshotColumn: "updated_at",
+    pageSize: 1000,
+    maxRows: 10000,
+    maxPages: 40,
+    errorLabel: "Supabase LAI v3 durable draw worklist",
+  });
+  const scores = await fetchStableV3RestRows(supabaseUrl, serviceRoleKey, {
+    table: "lotto_model_scores",
+    select: "id,forecast_id,game_name,draw_id,draw_date,metrics,evaluated_at,is_valid,forecast:lotto_model_forecasts!inner(registry_id)",
+    filters: {
+      game_name: gameFilter,
+      and: `(draw_date.gte.${firstForecastDate},draw_date.lte.${throughDrawDate})`,
+      is_valid: "eq.true",
+      "forecast.registry_id": "not.is.null",
+    },
+    order: "draw_date.asc,game_name.asc,draw_id.asc,id.asc",
+    orderFields: ["draw_date", "game_name", "draw_id", "id"],
+    snapshotColumn: "evaluated_at",
+    pageSize: 1000,
+    maxRows: 100000,
+    maxPages: 200,
+    errorLabel: "Supabase LAI v3 durable score worklist",
+  });
+  const configByGame = Object.fromEntries(gameNames.map((gameName) => [gameName, gameConfigForName(gameName)]));
+  return buildV3PendingWorklist({
+    confirmedDraws: [],
+    draws,
+    forecasts,
+    scores,
+    configByGame,
+  }) as DrawRow[];
 }
 
 async function insertV3ScoresIdempotently(
@@ -1371,14 +1494,39 @@ async function handleRequest(request: Request): Promise<Response> {
         game_name: GAME_NAMES[result.game],
         draw_id: drawId,
       })));
+      const confirmedDrawRows: DrawRow[] = [];
       for (const confirmedDraw of confirmedDraws) {
-        const draw = await fetchExistingDraw(supabaseUrl, serviceRoleKey, confirmedDraw.game_name, confirmedDraw.draw_id);
-        if (!draw) {
-          v3_evidence.push({ ...confirmedDraw, status: "failed_isolated", root_cause: "confirmed draw was not readable after upsert" });
-          continue;
+        try {
+          const draw = await fetchExistingDraw(supabaseUrl, serviceRoleKey, confirmedDraw.game_name, confirmedDraw.draw_id);
+          if (draw) confirmedDrawRows.push(draw);
+          else v3_evidence.push({ ...confirmedDraw, status: "failed_isolated", root_cause: "confirmed draw was not readable after upsert" });
+        } catch (error) {
+          v3_evidence.push({ ...confirmedDraw, status: "failed_isolated", root_cause: errorMessage(error) });
         }
-        const v3Result = await runEvidenceLearningIsolated(supabaseUrl, serviceRoleKey, draw);
-        v3_evidence.push({ game_name: draw.game_name, draw_id: draw.draw_id, ...v3Result });
+      }
+
+      let durablePendingDraws: DrawRow[] = [];
+      try {
+        durablePendingDraws = await fetchDurableV3PendingDraws(
+          supabaseUrl,
+          serviceRoleKey,
+          games.map((game) => GAME_NAMES[game]),
+          targetDate,
+        );
+      } catch (error) {
+        v3_evidence.push({ scope: "durable_worklist", status: "failed_isolated", root_cause: errorMessage(error) });
+      }
+      const configByGame = Object.fromEntries(games.map((game) => [GAME_NAMES[game], gameConfigForName(GAME_NAMES[game])]));
+      const v3Worklist = buildV3PendingWorklist({
+        confirmedDraws: [...confirmedDrawRows, ...durablePendingDraws],
+        draws: [],
+        forecasts: [],
+        scores: [],
+        configByGame,
+      }) as DrawRow[];
+      for (const pendingDraw of v3Worklist) {
+        const v3Result = await runEvidenceLearningIsolated(supabaseUrl, serviceRoleKey, pendingDraw);
+        v3_evidence.push({ game_name: pendingDraw.game_name, draw_id: pendingDraw.draw_id, ...v3Result });
       }
     }
 
