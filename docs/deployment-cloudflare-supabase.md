@@ -233,3 +233,55 @@ Rollback 後：
 5. 修正後先重做 shadow 與 production dry run，禁止直接重新開 `LAI_V2_ENABLED`。
 
 Functions 使用 server-to-server secret 並在 handler 內再次驗證，因此 deploy 採 `--no-verify-jwt`。Supabase gateway 不會把 `sb_secret_...` 當 JWT；關閉 gateway JWT 檢查後仍必須由 handler 驗證 secret。參考：[Authorization Headers](https://supabase.com/docs/guides/functions/auth-headers)、[Securing Edge Functions](https://supabase.com/docs/guides/functions/auth)。
+
+## 8. LAI v3 Evidence Agent 部署界線
+
+### 目前狀態
+
+LAI v3 已具備 schema、歷史 replay、shadow forecast 與 post-draw evidence 計算能力，但現行 runtime 仍鎖定為 shadow-only。`activationAuthorized` 固定為 `false`，`LAI_V3_PRODUCTION_ENABLED=true` 也不會開啟 v3 正式 prediction 或 LINE；它只會保留 v3 shadow 執行並阻擋沒有 v2 active state 的正式交付。
+
+### 必要環境變數
+
+以下值只能保存於 Supabase Edge Function secrets 或本機安全 shell，不得放入 Cloudflare Pages、前端環境變數或 Git：
+
+```text
+SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_ANON_KEY
+LOTTO_CODE_COMMIT
+LAI_V3_SHADOW_ENABLED
+LAI_V3_PRODUCTION_ENABLED
+```
+
+`LOTTO_CODE_COMMIT` 必須是部署程式對應的 Git commit SHA。v3 shadow 缺少它時應記為 isolated failure，而不是填入假版本。
+
+### 本機 replay 與 production 唯讀驗證
+
+```powershell
+node --test scripts/lai_v3_replay.test.mjs scripts/lai_v3_verify.test.mjs
+node scripts/lai_v3_replay.mjs --game=539 --source=local --seed=lai-v3-539
+node scripts/lai_v3_replay.mjs --game=649 --source=local --seed=lai-v3-649
+node scripts/lai_v3_replay.mjs --game=power --source=local --seed=lai-v3-power
+
+$env:SUPABASE_URL = "https://<PROJECT_REF>.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY = "<SERVICE_ROLE_KEY>"
+$env:SUPABASE_ANON_KEY = "<ANON_KEY>"
+node scripts/lai_v3_verify.mjs
+```
+
+Replay 預設不連線寫入 Supabase；`--source=supabase` 也只對 `lotto_draws` 發出排序後的 `GET`。如果指定 `--output=reports/<name>.json`，只會在本機 repo 內輸出 JSON 證據報告。
+
+### Shadow rollout 與不能跨越的門檻
+
+1. 先執行 migration history 與 `db push --dry-run`，確認 `20260806000000_create_lai_v3_evidence_agent.sql` 及後續修正 migration 的順序正確。
+2. 經人工核准的部署才可設定 `LAI_V3_SHADOW_ENABLED=true` 與 `LAI_V3_PRODUCTION_ENABLED=false`。這一步不改變現有 LAI v2 正式預測、Cloudflare Pages 或 LINE 交付。
+3. 觀察每彩種至少 `30` 個有效 shadow draws，並以 replay digest、Brier／log loss、calibration、coverage、confidence interval、permutation p 與 adjusted q 檢查 evidence。
+4. 現行程式不提供 canary 或 champion 啟用程序。即使 evidence 通過，仍必須先有新的 activation code、測試、資料庫審查與明確人工授權；不得設定 `LAI_V3_PRODUCTION_ENABLED=true` 當作替代方案。
+
+### 回復程序
+
+```powershell
+npx --yes supabase secrets set LAI_V3_SHADOW_ENABLED=false LAI_V3_PRODUCTION_ENABLED=false --project-ref $env:SUPABASE_PROJECT_REF
+```
+
+這個動作只停用額外 shadow 工作，不刪除 v3 evidence，也不修改既有 v2 state。故障紀錄必須使用 `Status`、`RootCause`、`SuggestedFix`，並保留 notification key 與 replay digest 以追溯問題。

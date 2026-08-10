@@ -24,3 +24,7 @@ helpers only. See [docs/legacy-python-engine.md](docs/legacy-python-engine.md).
 ## Cloudflare Pages + Supabase
 
 See [docs/deployment-cloudflare-supabase.md](docs/deployment-cloudflare-supabase.md).
+
+## LAI v3 Evidence Agent
+
+LAI v3 是以可重播證據、proper scoring、校正與雙組覆蓋評分為核心的研究 lane。目前只允許 shadow：它不會覆寫正式推薦、不會發送額外 LINE，也不會自動升級為 canary 或 champion。完整的 06:00／10:00 checkpoint、旗標真值表、唯讀 verifier、replay 指令與回復程序請見 [docs/runtime-triggers.md](docs/runtime-triggers.md) 與 [docs/deployment-cloudflare-supabase.md](docs/deployment-cloudflare-supabase.md)。

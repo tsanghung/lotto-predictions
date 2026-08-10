@@ -339,3 +339,60 @@ npx --yes supabase secrets set LAI_V2_SHADOW_ENABLED=false LAI_V2_ENABLED=false 
 ```
 
 Rollback 只切回 `game-theory-v1`，不刪除 `lotto_agent_states`、training runs、forecasts、scores、claims 或 learning reports。先以 `dry_run=1` 驗證 response 的 model 已回到舊版，再等待下一個 10:00 排程。若是資料一致性事故，除了關閉旗標，也應暫停相關 Cron job 並保留所有證據，確認原因後才恢復。
+
+## LAI v3 Evidence Agent（目前僅限 Shadow）
+
+目前正式交付 lane 固定為既有 LAI v2 或 honest fallback。LAI v3 僅能產生隔離的 shadow evidence；所有呼叫 `runEvidenceLearningForDraw` 的路徑皆以 `activationAuthorized: false` 執行，因此不會啟用 v3 active state、覆寫正式推薦或發送額外 LINE。
+
+### 1. 台灣時間 06:00：開獎資料、對獎與證據學習
+
+`0 22 * * *` UTC 的 `public.invoke_lotto_update()` 依序執行：
+
+1. 以台灣前一天為 `target_date` 取得各彩種官方開獎資料，必要時套用第二來源與修正資料。
+2. Upsert `lotto_draws`，偵測既有期別的 canonical payload 是否變更；變更會留下 LAI v3 correction evidence，不會靜默覆蓋評分脈絡。
+3. 對已可對獎的正式 `prediction_records` 執行 LAI v2 對獎、模型評分、active state checkpoint 與效能快照更新。
+4. 對已確認開獎且存在 v3 forecast 的期別，計算不可變 v3 proper score、更新 experiment evidence 與 promotion decision。v3 失敗只記錄 `failed_isolated`，不得回滾已確認的開獎資料或干擾 v2 checkpoint。
+
+有效樣本以「同一彩種、已成功產生 forecast 且已成功評分」的 draw 為準；calendar day、沒有開獎日、重複呼叫與失敗期別都不得灌入樣本數。
+
+### 2. 台灣時間 10:00：當日預測與通知
+
+`0 2 * * *` UTC 的 `public.invoke_lotto_predict_notify()` 只處理當日應開獎的彩種：
+
+1. 讀取截至當下可確認的歷史資料與既有正式 v2 active state。
+2. 產生既有正式 prediction，先寫入 `prediction_records`，再 reserve 唯一 `notification_key`，最後才發送 LINE；重試沿用 deterministic retry key。
+3. 當 `LAI_V3_SHADOW_ENABLED=true` 時，額外建立 v3 experiment 並只寫入 `lotto_model_forecasts.forecast_mode = shadow`。此步驟不得寫入 v3 `prediction_records`、evidence snapshot 或 notification log，也不得發送第二筆 LINE。
+4. V3 shadow 失敗會回報 isolated status，正式 v2／honest lane 照既有規則繼續或明確失敗。
+
+### 3. LAI v3 旗標真值表
+
+| `LAI_V3_SHADOW_ENABLED` | `LAI_V3_PRODUCTION_ENABLED` | 現行 v3 行為 | 正式預測與 LINE |
+| --- | --- | --- | --- |
+| `false` | `false` | 不執行 v3 | 既有 v2／honest lane |
+| `true` | `false` | 只寫入 shadow forecast 與 experiment evidence | 既有 v2／honest lane |
+| `false` | `true` | 視為安全阻擋，仍只嘗試 shadow | v3 不可正式交付；有 v2 state 時仍走 v2，否則回傳 `blocked_no_valid_state` |
+| `true` | `true` | 同上，production flag 不會提高 v3 權限 | 同上 |
+
+`LAI_V3_PRODUCTION_ENABLED` 不是 canary 或 champion 的開關。現行程式故意拒絕 `engine=lai-v3` 的非 dry-run 請求；`engine=lai-v3&dry_run=1` 也是零寫入 preview，且只有在未來存在完整且已核准的 v3 state 時才會回傳號碼。
+
+### 4. 階段門檻與人工授權
+
+1. Phase A：migration、Function 與本機 replay 全數通過，仍不改變正式 lane。
+2. Phase B：經人工部署後才可啟用 `LAI_V3_SHADOW_ENABLED=true`，每個候選模型與每個彩種至少累積 `30` 個有效 live shadow draws。
+3. Phase C：目前 runtime 鎖定，不能靠任何 secret 或 URL 參數進入 canary。必須新增可審查的 activation boundary、通過 `--require-stage=canary` 的唯讀 verifier，並取得新的明確人工授權後，才可修改此政策。
+4. Phase D：同樣不能自動進入 champion。除完整 gate、至少 `20` 個有效 canary draws 與回退驗證外，還需要新的程式變更與人工授權。
+
+### 5. 唯讀驗證與回復
+
+```powershell
+$env:SUPABASE_URL = "https://<PROJECT_REF>.supabase.co"
+$env:SUPABASE_SERVICE_ROLE_KEY = "<SERVICE_ROLE_KEY>"
+$env:SUPABASE_ANON_KEY = "<ANON_KEY>"
+
+node scripts/lai_v3_verify.mjs
+node scripts/lai_v3_verify.mjs --require-stage=shadow_verified
+```
+
+Verifier 只使用 Supabase REST `GET`，檢查 v3 RLS、每彩種唯一 `uniform-null` baseline、experiment cursor 與 digest、shadow isolation、active state、canary 10% 上限與 LINE sent key 去重。任何失敗皆以 JSON `Status`、`RootCause`、`SuggestedFix` 回報並以非零 exit code 結束。
+
+若需要立即停止 v3 shadow，僅將兩個 v3 flag 都設為 `false`，保留所有 experiment、forecast、score、correction 與 decision evidence 供事後稽核；不得刪除資料，也不得為了補送手動重送 LINE。
