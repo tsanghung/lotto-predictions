@@ -211,6 +211,50 @@ test("follow-up migration supports immutable keyed correction events without dir
   assert.doesNotMatch(sql, /grant all on table public\.lai_evidence_corrections to service_role/i);
 });
 
+test("correction event backfill controls only the known immutable trigger and restores it atomically", async () => {
+  const sql = executableSql(await readFile(correctionEventMigration, "utf8"));
+  const dropOffset = sql.search(/drop trigger[\s\S]*prevent_lai_evidence_corrections_mutation/i);
+  const updateOffset = sql.search(/update public\.lai_evidence_corrections[\s\S]*set[\s\S]*event_key[\s\S]*event_payload/i);
+  const createOffset = sql.search(/create trigger prevent_lai_evidence_corrections_mutation/i);
+  const backfill = sql.slice(updateOffset, sql.indexOf("where event_key", updateOffset));
+
+  assert.match(sql, /pg_catalog\.to_regprocedure\('public\.prevent_lai_evidence_mutation\(\)'\)/i);
+  assert.match(sql, /select triggers\.oid, triggers\.tgfoid, triggers\.tgtype[\s\S]*from pg_catalog\.pg_trigger/i);
+  assert.match(sql, /immutable_trigger_function is distinct from immutable_function[\s\S]*immutable_trigger_type is distinct from 27/i);
+  assert.match(sql, /if needs_backfill then/i);
+  assert.ok(dropOffset >= 0 && dropOffset < updateOffset, "known immutable trigger must be removed before the legacy update");
+  assert.ok(updateOffset < createOffset, "immutable trigger must be restored after the legacy update");
+  assert.match(backfill, /'legacy:' \|\| id::text/i);
+  assert.doesNotMatch(backfill, /\b(game_name|draw_id|previous_revision|corrected_revision|previous_draw|corrected_draw|invalidated_score_ids|replacement_score_ids|reason)\s*=/i);
+  assert.match(sql, /alter table public\.lai_evidence_corrections enable trigger prevent_lai_evidence_corrections_mutation/i);
+  assert.doesNotMatch(sql, /session_replication_role|disable trigger all/i);
+});
+
+test("legacy correction uniqueness is discovered by catalog columns rather than an assumed name", async () => {
+  const sql = executableSql(await readFile(correctionEventMigration, "utf8"));
+
+  assert.match(sql, /from pg_catalog\.pg_attribute/i);
+  assert.match(sql, /from pg_catalog\.pg_constraint as constraints/i);
+  assert.match(sql, /constraints\.contype = 'u'/i);
+  assert.match(sql, /constraints\.conkey = legacy_unique_attnums/i);
+  assert.match(sql, /format\('alter table public\.lai_evidence_corrections drop constraint %I', legacy_constraint_name\)/i);
+  assert.doesNotMatch(sql, /lai_evidence_corrections_game_name_draw_id_corrected_revision_key/i);
+  assert.match(sql, /legacy correction unique constraint still exists after catalog drop/i);
+});
+
+test("every correction-event constraint transition is catalog guarded for safe re-entry", async () => {
+  const sql = executableSql(await readFile(correctionEventMigration, "utf8"));
+
+  assert.match(sql, /event_key_not_null[\s\S]*attnotnull[\s\S]*alter column event_key set not null/i);
+  assert.match(sql, /event_payload_not_null[\s\S]*attnotnull[\s\S]*alter column event_payload set not null/i);
+  assert.match(sql, /lai_evidence_corrections_event_key_nonempty[\s\S]*constraint_found[\s\S]*add constraint lai_evidence_corrections_event_key_nonempty/i);
+  assert.match(sql, /lai_evidence_corrections_event_payload_object[\s\S]*constraint_found[\s\S]*add constraint lai_evidence_corrections_event_payload_object/i);
+  assert.match(sql, /lai_evidence_corrections_event_identity_key[\s\S]*constraint_found[\s\S]*add constraint lai_evidence_corrections_event_identity_key/i);
+  assert.match(sql, /event identity unique constraint count must equal one/i);
+  assert.doesNotMatch(sql, /add constraint if not exists/i);
+  assert.doesNotMatch(sql, /pg_catalog\.(coalesce|nullif|exists)\s*\(/i);
+});
+
 test("keyed correction RPC is exact-replay idempotent and keeps each event transactional", async () => {
   const sql = executableSql(await readFile(correctionEventMigration, "utf8"));
   const source = functionSource(sql, /create or replace function public\.record_lai_v3_correction\(p_correction jsonb\)/i);

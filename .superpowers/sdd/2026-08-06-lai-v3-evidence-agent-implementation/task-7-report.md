@@ -237,3 +237,52 @@ Production was not touched. The migration was added to the repository only and w
 - Deno is not installed, so `deno check supabase/functions/lotto-update/index.ts` remains unavailable. Node syntax checks and all Node regression suites pass, but the Deno type graph is unverified.
 - Six existing slow statistical tests remain skipped by their declared test configuration.
 - No production deployment, migration apply, database mutation, scheduler execution, frontend, LINE, Gemini, trigger, or activation-policy change was performed.
+
+## Fix Round 4
+
+### Status
+
+`DONE_WITH_CONCERNS`
+
+The repository migration is now executable around the pre-existing immutable correction trigger, discovers the exact legacy unique constraint by catalog column identity, and guards every constraint transition for re-entry after a partially completed run. Runtime code from Fix Round 3 is unchanged, including exact replay fail-closed behavior and `activationAuthorized: false`.
+
+Production was not touched. `20260810000000_normalize_lai_v3_correction_events.sql` remains a repository-only migration and was not applied to any Supabase environment.
+
+### Migration Fixes
+
+- The legacy backfill resolves the known trigger and function OIDs through `pg_trigger`, verifies the exact row-level `BEFORE UPDATE OR DELETE` trigger type, and drops only `prevent_lai_evidence_corrections_mutation` while backfilling `event_key` and `event_payload`.
+- Trigger removal, deterministic backfill, recreation, enablement, and invariant checks are contained in one `DO` statement. A failure rolls the statement back, restoring the prior trigger/data state; a re-entry also repairs a previously absent or disabled known trigger.
+- The legacy unique constraint is selected from `pg_constraint` by table OID, `contype = 'u'`, and the exact ordered `pg_attribute.attnum` array for `(game_name, draw_id, corrected_revision)`. Its catalog-discovered name is quoted with `format('%I', ...)`; no generated-name assumption remains.
+- `NOT NULL`, named checks, and event-identity uniqueness are catalog guarded. Existing objects are verified for type, columns, definition, validation, and deferrability as applicable; conflicting partial objects fail closed, and post-transition invariants require the old uniqueness to be absent and exactly one intended event-identity unique constraint to exist.
+- `COALESCE`, `NULLIF`, and `EXISTS` remain PostgreSQL expressions rather than schema-qualified pseudo-functions. The RPC replacement, revokes, and grants remain repeatable and retain the exact canonical replay boundary.
+
+### RED Evidence
+
+1. `node --test supabase/functions/_shared/lai-v3/schemaMigration.test.mjs`
+   - Before the migration fix: 11 passed, 3 failed.
+   - Expected failures proved the immutable trigger was not controlled around the backfill, the legacy unique constraint was dropped by an assumed name instead of catalog identity, and new constraints lacked re-entry guards.
+
+### GREEN Evidence
+
+1. `node --test supabase/functions/_shared/lai-v3/schemaMigration.test.mjs`
+   - 14 passed, 0 failed.
+2. `node --test supabase/functions/_shared/lai-v3/schemaMigration.test.mjs supabase/functions/lotto-update/lib/evidenceLearning.test.mjs supabase/functions/lotto-update/lib/lottoCore.test.mjs supabase/functions/lotto-update/lib/postDrawLearning.test.mjs`
+   - 107 passed, 0 failed.
+3. `$tests = rg --files supabase/functions/lotto-update -g '*.test.mjs'; node --test $tests`
+   - 100 passed, 0 failed.
+4. `$tests = rg --files supabase/functions -g '*.test.mjs'; node --test $tests`
+   - 357 passed, 0 failed, 6 existing slow statistical tests skipped.
+5. `git diff --check`
+   - Exit code 0 before this report append; rerun during final verification.
+
+### Modified Files
+
+- `supabase/migrations/20260810000000_normalize_lai_v3_correction_events.sql`
+- `supabase/functions/_shared/lai-v3/schemaMigration.test.mjs`
+- `.superpowers/sdd/2026-08-06-lai-v3-evidence-agent-implementation/task-7-report.md`
+
+### Residual Risks
+
+- `psql`, Docker, Supabase CLI, and Deno are unavailable in this environment. The migration could not be parsed or applied against a local PostgreSQL/Supabase instance, and the Deno type graph remains unverified; contract/static tests and all Node regression suites pass.
+- Six existing slow statistical tests remain skipped by their declared configuration.
+- No production deployment, migration apply, database mutation, scheduler execution, frontend, LINE, Gemini, or activation-policy change was performed.
