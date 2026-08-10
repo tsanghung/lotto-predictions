@@ -22,6 +22,10 @@ function rejectIncompleteState() {
   throw new Error("no_complete_approved_state");
 }
 
+function rejectIncompleteShadowContext() {
+  throw new Error("no_complete_shadow_context");
+}
+
 function canonicalJson(value) {
   if (value === null || typeof value === "boolean" || typeof value === "string") {
     return JSON.stringify(value);
@@ -202,6 +206,123 @@ function latestDrawDate(draws) {
   return draws.reduce((latest, draw) => (
     typeof draw?.draw_date === "string" && draw.draw_date > latest ? draw.draw_date : latest
   ), "");
+}
+
+function assertCompleteShadowInput(input, config) {
+  const {
+    targetDrawDate,
+    generatedAt,
+    dataStatus,
+    codeCommit,
+    shadowRegistrations,
+    draws,
+  } = input;
+  if (
+    !config
+    || dataStatus !== "complete"
+    || !CODE_COMMIT_PATTERN.test(codeCommit ?? "")
+    || typeof targetDrawDate !== "string"
+    || !/^\d{4}-\d{2}-\d{2}$/.test(targetDrawDate)
+    || typeof generatedAt !== "string"
+    || !generatedAt.startsWith(`${targetDrawDate}T`)
+    || Number.isNaN(Date.parse(generatedAt))
+    || !Array.isArray(draws)
+    || draws.length === 0
+    || !Array.isArray(shadowRegistrations)
+    || shadowRegistrations.length === 0
+  ) {
+    rejectIncompleteShadowContext();
+  }
+  if (shadowRegistrations.some((registration) => (
+    !registration
+    || typeof registration !== "object"
+    || registration.game_name !== config.name
+    || registration.code_commit !== codeCommit
+  ))) {
+    rejectIncompleteShadowContext();
+  }
+}
+
+function shadowReplayForecast(forecast) {
+  return {
+    status: forecast.status,
+    registry_id: forecast.registryId,
+    model_name: forecast.name,
+    model_family: forecast.family,
+    model_version: forecast.version,
+    feature_version: forecast.featureVersion,
+    code_commit: forecast.codeCommit ?? null,
+    data_cutoff: forecast.dataCutoff ?? null,
+    random_seed: forecast.randomSeed ?? null,
+    probabilities: forecast.probabilities ? clone(forecast.probabilities) : null,
+    special_probabilities: forecast.specialProbabilities ? clone(forecast.specialProbabilities) : null,
+    feature_summary: clone(forecast.featureSummary ?? {}),
+    failure_reason: forecast.failureReason ?? null,
+  };
+}
+
+export async function generateEvidenceShadow(input = {}) {
+  const config = GAME_CONFIG[input.gameType];
+  assertCompleteShadowInput(input, config);
+  const {
+    gameType,
+    targetDrawDate,
+    generatedAt,
+    dataStatus,
+    codeCommit,
+    shadowRegistrations,
+    draws,
+  } = input;
+
+  let rawForecasts;
+  try {
+    rawForecasts = buildEvidenceForecasts({
+      gameType,
+      draws,
+      generatedAt,
+      registrations: shadowRegistrations,
+      mode: "shadow",
+    });
+  } catch {
+    rejectIncompleteShadowContext();
+  }
+  if (rawForecasts.length !== shadowRegistrations.length) {
+    rejectIncompleteShadowContext();
+  }
+
+  const evidence = {
+    evidence_status: "shadow_only",
+    target_draw_date: targetDrawDate,
+    data_status: dataStatus,
+    limitation: "not_eligible_for_formal_prediction_or_notification",
+  };
+  const safeForecasts = rawForecasts.map((forecast) => safeForecast(forecast, {
+    forecast_mode: "shadow",
+    active_weight: 0,
+    evidence: clone(evidence),
+  }));
+  const snapshotWithoutDigest = {
+    game_name: config.name,
+    target_draw_date: targetDrawDate,
+    data_cutoff: latestDrawDate(draws),
+    data_status: dataStatus,
+    code_commit: codeCommit,
+    generated_at: generatedAt,
+    forecasts: safeForecasts.map(shadowReplayForecast),
+  };
+  const replayDigest = digestSnapshot(snapshotWithoutDigest);
+  const completedCount = safeForecasts.filter((forecast) => forecast.status === "completed").length;
+
+  return {
+    forecasts: safeForecasts.map((forecast) => ({ ...forecast, replayDigest })),
+    metrics: {
+      candidate_count: safeForecasts.length,
+      completed_count: completedCount,
+      failed_count: safeForecasts.length - completedCount,
+      data_cutoff: snapshotWithoutDigest.data_cutoff,
+    },
+    replay_digest: replayDigest,
+  };
 }
 
 export async function generateEvidencePrediction(input = {}) {

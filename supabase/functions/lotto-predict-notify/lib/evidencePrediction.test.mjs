@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { generateEvidencePrediction } from "./evidencePrediction.js";
+import { generateEvidencePrediction, generateEvidenceShadow } from "./evidencePrediction.js";
 import { GAME_CONFIG } from "./gameConfig.js";
 
 const CODE_COMMIT = "0123456789abcdef0123456789abcdef01234567";
@@ -219,4 +219,35 @@ test("shadow forecasts remain separate from the formal approved ensemble", async
   assert.equal(ensemble.forecast_mode, "production");
   assert.deepEqual(ensemble.final_groups.combinations, result.record.prediction.combinations);
   assert.deepEqual(ensemble.probabilities, result.evidenceSnapshot.main_probabilities);
+});
+
+test("shadow evidence is deterministic, parameter-safe, and never produces a formal record", async () => {
+  const input = approvedInput();
+  const first = await generateEvidenceShadow({
+    gameType: input.gameType,
+    targetDrawDate: input.targetDrawDate,
+    generatedAt: input.generatedAt,
+    dataStatus: input.dataStatus,
+    codeCommit: input.codeCommit,
+    shadowRegistrations: input.shadowRegistrations,
+    draws: input.draws,
+  });
+  const replay = await generateEvidenceShadow({
+    gameType: input.gameType,
+    targetDrawDate: input.targetDrawDate,
+    generatedAt: input.generatedAt,
+    dataStatus: input.dataStatus,
+    codeCommit: input.codeCommit,
+    shadowRegistrations: input.shadowRegistrations,
+    draws: input.draws,
+  });
+
+  assert.deepEqual(replay, first);
+  assert.equal(Object.hasOwn(first, "record"), false);
+  assert.equal(Object.hasOwn(first, "evidenceSnapshot"), false);
+  assert.equal(first.forecasts.every((forecast) => forecast.forecast_mode === "shadow"), true);
+  assert.equal(first.forecasts.every((forecast) => forecast.active_weight === 0), true);
+  assert.equal(first.forecasts.every((forecast) => forecast.evidence.evidence_status === "shadow_only"), true);
+  assert.match(first.replay_digest, /^[0-9a-f]{64}$/);
+  assert.equal(JSON.stringify(first).includes("must-not-leak"), false);
 });

@@ -14,17 +14,34 @@ function sourceBetween(startMarker, endMarker) {
   return indexSource.slice(start, end);
 }
 
-test("production path invokes executePredictionFlow with engine and both LAI flags", () => {
+function runtimeBetween(startMarker, endMarker) {
+  const start = runtimeSource.indexOf(startMarker);
+  const end = runtimeSource.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(start, -1, `Missing runtime marker: ${startMarker}`);
+  assert.notEqual(end, -1, `Missing runtime marker: ${endMarker}`);
+  return runtimeSource.slice(start, end);
+}
+
+test("production path binds LAI v3 only to the isolated shadow lane", () => {
   assert.match(
     indexSource,
-    /import\s*\{[^}]*executePredictionFlow[^}]*parseBooleanEnvFlag[^}]*\}\s*from\s*["']\.\/lib\/notifyRuntime\.js["']/s,
+    /import\s*\{[^}]*executePredictionFlow[^}]*parseBooleanEnvFlag[^}]*resolveAgentExecution[^}]*\}\s*from\s*["']\.\/lib\/notifyRuntime\.js["']/s,
   );
+  assert.match(indexSource, /import\s*\{[^}]*generateEvidencePrediction[^}]*generateEvidenceShadow[^}]*\}\s*from\s*["']\.\/lib\/evidencePrediction\.js["']/s);
+  assert.match(indexSource, /makeEvidenceRepository/);
 
   const processGameSource = sourceBetween("async function processGame", "async function handleRequest");
   assert.match(processGameSource, /executePredictionFlow\s*\(/);
   assert.match(processGameSource, /requestedEngine:\s*options\.requestedEngine/);
   assert.match(processGameSource, /laiEnabled:\s*options\.laiEnabled/);
   assert.match(processGameSource, /shadowEnabled:\s*options\.shadowEnabled/);
+  assert.match(processGameSource, /v3ShadowEnabled:\s*options\.v3ShadowEnabled/);
+  assert.match(processGameSource, /v3ProductionEnabled:\s*options\.v3ProductionEnabled/);
+  assert.match(processGameSource, /codeCommit:\s*options\.codeCommit/);
+  assert.match(processGameSource, /v3DataStatus:\s*v3EvidenceDataStatus/);
+  assert.match(processGameSource, /persistV3ForecastRows/);
+  assert.match(processGameSource, /fetchApprovedV3Context/);
+  assert.match(processGameSource, /fetchShadowRegistrations/);
 
   const handleRequestSource = indexSource.slice(indexSource.indexOf("async function handleRequest"));
   assert.match(handleRequestSource, /const requestedEngine = url\.searchParams\.get\(["']engine["']\)/);
@@ -36,7 +53,17 @@ test("production path invokes executePredictionFlow with engine and both LAI fla
     handleRequestSource,
     /const shadowEnabled = parseBooleanEnvFlag\(Deno\.env\.get\(["']LAI_V2_SHADOW_ENABLED["']\)\)/,
   );
-  assert.match(handleRequestSource, /requestedEngine,\s*laiEnabled,\s*shadowEnabled,/s);
+  assert.match(handleRequestSource, /const v3ShadowEnabled = parseBooleanEnvFlag\(Deno\.env\.get\(["']LAI_V3_SHADOW_ENABLED["']\)\)/);
+  assert.match(handleRequestSource, /const v3ProductionEnabled = parseBooleanEnvFlag\(Deno\.env\.get\(["']LAI_V3_PRODUCTION_ENABLED["']\)\)/);
+  assert.match(handleRequestSource, /const codeCommit = Deno\.env\.get\(["']LOTTO_CODE_COMMIT["']\) \?\? ["']["']/);
+  assert.match(handleRequestSource, /resolveAgentExecution\s*\(/);
+  assert.match(handleRequestSource, /engine=lai-v3 only with dry_run=1/);
+
+  const v3LaneSource = runtimeBetween("async function runV3ShadowLane", "export async function executePredictionFlow");
+  assert.match(v3LaneSource, /await deps\.persistV3ForecastRows\(forecastRows\)/);
+  assert.doesNotMatch(v3LaneSource, /sendLineMessage|reserveNotification|upsertPrediction|insertEvidenceSnapshot/);
+  assert.match(runtimeSource, /engine=lai-v3 requires dry_run=1/);
+  assert.match(runtimeSource, /LAI_V3_PRODUCTION_ENABLED is shadow-only/);
 });
 
 test("the first LINE push carries a deterministic hexadecimal UUID retry key", async () => {

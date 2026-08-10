@@ -10,9 +10,14 @@ import {
   sourceKey,
 } from "./lib/predictCore.js";
 import {
+  generateEvidencePrediction,
+  generateEvidenceShadow,
+} from "./lib/evidencePrediction.js";
+import { makeEvidenceRepository } from "./lib/evidenceRepository.js";
+import {
   executePredictionFlow,
   parseBooleanEnvFlag,
-  resolveLaiExecution,
+  resolveAgentExecution,
 } from "./lib/notifyRuntime.js";
 
 type GameType = "539" | "649" | "power";
@@ -190,6 +195,45 @@ async function fetchDraws(
     left.draw_date.localeCompare(right.draw_date) ||
     left.draw_id.localeCompare(right.draw_id)
   );
+}
+
+function v3EvidenceDataStatus(
+  gameType: GameType,
+  draws: DrawRow[],
+  targetDrawDate: string | null,
+): "complete" | "unknown" {
+  const config = GAME_CONFIG[gameType];
+  if (!targetDrawDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDrawDate) || !draws.length) {
+    return "unknown";
+  }
+
+  let latestDrawDate = "";
+  const drawIds = new Set<string>();
+  for (const draw of draws) {
+    if (
+      !draw
+      || typeof draw.draw_id !== "string"
+      || !draw.draw_id
+      || drawIds.has(draw.draw_id)
+      || typeof draw.draw_date !== "string"
+      || !/^\d{4}-\d{2}-\d{2}$/.test(draw.draw_date)
+      || !Array.isArray(draw.numbers)
+      || draw.numbers.length !== config.picks
+      || new Set(draw.numbers).size !== config.picks
+      || draw.numbers.some((number) => !Number.isInteger(number) || number < 1 || number > config.maxNumber)
+      || (config.secondaryNumber && (
+        !Number.isInteger(draw.special_number)
+        || draw.special_number < 1
+        || draw.special_number > config.secondaryNumber.maxNumber
+      ))
+    ) {
+      return "unknown";
+    }
+    drawIds.add(draw.draw_id);
+    if (draw.draw_date > latestDrawDate) latestDrawDate = draw.draw_date;
+  }
+
+  return latestDrawDate && latestDrawDate < targetDrawDate ? "complete" : "unknown";
 }
 
 async function fetchRecentAsiLearningRecords(
@@ -493,6 +537,9 @@ async function processGame(
     requestedEngine: string | null;
     laiEnabled: boolean;
     shadowEnabled: boolean;
+    v3ShadowEnabled: boolean;
+    v3ProductionEnabled: boolean;
+    codeCommit: string;
   },
 ) {
   const draws = await fetchDraws(options.supabaseUrl, options.serviceRoleKey, gameType);
@@ -503,6 +550,10 @@ async function processGame(
     gameName,
   );
   const drawTargetDate = predictionTargetDate(gameType, options.targetDate);
+  const evidenceRepository = makeEvidenceRepository({
+    supabaseUrl: options.supabaseUrl,
+    serviceKey: options.serviceRoleKey,
+  });
   return await executePredictionFlow({
     gameType,
     draws,
@@ -514,6 +565,10 @@ async function processGame(
     requestedEngine: options.requestedEngine,
     laiEnabled: options.laiEnabled,
     shadowEnabled: options.shadowEnabled,
+    v3ShadowEnabled: options.v3ShadowEnabled,
+    v3ProductionEnabled: options.v3ProductionEnabled,
+    codeCommit: options.codeCommit,
+    v3DataStatus: v3EvidenceDataStatus(gameType, draws, drawTargetDate),
   }, {
     notificationKey,
     sourceKey,
@@ -522,6 +577,23 @@ async function processGame(
     generateAdaptivePrediction,
     persistForecastRows: (rows: Record<string, unknown>[]) =>
       persistForecastRows(options.supabaseUrl, options.serviceRoleKey, rows),
+    fetchApprovedV3Context: (requestedGameName: string) =>
+      evidenceRepository.fetchApprovedContext(requestedGameName),
+    fetchShadowRegistrations: (requestedGameName: string) =>
+      evidenceRepository.fetchShadowRegistrations(requestedGameName),
+    createV3Experiment: (row: Record<string, unknown>) =>
+      evidenceRepository.createExperiment(row),
+    generateEvidencePrediction,
+    generateEvidenceShadow,
+    persistV3ForecastRows: (rows: Record<string, unknown>[]) =>
+      evidenceRepository.persistForecastRows(rows),
+    completeV3Experiment: (experiment: Record<string, unknown>, evidence: Record<string, unknown>) =>
+      evidenceRepository.completeExperiment(experiment, evidence),
+    failV3Experiment: (experiment: Record<string, unknown>, error: unknown) =>
+      evidenceRepository.failExperiment(experiment, error),
+    recordV3Failure: async (error: unknown) => {
+      console.warn(`LAI v3 shadow run failed in isolation for ${gameName}: ${error instanceof Error ? error.message : String(error)}`);
+    },
     generateHonestPrediction,
     buildLineMessage,
     buildPredictionRow: (
@@ -566,14 +638,24 @@ async function handleRequest(request: Request): Promise<Response> {
     const requestedEngine = url.searchParams.get("engine");
     const laiEnabled = parseBooleanEnvFlag(Deno.env.get("LAI_V2_ENABLED"));
     const shadowEnabled = parseBooleanEnvFlag(Deno.env.get("LAI_V2_SHADOW_ENABLED"));
+    const v3ShadowEnabled = parseBooleanEnvFlag(Deno.env.get("LAI_V3_SHADOW_ENABLED"));
+    const v3ProductionEnabled = parseBooleanEnvFlag(Deno.env.get("LAI_V3_PRODUCTION_ENABLED"));
+    const codeCommit = Deno.env.get("LOTTO_CODE_COMMIT") ?? "";
     try {
-      resolveLaiExecution({ dryRun, requestedEngine, laiEnabled, shadowEnabled });
+      resolveAgentExecution({
+        dryRun,
+        requestedEngine,
+        laiEnabled,
+        shadowEnabled,
+        v3ShadowEnabled,
+        v3ProductionEnabled,
+      });
     } catch (error) {
       return failFast(
         400,
         "Invalid engine parameter",
         error instanceof Error ? error.message : error,
-        "Use engine=lai-v2 only with dry_run=1.",
+        "Use engine=lai-v2 or engine=lai-v3 only with dry_run=1.",
       );
     }
     const now = taipeiNow();
@@ -605,6 +687,9 @@ async function handleRequest(request: Request): Promise<Response> {
         requestedEngine,
         laiEnabled,
         shadowEnabled,
+        v3ShadowEnabled,
+        v3ProductionEnabled,
+        codeCommit,
       }));
     }
 

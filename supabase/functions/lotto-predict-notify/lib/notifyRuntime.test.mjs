@@ -13,6 +13,7 @@ import {
   buildForecastRows,
   executePredictionFlow,
   parseBooleanEnvFlag,
+  resolveAgentExecution,
   resolveLaiExecution,
 } from "./notifyRuntime.js";
 
@@ -66,6 +67,278 @@ test("rejects engine=lai-v2 unless the invocation is a dry run", () => {
     }),
     /dry_run=1/,
   );
+});
+
+test("LAI v3 production configuration remains shadow-only and direct v3 requires dry run", () => {
+  const execution = resolveAgentExecution({
+    dryRun: false,
+    requestedEngine: null,
+    laiEnabled: true,
+    shadowEnabled: false,
+    v3ShadowEnabled: false,
+    v3ProductionEnabled: true,
+  });
+  assert.equal(execution.formalEngine, "lai-v2");
+  assert.equal(execution.runV3Shadow, true);
+  assert.equal(execution.v3ProductionBlocked, true);
+  assert.equal(execution.fallbackEngine, "lai-v2");
+  assert.throws(
+    () => resolveAgentExecution({
+      dryRun: false,
+      requestedEngine: "lai-v3",
+      laiEnabled: true,
+      shadowEnabled: false,
+      v3ShadowEnabled: false,
+      v3ProductionEnabled: false,
+    }),
+    /engine=lai-v3 requires dry_run=1/,
+  );
+});
+
+test("v3 shadow evidence cannot replace the LAI v2 formal record or LINE send", async () => {
+  const calls = [];
+  const v2 = generateAdaptivePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    targetDrawDate: "2026-07-10",
+    dataStatus: "complete",
+  });
+  const result = await executePredictionFlow({
+    gameType: "539",
+    draws: dailyDraws,
+    gameName: GAME_CONFIG["539"].name,
+    targetDate: "2026-07-10",
+    drawTargetDate: "2026-07-10",
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    dryRun: false,
+    requestedEngine: null,
+    laiEnabled: true,
+    shadowEnabled: false,
+    v3ShadowEnabled: true,
+    v3ProductionEnabled: false,
+    codeCommit: "0123456789abcdef0123456789abcdef01234567",
+    dataStatus: "complete",
+  }, {
+    notificationKey,
+    sourceKey,
+    fetchActiveAgentState: async () => ({ status: "baseline", state_version: 0, expert_weights: { uniform: 1 } }),
+    generateAdaptivePrediction: () => v2,
+    persistForecastRows: async (rows) => calls.push(["persistV2", rows.map((row) => row.forecast_mode)]),
+    persistV3ForecastRows: async (rows) => calls.push(["persistV3", rows.map((row) => row.forecast_mode)]),
+    fetchShadowRegistrations: async () => [{
+      id: "shadow-1", game_name: GAME_CONFIG["539"].name, model_name: "bayesian-drift",
+      model_version: "bayes-v1", feature_version: "weighted-v1", parameters: { random_seed: "shadow-seed" },
+    }],
+    createV3Experiment: async () => ({ id: "experiment-1", status: "running" }),
+    generateEvidenceShadow: async () => ({
+      forecasts: [{
+        status: "completed", registryId: "shadow-1", name: "bayesian-drift", version: "bayes-v1",
+        featureVersion: "weighted-v1", randomSeed: "shadow-seed", codeCommit: "0123456789abcdef0123456789abcdef01234567",
+        probabilities: Array(39).fill(5 / 39), specialProbabilities: null, featureSummary: {},
+      }],
+      metrics: { candidates: 1 }, replay_digest: "shadow-digest",
+    }),
+    completeV3Experiment: async () => calls.push(["completeV3"]),
+    failV3Experiment: async () => calls.push(["failV3"]),
+    generateHonestPrediction,
+    buildLineMessage,
+    buildPredictionRow: makePredictionRow,
+    upsertPrediction: async (row) => calls.push(["upsert", row.model_name]),
+    reserveNotification: async () => true,
+    sendLineMessage: async () => { calls.push(["line"]); return { status: 200 }; },
+    markNotificationSent: async () => {},
+  });
+
+  assert.equal(result.prediction.model, "lai-v2");
+  assert.equal(calls.some(([name]) => name === "completeV3"), true);
+  assert.equal(calls.some(([name]) => name === "failV3"), false);
+  assert.equal(calls.some(([name, modes]) => name === "persistV3" && modes.every((mode) => mode === "shadow")), true);
+  assert.deepEqual(calls.filter(([name]) => name === "line"), [["line"]]);
+});
+
+test("v3 shadow failure is isolated from the LAI v2 formal record and LINE delivery", async () => {
+  const calls = [];
+  const v2 = generateAdaptivePrediction({
+    gameType: "539",
+    draws: dailyDraws,
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    targetDrawDate: "2026-07-10",
+    dataStatus: "complete",
+  });
+  const result = await executePredictionFlow({
+    gameType: "539",
+    draws: dailyDraws,
+    gameName: GAME_CONFIG["539"].name,
+    targetDate: "2026-07-10",
+    drawTargetDate: "2026-07-10",
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    dryRun: false,
+    requestedEngine: null,
+    laiEnabled: true,
+    shadowEnabled: false,
+    v3ShadowEnabled: true,
+    codeCommit: "0123456789abcdef0123456789abcdef01234567",
+    dataStatus: "complete",
+  }, {
+    notificationKey,
+    sourceKey,
+    fetchActiveAgentState: async () => ({ status: "baseline", state_version: 0, expert_weights: { uniform: 1 } }),
+    generateAdaptivePrediction: () => v2,
+    persistForecastRows: async () => calls.push(["persistV2"]),
+    fetchShadowRegistrations: async () => [{
+      id: "shadow-1", game_name: GAME_CONFIG["539"].name, model_name: "bayesian-drift",
+      model_version: "bayes-v1", feature_version: "weighted-v1", parameters: { random_seed: "shadow-seed" },
+    }],
+    createV3Experiment: async () => ({ id: "experiment-1", status: "running" }),
+    generateEvidenceShadow: async () => { throw new Error("shadow generator failed"); },
+    persistV3ForecastRows: async () => calls.push(["persistV3"]),
+    completeV3Experiment: async () => calls.push(["completeV3"]),
+    failV3Experiment: async () => calls.push(["failV3"]),
+    generateHonestPrediction,
+    buildLineMessage,
+    buildPredictionRow: makePredictionRow,
+    upsertPrediction: async () => calls.push(["upsert"]),
+    reserveNotification: async () => true,
+    sendLineMessage: async () => { calls.push(["line"]); return { status: 200 }; },
+    markNotificationSent: async () => {},
+  });
+
+  assert.equal(result.status, "sent");
+  assert.equal(result.prediction.model, "lai-v2");
+  assert.equal(result.v3_status, "failed_isolated");
+  assert.equal(calls.some(([name]) => name === "failV3"), true);
+  assert.equal(calls.some(([name]) => name === "line"), true);
+  assert.equal(calls.some(([name]) => name === "persistV3"), false);
+});
+
+test("direct LAI v3 preview is dry-run only and never writes predictions, snapshots, or LINE notifications", async () => {
+  const calls = [];
+  const result = await executePredictionFlow({
+    gameType: "539",
+    draws: dailyDraws,
+    gameName: GAME_CONFIG["539"].name,
+    targetDate: "2026-07-10",
+    drawTargetDate: "2026-07-10",
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    dryRun: true,
+    requestedEngine: "lai-v3",
+    laiEnabled: true,
+    shadowEnabled: false,
+    v3ShadowEnabled: true,
+    codeCommit: "0123456789abcdef0123456789abcdef01234567",
+    dataStatus: "complete",
+  }, {
+    notificationKey,
+    sourceKey,
+    fetchApprovedV3Context: async () => {
+      calls.push(["fetchApprovedV3Context"]);
+      return { state: { state_version: 1 }, registrations: [] };
+    },
+    generateEvidencePrediction: async () => {
+      calls.push(["generateEvidencePrediction"]);
+      return { record: { prediction: { model: "lai-v3", combinations: {} } } };
+    },
+    buildLineMessage: () => {
+      calls.push(["buildLineMessage"]);
+      return "preview";
+    },
+    fetchActiveAgentState: async () => { throw new Error("must not fetch v2 state"); },
+    generateAdaptivePrediction: () => { throw new Error("must not generate v2"); },
+    persistForecastRows: async () => { throw new Error("must not persist v2"); },
+    fetchShadowRegistrations: async () => { throw new Error("must not read shadow registry"); },
+    createV3Experiment: async () => { throw new Error("must not create experiment"); },
+    generateEvidenceShadow: async () => { throw new Error("must not generate shadow"); },
+    persistV3ForecastRows: async () => { throw new Error("must not persist v3"); },
+    completeV3Experiment: async () => { throw new Error("must not complete experiment"); },
+    failV3Experiment: async () => { throw new Error("must not fail experiment"); },
+    generateHonestPrediction: () => { throw new Error("must not fall back"); },
+    buildPredictionRow: () => { throw new Error("must not build prediction row"); },
+    upsertPrediction: async () => { throw new Error("must not upsert prediction"); },
+    reserveNotification: async () => { throw new Error("must not reserve notification"); },
+    sendLineMessage: async () => { throw new Error("must not send LINE"); },
+    markNotificationSent: async () => { throw new Error("must not mark notification"); },
+  });
+
+  assert.equal(result.status, "dry_run");
+  assert.equal(result.formal_engine, "lai-v3");
+  assert.deepEqual(calls.map(([name]) => name), [
+    "fetchApprovedV3Context",
+    "generateEvidencePrediction",
+    "buildLineMessage",
+  ]);
+});
+
+test("LAI v3 production flag records shadow evidence but blocks formal delivery without LAI v2", async () => {
+  const calls = [];
+  const result = await executePredictionFlow({
+    gameType: "539",
+    draws: dailyDraws,
+    gameName: GAME_CONFIG["539"].name,
+    targetDate: "2026-07-10",
+    drawTargetDate: "2026-07-10",
+    generatedAt: "2026-07-10T10:00:00+08:00",
+    dryRun: false,
+    requestedEngine: null,
+    laiEnabled: false,
+    shadowEnabled: false,
+    v3ShadowEnabled: false,
+    v3ProductionEnabled: true,
+    codeCommit: "0123456789abcdef0123456789abcdef01234567",
+    dataStatus: "complete",
+  }, {
+    notificationKey,
+    sourceKey,
+    fetchActiveAgentState: async () => { throw new Error("must not read LAI v2 state"); },
+    generateAdaptivePrediction: () => { throw new Error("must not generate LAI v2"); },
+    persistForecastRows: async () => { throw new Error("must not persist LAI v2"); },
+    fetchShadowRegistrations: async () => [
+      {
+        id: "shadow-good", game_name: GAME_CONFIG["539"].name, model_name: "bayesian-drift",
+        model_version: "bayes-v1", feature_version: "weighted-v1", parameters: { random_seed: "good-seed" },
+      },
+      {
+        id: "shadow-bad", game_name: GAME_CONFIG["539"].name, model_name: "transition-regularized",
+        model_version: "transition-v1", feature_version: "weighted-v1", parameters: { random_seed: "bad-seed" },
+      },
+    ],
+    createV3Experiment: async (row) => ({ id: `experiment-${row.registry_id}`, status: "running" }),
+    generateEvidenceShadow: async () => ({
+      forecasts: [
+        {
+          status: "completed", registryId: "shadow-good", name: "bayesian-drift", version: "bayes-v1",
+          featureVersion: "weighted-v1", randomSeed: "good-seed", codeCommit: "0123456789abcdef0123456789abcdef01234567",
+          probabilities: Array(39).fill(5 / 39), specialProbabilities: null, featureSummary: {},
+        },
+        {
+          status: "failed", registryId: "shadow-bad", name: "transition-regularized", version: "transition-v1",
+          failureReason: "candidate validation failed",
+        },
+      ],
+      metrics: { candidates: 2 }, replay_digest: "shadow-digest",
+    }),
+    persistV3ForecastRows: async (rows) => calls.push(["persistV3", rows]),
+    completeV3Experiment: async (experiment) => calls.push(["completeV3", experiment.id]),
+    failV3Experiment: async (experiment) => calls.push(["failV3", experiment.id]),
+    generateHonestPrediction: () => { throw new Error("must not fall back to honest prediction"); },
+    buildLineMessage: () => { throw new Error("must not build LINE message"); },
+    buildPredictionRow: () => { throw new Error("must not build prediction row"); },
+    upsertPrediction: async () => { throw new Error("must not upsert prediction"); },
+    reserveNotification: async () => { throw new Error("must not reserve notification"); },
+    sendLineMessage: async () => { throw new Error("must not send LINE"); },
+    markNotificationSent: async () => { throw new Error("must not mark notification"); },
+  });
+
+  assert.equal(result.status, "blocked_no_valid_state");
+  assert.equal(result.v3_status, "completed_with_failures");
+  const v3Rows = calls.find(([name]) => name === "persistV3")[1];
+  assert.equal(v3Rows.length, 1);
+  assert.equal(v3Rows[0].forecast_mode, "shadow");
+  assert.equal(v3Rows[0].registry_id, "shadow-good");
+  assert.equal(v3Rows[0].experiment_run_id, "experiment-shadow-good");
+  assert.equal(v3Rows[0].replay_digest, "shadow-digest");
+  assert.deepEqual(calls.filter(([name]) => name === "completeV3"), [["completeV3", "experiment-shadow-good"]]);
+  assert.deepEqual(calls.filter(([name]) => name === "failV3"), [["failV3", "experiment-shadow-bad"]]);
 });
 
 test("shadow mode persists LAI forecasts but keeps the legacy prediction record", async () => {
@@ -158,6 +431,7 @@ test("builds forecast rows for every expert and the ensemble with unique conflic
   const ensemble = rows.find((row) => row.model_name === "ensemble");
   assert.deepEqual(ensemble.final_groups.combinations, lai.record.prediction.combinations);
   assert.deepEqual(ensemble.final_groups.special_combinations, lai.record.prediction.special_combinations);
+  assert.equal(rows.every((row) => !Object.hasOwn(row, "registry_id")), true);
 });
 
 test("buildForecastRows isolates persistence-row mutations from forecasts, record, and LINE output", () => {
