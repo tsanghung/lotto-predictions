@@ -658,6 +658,42 @@ test("builds Power LAI LINE message with first and second areas for both groups"
   assert.equal((message.match(/area_2/g) || []).length, 2);
 });
 
+test("builds LAI v3 LINE message from computed evidence without changing its two groups", () => {
+  const record = {
+    game_name: "威力彩",
+    prediction: {
+      model: "lai-v3",
+      combinations: {
+        "證據主攻": [1, 6, 12, 18, 25, 33],
+        "覆蓋保底": [2, 7, 13, 19, 26, 34],
+      },
+      special_combinations: {
+        "證據主攻": [3],
+        "覆蓋保底": [7],
+      },
+      evidence: {
+        champion_model: "bayesian-drift",
+        promotion_stage: "champion",
+        brier_skill: 0.01,
+        brier_ci: { lower95: 0.001, upper95: 0.02 },
+        evidence_status: "尚無證據優於隨機",
+      },
+    },
+  };
+
+  const message = buildLineMessage(record, "2026-08-10");
+
+  assert.match(message, /^LAI v3/m);
+  assert.match(message, /champion_model:\s*bayesian-drift/);
+  assert.match(message, /promotion_stage:\s*champion/);
+  assert.match(message, /brier_skill_ci:\s*0\.001\.\.0\.02/);
+  assert.match(message, /尚無證據優於隨機/);
+  assert.equal((message.match(/^\[/gm) || []).length, 2);
+  assert.equal((message.match(/area_1/g) || []).length, 2);
+  assert.equal((message.match(/area_2/g) || []).length, 2);
+  assert.doesNotMatch(message, /Gemini|保證命中|提高中獎機率/);
+});
+
 test("statistical strategies avoid 4+ consecutive runs; balanced strategy spreads across the range", () => {
   const cases = [
     ["539", dailyDraws, 39],

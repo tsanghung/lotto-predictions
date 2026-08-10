@@ -1592,6 +1592,9 @@ export function buildLineMessage(record, targetDate) {
   if (record.prediction?.model === "lai-v2") {
     return buildLaiLineMessage(record, targetDate);
   }
+  if (record.prediction?.model === "lai-v3") {
+    return buildEvidenceLineMessage(record, targetDate);
+  }
   if (record.prediction?.model === "game-theory-v1" || record.prediction?.fairness_diagnostic) {
     return buildHonestLineMessage(record, targetDate);
   }
@@ -1651,6 +1654,39 @@ export function buildLineMessage(record, targetDate) {
 
 function formatBalls(numbers) {
   return (numbers || []).map((n) => String(n).padStart(2, "0")).join(", ");
+}
+
+function buildEvidenceLineMessage(record, targetDate) {
+  const prediction = record.prediction || {};
+  const groups = prediction.combinations || {};
+  const specialGroups = prediction.special_combinations || {};
+  const evidence = prediction.evidence || {};
+  const ci = evidence.brier_ci || {};
+
+  let message = "LAI v3\n\n";
+  message += `日期：${targetDate}\n`;
+  message += `彩種：${record.game_name}\n`;
+  message += `champion_model: ${evidence.champion_model || "unknown"}\n`;
+  message += `promotion_stage: ${evidence.promotion_stage || "unknown"}\n`;
+  message += `brier_skill: ${Number.isFinite(evidence.brier_skill) ? evidence.brier_skill : "unknown"}\n`;
+  message += `brier_skill_ci: ${Number.isFinite(ci.lower95) ? ci.lower95 : "unknown"}..${Number.isFinite(ci.upper95) ? ci.upper95 : "unknown"}\n`;
+  message += `evidence_status: ${evidence.evidence_status || "尚無證據優於隨機"}\n`;
+  message += "------------------\n";
+
+  for (const [label, numbers] of Object.entries(groups)) {
+    message += `[${label}]\n`;
+    const specialArea = specialGroups[label] || [];
+    if (Array.isArray(specialArea) && specialArea.length) {
+      message += `第一區（area_1）：${formatBalls(numbers)}\n`;
+      message += `第二區（area_2）：${formatBalls(specialArea)}\n\n`;
+    } else {
+      message += `${formatBalls(numbers)}\n\n`;
+    }
+  }
+
+  message += "------------------\n";
+  message += "限制：分組僅重播已核准量化證據，不構成隨機開獎的因果解釋或預測優勢。";
+  return message;
 }
 
 function buildLaiLineMessage(record, targetDate) {
