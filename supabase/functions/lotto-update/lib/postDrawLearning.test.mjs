@@ -25,6 +25,7 @@ test("lotto-update reads the full valid v3 score history before evaluating gates
   assert.match(v3History, /fetchStableV3RestRows/);
   assert.match(v3History, /order: "draw_date\.asc,draw_id\.asc,id\.asc"/);
   assert.match(v3History, /snapshotColumn: "evaluated_at"/);
+  assert.match(v3History, /forecast:lotto_model_forecasts!inner\(id,game_name,target_draw_date,registry_id/);
 });
 
 test("every invocation merges bounded durable v3 pending work after v2", async () => {

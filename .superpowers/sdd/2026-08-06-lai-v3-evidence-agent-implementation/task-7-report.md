@@ -173,3 +173,67 @@ All 4 open findings from the Fix Round 1 re-review were addressed. The six previ
 - Deno is not installed in this environment, so `deno check supabase/functions/lotto-update/index.ts` remains unavailable. Node.js 24 syntax checking and all Node regression suites pass, but the Deno type graph is not independently verified here.
 - Exact counts and complete double reads deliberately trade additional service-role REST work for deterministic fail-closed evidence. Explicit limits prevent unbounded accumulation; exceeding them requires an intentional future interface decision rather than silent truncation.
 - No production deployment, database mutation, scheduler execution, frontend, LINE, or Gemini change was performed.
+
+## Fix Round 3
+
+### Status
+
+`DONE_WITH_CONCERNS`
+
+The correction ledger now supports multiple immutable, retry-safe correction and normalization events targeting the same corrected revision. Runtime correction handling converges mixed valid source revisions deterministically, validates the complete durable score history and active state before any decision, and remains shadow-only with `activationAuthorized: false`.
+
+Production was not touched. The migration was added to the repository only and was not applied to any Supabase environment.
+
+### Migration
+
+- `supabase/migrations/20260810000000_normalize_lai_v3_correction_events.sql`
+- Adds non-empty `event_key` and canonical `event_payload`, safely backfills existing rows, replaces the old `(game_name, draw_id, corrected_revision)` uniqueness with `(game_name, draw_id, previous_revision, corrected_revision, event_key)`, and preserves immutable correction rows.
+- `record_lai_v3_correction(jsonb)` resolves an exact event replay before score mutation. It returns the existing ledger row only when the canonical payload is identical and otherwise fails closed.
+- Direct `service_role` correction-table writes are revoked. The role retains ledger `SELECT` plus RPC `EXECUTE`; `anon` and `authenticated` receive no correction RPC execution grant.
+
+### RED Evidence
+
+1. `node --test supabase/functions/_shared/lai-v3/schemaMigration.test.mjs`
+   - Before migration: 9 passed, 2 failed.
+   - Expected failure: `ENOENT` for `20260810000000_normalize_lai_v3_correction_events.sql`.
+2. `node --test supabase/functions/lotto-update/lib/evidenceLearning.test.mjs`
+   - Before runtime implementation: 23 passed, 18 failed.
+   - Failures covered missing event keys, mixed-revision normalization, response-loss recovery, wrong score draw dates, full-history canonical identity, and malformed active-state values.
+3. `node --test supabase/functions/lotto-update/lib/postDrawLearning.test.mjs`
+   - Before REST select update: 13 passed, 1 failed.
+   - Expected failure: valid score history did not select forecast `id`, `game_name`, and `target_draw_date`.
+4. `node --test --test-name-pattern "wrong game" supabase/functions/lotto-update/lib/evidenceLearning.test.mjs`
+   - Before game/config identity validation: 0 passed, 1 failed.
+
+### GREEN Evidence
+
+1. `node --test supabase/functions/_shared/lai-v3/schemaMigration.test.mjs`
+   - 11 passed, 0 failed.
+2. `node --test supabase/functions/_shared/lai-v3/schemaMigration.test.mjs supabase/functions/lotto-update/lib/evidenceLearning.test.mjs supabase/functions/lotto-update/lib/lottoCore.test.mjs supabase/functions/lotto-update/lib/postDrawLearning.test.mjs`
+   - 103 passed, 0 failed before the final game/config counterexample was added; the updated evidence suite then passed 42/42.
+3. `node --test supabase/functions/lotto-update/lib/*.test.mjs`
+   - 100 passed, 0 failed.
+4. `node --test (rg --files supabase/functions -g '*.test.mjs')`
+   - 354 passed, 0 failed, 6 existing slow tests skipped.
+5. `node --check supabase/functions/lotto-update/lib/evidenceLearning.js`
+   - Exit code 0.
+6. `node --check supabase/functions/lotto-update/index.ts`
+   - Exit code 0 under Node.js syntax checking.
+7. `git diff --check`
+   - Exit code 0 before this report append; rerun during final verification.
+
+### Runtime Contract
+
+- Event keys are deterministic SHA-256 identities over event type, game, draw, previous/corrected revisions, and sorted durable invalidated score ids.
+- Actual correction and late-score normalization are separate event types. Each event has one previous revision, exact one-for-one invalidation/replacement, and no direct table-write fallback.
+- The tested lifecycle is r1 score, r2 actual correction, late original score, normalization to r2, and r3 actual correction. Simulated response loss after every event leaves exactly one valid r3 score per current forecast with no permanent pending work.
+- Every valid history row is checked against the approved game config, canonical actual values, draw id/date, forecast identity, registry identity, and same-draw/revision canonical payload before gate evaluation.
+- Active state requires a legal status, integer non-negative version and counters, finite numeric non-negative weights with positive total, a positive champion weight, and valid learning-config/metrics shapes. Numeric strings, nulls, negatives, non-finite values, and missing champion identity fail before `recordDecision`.
+- Existing Task 4/5 evaluation and promotion gates remain in use. Benjamini-Hochberg still runs once per game/draw candidate family, v2 remains first, v3 failures remain isolated, and activation remains disabled.
+
+### Residual Risks
+
+- Supabase CLI is not installed, so the new migration was not parsed or applied against a local PostgreSQL/Supabase instance. Migration verification is contract/static only.
+- Deno is not installed, so `deno check supabase/functions/lotto-update/index.ts` remains unavailable. Node syntax checks and all Node regression suites pass, but the Deno type graph is unverified.
+- Six existing slow statistical tests remain skipped by their declared test configuration.
+- No production deployment, migration apply, database mutation, scheduler execution, frontend, LINE, Gemini, trigger, or activation-policy change was performed.

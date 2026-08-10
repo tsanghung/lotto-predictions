@@ -817,7 +817,7 @@ async function fetchV3ValidScoreHistory(
 ): Promise<Record<string, unknown>[]> {
   return fetchStableV3RestRows(supabaseUrl, serviceRoleKey, {
     table: "lotto_model_scores",
-    select: "id,forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,evaluated_at,source_revision,is_valid,supersedes_score_id,forecast:lotto_model_forecasts!inner(registry_id,model_name,forecast_mode,experiment_run_id,registry:lai_model_registry!inner(id,game_name,model_name,model_family,status))",
+    select: "id,forecast_id,game_name,draw_id,draw_date,metrics,weight_before,weight_after,evaluator_version,evaluated_at,source_revision,is_valid,supersedes_score_id,forecast:lotto_model_forecasts!inner(id,game_name,target_draw_date,registry_id,model_name,forecast_mode,experiment_run_id,registry:lai_model_registry!inner(id,game_name,model_name,model_family,status))",
     filters: {
       game_name: `eq.${gameName}`,
       draw_date: `lte.${throughDrawDate}`,

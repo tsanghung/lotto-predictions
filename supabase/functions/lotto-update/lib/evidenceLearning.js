@@ -1,6 +1,7 @@
 import { evaluateCandidateSeries, scoreEvidenceForecast } from "../../_shared/lai-v3/evaluation.js";
 import { evaluatePromotionGate } from "../../_shared/lai-v3/promotionGate.js";
 import { benjaminiHochberg } from "../../_shared/lai-v3/statistics.js";
+import { GAME_CONFIG } from "../../lotto-predict-notify/lib/gameConfig.js";
 
 const EVALUATOR_VERSION = "lai-v3-evidence-v1";
 const ORIGINAL_REVISION = "original";
@@ -27,6 +28,21 @@ function sourceRevisionOf(row) { return row?.source_revision ?? row?.sourceRevis
 function assertPlainObject(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} must be an object`);
   return value;
+}
+
+function assertGameConfig(gameName, config) {
+  const expected = Object.values(GAME_CONFIG).find((candidate) => candidate.name === gameName);
+  const shape = (candidate) => ({
+    maxNumber: candidate?.maxNumber,
+    picks: candidate?.picks,
+    secondaryNumber: candidate?.secondaryNumber
+      ? { maxNumber: candidate.secondaryNumber.maxNumber, picks: candidate.secondaryNumber.picks }
+      : null,
+  });
+  if (!expected || stableJson(shape(config)) !== stableJson(shape(expected))) {
+    throw new Error(`game config does not match ${gameName}`);
+  }
+  return config;
 }
 
 function canonicalActual(numbers, specialNumber, config, label) {
@@ -103,7 +119,13 @@ function enrichHistoryRow(row, registryById, gameName) {
   const embeddedRegistry = forecast?.registry ?? {};
   const registryId = registryIdOf(row) ?? registryIdOf(forecast) ?? registryIdOf(embeddedRegistry);
   const registry = registryById.get(registryId);
-  if (!registry || registry.game_name !== gameName || modelNameOf(forecast) !== registry.model_name || familyOf(embeddedRegistry) !== familyOf(registry)) {
+  if (!registry || registry.game_name !== gameName
+    || registryIdOf(forecast) !== registry.id
+    || embeddedRegistry.id !== registry.id
+    || embeddedRegistry.game_name !== registry.game_name
+    || modelNameOf(forecast) !== registry.model_name
+    || modelNameOf(embeddedRegistry) !== registry.model_name
+    || familyOf(embeddedRegistry) !== familyOf(registry)) {
     throw new Error("valid LAI v3 score history has unverifiable forecast-registry identity");
   }
   return {
@@ -113,6 +135,58 @@ function enrichHistoryRow(row, registryById, gameName) {
     model_family: registry.model_family,
     forecast_mode: forecast.forecast_mode ?? forecast.forecastMode ?? "shadow",
   };
+}
+
+function isIsoDate(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
+
+function validateScoreHistory(rows, registryById, input) {
+  const enriched = [];
+  const drawDateById = new Map();
+  const drawIdByDate = new Map();
+  const actualByRevision = new Map();
+  const validForecastDraws = new Set();
+
+  for (const raw of rows) {
+    const row = enrichHistoryRow(raw, registryById, input.gameName);
+    const forecast = row.forecast;
+    if (!row.id || !row.forecast_id || !row.draw_id || !isIsoDate(row.draw_date)
+      || row.game_name !== input.gameName || row.is_valid === false
+      || typeof row.source_revision !== "string" || !row.source_revision.trim()) {
+      throw new Error("valid LAI v3 score history identity is incomplete or belongs to another game");
+    }
+    if (forecast.id !== row.forecast_id || forecast.game_name !== row.game_name
+      || forecast.target_draw_date !== row.draw_date) {
+      throw new Error("valid LAI v3 score history forecast and draw date identity do not match");
+    }
+
+    const forecastDrawKey = scoreKey(row.forecast_id, row.draw_id);
+    if (validForecastDraws.has(forecastDrawKey)) {
+      throw new Error(`multiple valid LAI v3 scores exist for forecast ${row.forecast_id} and draw ${row.draw_id}`);
+    }
+    validForecastDraws.add(forecastDrawKey);
+
+    const drawId = String(row.draw_id);
+    if (drawDateById.has(drawId) && drawDateById.get(drawId) !== row.draw_date) {
+      throw new Error("valid LAI v3 score history draw identity maps one draw id to multiple dates");
+    }
+    if (drawIdByDate.has(row.draw_date) && drawIdByDate.get(row.draw_date) !== drawId) {
+      throw new Error("valid LAI v3 score history draw identity maps one date to multiple draw ids");
+    }
+    drawDateById.set(drawId, row.draw_date);
+    drawIdByDate.set(row.draw_date, drawId);
+
+    const actual = actualFromScore(row, input.config);
+    const revisionKey = `${row.game_name}|${drawId}|${sourceRevisionOf(row)}`;
+    const canonical = stableJson(actual);
+    if (actualByRevision.has(revisionKey) && actualByRevision.get(revisionKey) !== canonical) {
+      throw new Error("same draw and revision score history must share one canonical actual payload");
+    }
+    actualByRevision.set(revisionKey, canonical);
+    enriched.push(row);
+  }
+  return enriched;
 }
 
 function asScoredRow(score, forecast, input, sourceRevision = ORIGINAL_REVISION) {
@@ -253,6 +327,7 @@ export function buildV3PendingWorklist({ confirmedDraws = [], draws = [], foreca
   const drawsByDate = new Map();
   for (const draw of draws) {
     const config = configByGame[draw?.game_name];
+    assertGameConfig(draw?.game_name, config);
     actualFromDraw(draw, config);
     const key = drawDateKey(draw);
     if (!draw?.draw_id || !draw?.draw_date || drawsByDate.has(key)) {
@@ -261,10 +336,29 @@ export function buildV3PendingWorklist({ confirmedDraws = [], draws = [], foreca
     drawsByDate.set(key, draw);
   }
 
+  const forecastsById = new Map();
+  for (const forecast of forecasts) {
+    if (!forecast?.id || !forecast?.registry_id || !forecast?.game_name || !isIsoDate(forecast?.target_draw_date)
+      || forecastsById.has(forecast.id)) {
+      throw new Error("durable v3 worklist forecast identity is incomplete or duplicated");
+    }
+    forecastsById.set(forecast.id, forecast);
+  }
+
   const validScoresByForecastDraw = new Map();
   for (const score of scores) {
     if (score?.is_valid === false) continue;
-    if (!score?.forecast_id || !score?.draw_id || !score?.game_name) throw new Error("durable v3 worklist score identity is incomplete");
+    if (!score?.forecast_id || !score?.draw_id || !score?.game_name || !isIsoDate(score?.draw_date)) {
+      throw new Error("durable v3 worklist score identity is incomplete");
+    }
+    const forecast = forecastsById.get(score.forecast_id);
+    const draw = forecast ? drawsByDate.get(drawDateKey(forecast)) : null;
+    if (!forecast || !draw || score.game_name !== forecast.game_name || score.game_name !== draw.game_name
+      || score.draw_date !== forecast.target_draw_date || score.draw_date !== draw.draw_date
+      || String(score.draw_id) !== String(draw.draw_id)) {
+      throw new Error("durable v3 worklist score draw date, draw, and forecast identity do not match");
+    }
+    actualFromScore(score, configByGame[score.game_name]);
     const key = scoreKey(score.forecast_id, score.draw_id);
     if (validScoresByForecastDraw.has(key)) throw new Error("durable v3 worklist found duplicate valid forecast and draw scores");
     validScoresByForecastDraw.set(key, score);
@@ -276,9 +370,6 @@ export function buildV3PendingWorklist({ confirmedDraws = [], draws = [], foreca
     pending.set(drawKey(draw), draw);
   }
   for (const forecast of forecasts) {
-    if (!forecast?.id || !forecast?.registry_id || !forecast?.game_name || !forecast?.target_draw_date) {
-      throw new Error("durable v3 worklist forecast identity is incomplete");
-    }
     const draw = drawsByDate.get(drawDateKey(forecast));
     if (!draw) continue;
     const currentActual = actualFromDraw(draw, configByGame[draw.game_name]);
@@ -328,7 +419,28 @@ function assertActivationContext(context, input) {
 
 function assertDecisionActiveState(state, input) {
   const weights = state?.expert_weights;
-  if (!state || state.game_name !== input.gameName || !Number.isSafeInteger(Number(state.state_version)) || Number(state.state_version) < 0 || typeof state.status !== "string" || !state.status || typeof state.champion_model !== "string" || !state.champion_model || !weights || typeof weights !== "object" || Array.isArray(weights) || !Number.isFinite(Number(weights[state.champion_model])) || !state.learning_config || typeof state.learning_config !== "object" || Array.isArray(state.learning_config) || !state.metrics || typeof state.metrics !== "object" || Array.isArray(state.metrics)) {
+  const config = state?.learning_config;
+  const metrics = state?.metrics;
+  const weightEntries = weights && typeof weights === "object" && !Array.isArray(weights)
+    ? Object.entries(weights)
+    : [];
+  const weightsValid = weightEntries.length > 0
+    && weightEntries.every(([name, weight]) => typeof name === "string" && name.length > 0
+      && typeof weight === "number" && Number.isFinite(weight) && weight >= 0)
+    && weightEntries.reduce((total, [, weight]) => total + weight, 0) > 0;
+  const championWeight = weights?.[state?.champion_model];
+  const configValid = config && typeof config === "object" && !Array.isArray(config)
+    && typeof config.gamma === "number" && Number.isFinite(config.gamma) && config.gamma >= 0;
+  const metricsValid = metrics && typeof metrics === "object" && !Array.isArray(metrics)
+    && Number.isInteger(metrics.evaluated_draws) && metrics.evaluated_draws >= 0
+    && (metrics.promotion_stage === undefined
+      || ["baseline", "registered", "historical_passed", "shadow_verified", "canary", "champion", "cooldown", "disabled"].includes(metrics.promotion_stage));
+  if (!state || state.game_name !== input.gameName
+    || !Number.isSafeInteger(state.state_version) || state.state_version < 0
+    || !["baseline", "champion", "degraded"].includes(state.status)
+    || typeof state.champion_model !== "string" || !state.champion_model
+    || !weightsValid || typeof championWeight !== "number" || !Number.isFinite(championWeight) || championWeight <= 0
+    || !configValid || !metricsValid) {
     throw new Error("LAI v3 decision requires a complete active state game, version, and model source contract");
   }
   return state;
@@ -375,32 +487,121 @@ async function persistDecisionsAndAuthorizedActivations({ evidence, registryById
   return { decisions, activation: activations.length ? activations : null };
 }
 
-function findCorrection(scoreHistory, draw, config) {
+function groupCorrectionRows(entries, draw, label) {
+  if (!entries.length) return [];
+  const payloads = new Set(entries.map(({ actual }) => stableJson(actual)));
+  if (payloads.size !== 1) throw new Error(`${label} must share one canonical actual payload`);
+  const groups = new Map();
+  for (const entry of entries) {
+    const revision = sourceRevisionOf(entry.row);
+    if (!entry.row.id) throw new Error(`${label} requires durable score ids`);
+    if (!groups.has(revision)) groups.set(revision, []);
+    groups.get(revision).push(entry.row);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([previousRevision, oldScores]) => ({
+      previousRevision,
+      oldScores: oldScores.sort((left, right) => String(left.id).localeCompare(String(right.id))),
+      previousActual: entries.find(({ row }) => sourceRevisionOf(row) === previousRevision).actual,
+      draw,
+    }));
+}
+
+function findCorrectionGroups(scoreHistory, draw, config) {
   const sameDraw = scoreHistory.filter((row) => String(row.draw_id) === String(draw.draw_id) && row.is_valid !== false);
   const currentActual = actualFromDraw(draw, config);
   const stale = sameDraw.map((row) => ({ row, actual: actualFromScore(row, config) }))
     .filter(({ actual }) => !sameActual(actual, currentActual));
-  if (!stale.length) return null;
-  const revisions = [...new Set(stale.map(({ row }) => sourceRevisionOf(row)))];
-  if (revisions.length !== 1 || stale.some(({ row }) => !row.id)) {
-    throw new Error("stale LAI v3 scores do not satisfy one durable previous revision correction contract");
+  return groupCorrectionRows(stale, draw, "stale rows for one previous revision");
+}
+
+function findNormalizationGroups(scoreHistory, draw, correctedRevision, config) {
+  const currentActual = actualFromDraw(draw, config);
+  const current = scoreHistory
+    .filter((row) => String(row.draw_id) === String(draw.draw_id) && row.is_valid !== false)
+    .map((row) => ({ row, actual: actualFromScore(row, config) }))
+    .filter(({ actual }) => sameActual(actual, currentActual));
+  if (!current.some(({ row }) => sourceRevisionOf(row) === correctedRevision)) return [];
+  return groupCorrectionRows(
+    current.filter(({ row }) => sourceRevisionOf(row) !== correctedRevision),
+    draw,
+    "normalization rows",
+  );
+}
+
+function canonicalDrawPayload(draw, config) {
+  const actual = actualFromDraw(draw, config);
+  return {
+    game_name: draw.game_name,
+    draw_id: String(draw.draw_id),
+    draw_date: draw.draw_date,
+    numbers: actual.numbers,
+    special_number: actual.special_number,
+  };
+}
+
+async function recordCorrectionGroups({ groups, eventType, reason, scoreRowsByForecast, input, deps }) {
+  let replacementsWritten = 0;
+  for (const group of groups) {
+    if (group.oldScores.some((row) => !scoreRowsByForecast.has(row.forecast_id))) {
+      throw new Error("correction requires replacement forecasts for every stale score");
+    }
+    const replacementScores = group.oldScores.map((oldScore) => ({
+      ...scoreRowsByForecast.get(oldScore.forecast_id),
+      source_revision: input.sourceRevision,
+      supersedes_score_id: oldScore.id,
+    }));
+    const invalidatedScoreIds = group.oldScores.map((row) => String(row.id));
+    const eventDigest = await sha256(stableJson({
+      event_type: eventType,
+      game_name: input.gameName,
+      draw_id: String(input.draw.draw_id),
+      previous_revision: group.previousRevision,
+      corrected_revision: input.sourceRevision,
+      invalidated_score_ids: invalidatedScoreIds,
+    }));
+    await deps.recordCorrection({
+      event_key: `${eventType}:${eventDigest}`,
+      game_name: input.gameName,
+      draw_id: String(input.draw.draw_id),
+      previous_revision: group.previousRevision,
+      corrected_revision: input.sourceRevision,
+      previous_draw: {
+        game_name: input.gameName,
+        draw_id: String(input.draw.draw_id),
+        draw_date: input.draw.draw_date,
+        numbers: group.previousActual.numbers,
+        special_number: group.previousActual.special_number,
+      },
+      corrected_draw: canonicalDrawPayload(input.draw, input.config),
+      invalidated_score_ids: invalidatedScoreIds,
+      replacement_scores: replacementScores,
+      reason,
+    });
+    replacementsWritten += replacementScores.length;
   }
-  const canonicalPayloads = new Set(stale.map(({ actual }) => stableJson(actual)));
-  if (canonicalPayloads.size !== 1) throw new Error("stale rows for one previous revision must share one canonical actual payload");
-  const previousActual = stale[0].actual;
-  return { oldScores: stale.map(({ row }) => row), previousRevision: revisions[0], previousDraw: { game_name: draw.game_name, draw_id: String(draw.draw_id), draw_date: draw.draw_date, ...previousActual } };
+  return replacementsWritten;
 }
 
 export async function runEvidenceLearning(input, deps) {
+  if (typeof input?.sourceRevision !== "string" || !input.sourceRevision.trim()) {
+    throw new Error("LAI v3 evidence learning requires a non-empty source revision");
+  }
+  assertGameConfig(input.gameName, input.config);
   const registryRows = await deps.fetchRegistry(input.gameName);
   let registry;
   try { registry = assertRegistry(registryRows, input.gameName); } catch (error) {
     return { status: "blocked_registry", scoresWritten: 0, decisions: [], activation: null, failures: [{ message: error instanceof Error ? error.message : String(error) }] };
   }
-  const scoreHistory = (await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date)).map((row) => enrichHistoryRow(row, registry.byId, input.gameName));
-  const correction = findCorrection(scoreHistory, input.draw, input.config);
+  let scoreHistory = validateScoreHistory(
+    await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date),
+    registry.byId,
+    input,
+  );
+  const correctionGroups = findCorrectionGroups(scoreHistory, input.draw, input.config);
   const forecasts = await deps.fetchV3Forecasts(input.gameName, input.draw.draw_date);
-  if (correction && !forecasts.length) throw new Error("correction requires replacement forecasts");
+  if (correctionGroups.length && !forecasts.length) throw new Error("correction requires replacement forecasts");
   const failures = [];
   const validForecasts = [];
   for (const rawForecast of forecasts) {
@@ -414,36 +615,68 @@ export async function runEvidenceLearning(input, deps) {
       await deps.recordFailure(failure);
     }
   }
-  if (correction && !validForecasts.length) throw new Error("correction requires replacement forecasts");
+  if (correctionGroups.length && !validForecasts.length) throw new Error("correction requires replacement forecasts");
   if (!validForecasts.length) return { status: "no_v3_forecasts", scoresWritten: 0, decisions: [], activation: null, failures };
   if (!validForecasts.some(({ forecast }) => registryIdOf(forecast) === registry.baseline.id)) {
     return { status: "blocked_registry", scoresWritten: 0, decisions: [], activation: null, failures };
   }
   const scoreRows = validForecasts.map(({ forecast, score }) => asScoredRow(score, forecast, input, ORIGINAL_REVISION));
-  if (correction) {
-    const oldByForecast = new Map(correction.oldScores.map((row) => [row.forecast_id, row]));
-    if (oldByForecast.size !== correction.oldScores.length) throw new Error("correction has duplicate stale scores for one forecast");
-    const scoredByForecast = new Map(scoreRows.map((row) => [row.forecast_id, row]));
-    if (correction.oldScores.some((row) => !scoredByForecast.has(row.forecast_id))) throw new Error("correction requires replacement forecasts for every stale score");
-    const replacementScores = correction.oldScores.map((oldScore) => ({
-      ...scoredByForecast.get(oldScore.forecast_id),
-      source_revision: input.sourceRevision,
-      supersedes_score_id: oldScore.id,
-    }));
-    const pendingOriginal = scoreRows.filter((row) => !oldByForecast.has(row.forecast_id) && !hasCurrentActualScore(scoreHistory, row, input));
-    await deps.recordCorrection({ game_name: input.gameName, draw_id: String(input.draw.draw_id), previous_revision: correction.previousRevision, corrected_revision: input.sourceRevision, previous_draw: correction.previousDraw, corrected_draw: input.draw, invalidated_score_ids: correction.oldScores.map((row) => row.id), replacement_scores: replacementScores, reason: "official_draw_payload_changed" });
-    if (pendingOriginal.length) await deps.insertScoresIdempotently(pendingOriginal);
-    const updatedHistory = (await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date)).map((row) => enrichHistoryRow(row, registry.byId, input.gameName));
-    const built = await buildEvidenceByRegistry(updatedHistory, registry.byId, registry.baseline, input);
-    const scoresWritten = replacementScores.length + pendingOriginal.length;
-    if (built.reason) return { status: "corrected_without_decision", scoresWritten, failures, decisions: [], activation: null, reason: built.reason };
-    return { status: "corrected", scoresWritten, failures, ...(await persistDecisionsAndAuthorizedActivations({ evidence: built.evidence, registryById: registry.byId, input, deps })) };
+  const scoreRowsByForecast = new Map(scoreRows.map((row) => [row.forecast_id, row]));
+  if (scoreRowsByForecast.size !== scoreRows.length) throw new Error("correction has duplicate scored forecasts");
+
+  let scoresWritten = await recordCorrectionGroups({
+    groups: correctionGroups,
+    eventType: "actual-correction",
+    reason: "official_draw_payload_changed",
+    scoreRowsByForecast,
+    input,
+    deps,
+  });
+
+  if (correctionGroups.length) {
+    scoreHistory = validateScoreHistory(
+      await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date),
+      registry.byId,
+      input,
+    );
   }
+
   const pending = scoreRows.filter((row) => !hasCurrentActualScore(scoreHistory, row, input));
-  if (!pending.length) return { status: "already_scored", scoresWritten: 0, decisions: [], activation: null, failures };
-  await deps.insertScoresIdempotently(pending);
-  const updatedHistory = (await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date)).map((row) => enrichHistoryRow(row, registry.byId, input.gameName));
-  const built = await buildEvidenceByRegistry(updatedHistory, registry.byId, registry.baseline, input);
-  if (built.reason) return { status: "scored_without_decision", scoresWritten: pending.length, failures, decisions: [], activation: null, reason: built.reason };
-  return { status: "learned", scoresWritten: pending.length, failures, ...(await persistDecisionsAndAuthorizedActivations({ evidence: built.evidence, registryById: registry.byId, input, deps })) };
+  if (pending.length) {
+    await deps.insertScoresIdempotently(pending);
+    scoresWritten += pending.length;
+    scoreHistory = validateScoreHistory(
+      await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date),
+      registry.byId,
+      input,
+    );
+  }
+
+  const normalizationGroups = findNormalizationGroups(
+    scoreHistory,
+    input.draw,
+    input.sourceRevision,
+    input.config,
+  );
+  scoresWritten += await recordCorrectionGroups({
+    groups: normalizationGroups,
+    eventType: "revision-normalization",
+    reason: "late_score_revision_normalization",
+    scoreRowsByForecast,
+    input,
+    deps,
+  });
+
+  if (!scoresWritten) return { status: "already_scored", scoresWritten: 0, decisions: [], activation: null, failures };
+  if (normalizationGroups.length) {
+    scoreHistory = validateScoreHistory(
+      await deps.fetchValidScoreHistory(input.gameName, input.draw.draw_date),
+      registry.byId,
+      input,
+    );
+  }
+  const built = await buildEvidenceByRegistry(scoreHistory, registry.byId, registry.baseline, input);
+  const status = correctionGroups.length ? "corrected" : normalizationGroups.length ? "normalized" : "learned";
+  if (built.reason) return { status: `${status}_without_decision`, scoresWritten, failures, decisions: [], activation: null, reason: built.reason };
+  return { status, scoresWritten, failures, ...(await persistDecisionsAndAuthorizedActivations({ evidence: built.evidence, registryById: registry.byId, input, deps })) };
 }

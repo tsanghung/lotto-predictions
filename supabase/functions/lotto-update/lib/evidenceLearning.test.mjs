@@ -25,6 +25,8 @@ function forecast({
 } = {}) {
   return {
     id,
+    game_name: input.gameName,
+    target_draw_date: input.draw.draw_date,
     registry_id: registryId,
     model_name: modelName,
     model_family: family,
@@ -66,7 +68,7 @@ const baselineState = {
   champion_model: "uniform",
   expert_weights: { uniform: 1 },
   learning_config: { gamma: 0.1 },
-  metrics: { promotion_stage: "baseline" },
+  metrics: { promotion_stage: "baseline", evaluated_draws: 0 },
   last_learned_draw_id: "539-20260804",
   last_learned_draw_date: "2026-08-04",
 };
@@ -78,6 +80,7 @@ function clone(value) {
 function makeEvidenceLearningDeps({
   forecasts = [validUniform, validBayesian],
   activeState = baselineState,
+  loseCorrectionResponses = 0,
   registry = [
     { id: "registry-uniform", game_name: input.gameName, model_name: "uniform", model_family: "uniform-null", status: "baseline" },
     { id: "registry-bayesian", game_name: input.gameName, model_name: "bayesian", model_family: "bayesian-drift", status: "registered" },
@@ -88,10 +91,13 @@ function makeEvidenceLearningDeps({
   const decisions = [];
   const activations = [];
   const failures = [];
-  const db = { scores: [] };
+  const db = { scores: [], correctionEvents: new Map() };
   const historyRow = (row) => ({
     ...clone(row),
     forecast: {
+      id: row.forecast_id,
+      game_name: row.game_name,
+      target_draw_date: row.draw_date,
       registry_id: row.registry_id,
       model_name: row.model_name,
       forecast_mode: row.forecast_mode,
@@ -132,18 +138,28 @@ function makeEvidenceLearningDeps({
     },
     recordFailure: async (failure) => failures.push(clone(failure)),
     recordCorrection: async (correction) => {
+      assert.equal(typeof correction.event_key, "string", "correction RPC requires event_key");
+      assert.ok(correction.event_key.length > 0, "correction RPC requires non-empty event_key");
       assert.ok(correction.invalidated_score_ids.length > 0, "correction RPC requires invalidations");
       assert.equal(correction.invalidated_score_ids.length, correction.replacement_scores.length, "correction RPC requires one replacement per invalidation");
       assert.ok(correction.replacement_scores.every((row) => row.source_revision === correction.corrected_revision && row.supersedes_score_id), "correction RPC requires corrected revision and supersession claim");
+      const existing = db.correctionEvents.get(correction.event_key);
+      if (existing) {
+        assert.deepEqual(correction, existing.payload, "same event_key requires an exact canonical payload replay");
+        return clone(existing.result);
+      }
       corrections.push(clone(correction));
       const invalidated = new Set(correction.invalidated_score_ids);
       db.scores.forEach((row) => {
         if (invalidated.has(row.id)) row.is_valid = false;
       });
       correction.replacement_scores.forEach((row) => {
-        db.scores.push(historyRow({ ...clone(row), id: `score-${row.forecast_id}-${row.source_revision}` }));
+        db.scores.push(historyRow({ ...clone(row), id: `score-${row.forecast_id}-${row.source_revision}-${db.scores.length + 1}` }));
       });
-      return { id: `correction-${corrections.length}` };
+      const result = { id: `correction-${corrections.length}` };
+      db.correctionEvents.set(correction.event_key, { payload: clone(correction), result: clone(result) });
+      if (corrections.length <= loseCorrectionResponses) throw new Error("simulated correction response loss");
+      return result;
     },
   };
   return deps;
@@ -272,6 +288,16 @@ test("malformed durable actual numbers fail closed before correction persistence
   assert.equal(deps.corrections.length, 0);
 });
 
+test("a structurally valid config for the wrong game fails closed", async () => {
+  const deps = makeEvidenceLearningDeps();
+  await assert.rejects(
+    runEvidenceLearning({ ...input, config: { maxNumber: 40, picks: 5 } }, deps),
+    /game config.*does not match/i,
+  );
+  assert.equal(deps.insertedScores.length, 0);
+  assert.equal(deps.decisions.length, 0);
+});
+
 test("durable actual numbers reject non-integers out-of-range values and duplicates", async (context) => {
   const cases = [
     { name: "non-integer", actual: [1, 7, 13, 25, 38.5], pattern: /integers/i },
@@ -322,6 +348,59 @@ test("malformed active model source blocks decision persistence", async () => {
   assert.equal(deps.decisions.length, 0);
 });
 
+test("every valid score history row is identity-checked before a decision", async () => {
+  const deps = makeEvidenceLearningDeps({ forecasts: [validUniform] });
+  await runEvidenceLearning(input, deps);
+  deps.db.scores[0].draw_date = "2026-08-04";
+  deps.fetchV3Forecasts = async () => clone([validUniform, validBayesian]);
+
+  await assert.rejects(runEvidenceLearning(input, deps), /score history.*draw date/i);
+  assert.equal(deps.decisions.length, 0);
+});
+
+test("same draw and revision history requires one canonical actual payload before a decision", async () => {
+  const deps = makeEvidenceLearningDeps();
+  await runEvidenceLearning(input, deps);
+  deps.db.scores[1].metrics.actual_numbers = [2, 8, 14, 26, 38];
+
+  await assert.rejects(runEvidenceLearning(input, deps), /same draw and revision.*canonical actual/i);
+  assert.equal(deps.decisions.length, 1);
+});
+
+test("strict active-state contract rejects malformed metadata before recordDecision", async (context) => {
+  const cases = [
+    ["numeric string version", { state_version: "7" }],
+    ["unknown status", { status: "unknown" }],
+    ["numeric string weight", { expert_weights: { uniform: "1" } }],
+    ["null weight", { expert_weights: { uniform: null } }],
+    ["negative weight", { expert_weights: { uniform: -1, bayesian: 2 } }],
+    ["non-finite weight", { expert_weights: { uniform: Number.NaN } }],
+    ["zero total weight", { expert_weights: { uniform: 0 } }],
+    ["missing champion key", { champion_model: "bayesian", expert_weights: { uniform: 1 } }],
+    ["numeric string metric", { metrics: { promotion_stage: "baseline", evaluated_draws: "0" } }],
+    ["negative metric", { metrics: { promotion_stage: "baseline", evaluated_draws: -1 } }],
+    ["numeric string config", { learning_config: { gamma: "0.1" } }],
+    ["null config", { learning_config: { gamma: null } }],
+  ];
+
+  for (const [name, override] of cases) {
+    await context.test(name, async () => {
+      const deps = makeEvidenceLearningDeps({ activeState: { ...clone(baselineState), ...clone(override) } });
+      await assert.rejects(runEvidenceLearning({ ...input, activationAuthorized: false }, deps), /active state/i);
+      assert.equal(deps.decisions.length, 0);
+    });
+  }
+});
+
+test("a valid active state still reaches the existing gate and recordDecision", async () => {
+  const deps = makeEvidenceLearningDeps({ activeState: clone(baselineState) });
+  const result = await runEvidenceLearning({ ...input, activationAuthorized: false }, deps);
+
+  assert.equal(result.status, "learned");
+  assert.equal(deps.decisions.length, 1);
+  assert.equal(deps.activations.length, 0);
+});
+
 test("a late candidate is scored after the baseline draw score already exists", async () => {
   const deps = makeEvidenceLearningDeps({ forecasts: [validUniform] });
   const baseline = await runEvidenceLearning(input, deps);
@@ -354,6 +433,46 @@ test("correction replaces stale scores and inserts a newly arrived candidate", a
   assert.ok(deps.insertedScores.some((row) => row.forecast_id === "forecast-bayesian"));
 });
 
+test("three-stage corrections normalize late original scores and survive every response-loss retry", async () => {
+  const deps = makeEvidenceLearningDeps({ forecasts: [validUniform], loseCorrectionResponses: 3 });
+  await runEvidenceLearning(input, deps);
+
+  const revision2 = {
+    ...input,
+    draw: { ...input.draw, numbers: [2, 8, 14, 26, 38] },
+    sourceRevision: "official-r2",
+  };
+  await assert.rejects(runEvidenceLearning(revision2, deps), /response loss/i);
+  await runEvidenceLearning(revision2, deps);
+
+  deps.fetchV3Forecasts = async () => clone([validUniform, validBayesian]);
+  await assert.rejects(runEvidenceLearning(revision2, deps), /response loss/i);
+  await runEvidenceLearning(revision2, deps);
+
+  const afterNormalization = deps.db.scores.filter((row) => row.is_valid !== false);
+  assert.equal(afterNormalization.length, 2);
+  assert.deepEqual([...new Set(afterNormalization.map((row) => row.source_revision))], ["official-r2"]);
+
+  const revision3 = {
+    ...input,
+    draw: { ...input.draw, numbers: [3, 9, 15, 27, 37] },
+    sourceRevision: "official-r3",
+  };
+  await assert.rejects(runEvidenceLearning(revision3, deps), /response loss/i);
+  const finalReplay = await runEvidenceLearning(revision3, deps);
+
+  const current = deps.db.scores.filter((row) => row.is_valid !== false);
+  assert.equal(finalReplay.status, "already_scored");
+  assert.equal(current.length, 2);
+  assert.ok(current.every((row) => row.source_revision === "official-r3"));
+  assert.deepEqual(deps.corrections.map((event) => [event.previous_revision, event.corrected_revision]), [
+    ["original", "official-r2"],
+    ["original", "official-r2"],
+    ["official-r2", "official-r3"],
+  ]);
+  assert.equal(new Set(deps.corrections.map((event) => event.event_key)).size, 3);
+});
+
 test("durable worklist merges confirmed draws with missing and stale score work", () => {
   assert.equal(typeof evidenceLearning.buildV3PendingWorklist, "function");
   const draws = [
@@ -368,8 +487,8 @@ test("durable worklist merges confirmed draws with missing and stale score work"
     { id: "forecast-stale", game_name: input.gameName, target_draw_date: "2026-08-03", registry_id: "registry-bayesian" },
   ];
   const scores = [
-    { id: "score-complete", forecast_id: "forecast-complete", draw_id: "draw-complete", game_name: input.gameName, is_valid: true, metrics: { actual_numbers: [1, 7, 13, 25, 39], actual_special_number: null } },
-    { id: "score-stale", forecast_id: "forecast-stale", draw_id: "draw-stale", game_name: input.gameName, is_valid: true, metrics: { actual_numbers: [5, 11, 17, 29, 35], actual_special_number: null } },
+    { id: "score-complete", forecast_id: "forecast-complete", draw_id: "draw-complete", draw_date: "2026-08-01", game_name: input.gameName, is_valid: true, metrics: { actual_numbers: [1, 7, 13, 25, 39], actual_special_number: null } },
+    { id: "score-stale", forecast_id: "forecast-stale", draw_id: "draw-stale", draw_date: "2026-08-03", game_name: input.gameName, is_valid: true, metrics: { actual_numbers: [5, 11, 17, 29, 35], actual_special_number: null } },
   ];
 
   const pending = evidenceLearning.buildV3PendingWorklist({
@@ -381,6 +500,17 @@ test("durable worklist merges confirmed draws with missing and stale score work"
   });
 
   assert.deepEqual(pending.map((draw) => draw.draw_id), ["draw-missing", "draw-stale", "draw-confirmed"]);
+});
+
+test("durable worklist rejects a valid score whose draw date does not match its forecast and draw", () => {
+  const draw = { game_name: input.gameName, draw_id: input.draw.draw_id, draw_date: input.draw.draw_date, numbers: input.draw.numbers, special_number: null };
+  assert.throws(() => evidenceLearning.buildV3PendingWorklist({
+    confirmedDraws: [],
+    draws: [draw],
+    forecasts: [{ id: validUniform.id, game_name: input.gameName, target_draw_date: input.draw.draw_date, registry_id: validUniform.registry_id }],
+    scores: [{ id: "score-wrong-date", forecast_id: validUniform.id, game_name: input.gameName, draw_id: input.draw.draw_id, draw_date: "2026-08-04", is_valid: true, metrics: { actual_numbers: input.draw.numbers, actual_special_number: null } }],
+    configByGame: { [input.gameName]: input.config },
+  }), /score.*draw date/i);
 });
 
 test("a forecast arriving after an empty invocation becomes durable pending work", () => {

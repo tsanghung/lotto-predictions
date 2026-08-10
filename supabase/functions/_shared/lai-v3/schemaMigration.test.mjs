@@ -6,6 +6,10 @@ const migration = new URL(
   "../../../migrations/20260806000000_create_lai_v3_evidence_agent.sql",
   import.meta.url,
 );
+const correctionEventMigration = new URL(
+  "../../../migrations/20260810000000_normalize_lai_v3_correction_events.sql",
+  import.meta.url,
+);
 const trainingMigration = new URL(
   "../../../migrations/20260715170000_activate_lai_training_candidate.sql",
   import.meta.url,
@@ -191,4 +195,41 @@ test("LAI v3 score upsert serializes each game and preserves correction provenan
   assert.match(source, /where public\.lotto_model_scores\.source_revision = 'original'\s+and public\.lotto_model_scores\.supersedes_score_id is null/is);
   assert.match(source, /on conflict \(forecast_id, draw_id\) where is_valid/i);
   assert.match(source, /source_revision = excluded\.source_revision/i);
+});
+
+test("follow-up migration supports immutable keyed correction events without direct service-role writes", async () => {
+  const sql = executableSql(await readFile(correctionEventMigration, "utf8"));
+
+  assert.match(sql, /alter table public\.lai_evidence_corrections[\s\S]*add column if not exists event_key text/i);
+  assert.match(sql, /add column if not exists event_payload jsonb/i);
+  assert.match(sql, /event_key[\s\S]*set not null/i);
+  assert.match(sql, /event_payload[\s\S]*set not null/i);
+  assert.match(sql, /unique \(game_name, draw_id, previous_revision, corrected_revision, event_key\)/i);
+  assert.doesNotMatch(sql, /unique \(game_name, draw_id, corrected_revision\)/i);
+  assert.match(sql, /revoke (?:all|insert, update, delete)[\s\S]*on table public\.lai_evidence_corrections[\s\S]*from service_role/i);
+  assert.match(sql, /grant select on table public\.lai_evidence_corrections to service_role/i);
+  assert.doesNotMatch(sql, /grant all on table public\.lai_evidence_corrections to service_role/i);
+});
+
+test("keyed correction RPC is exact-replay idempotent and keeps each event transactional", async () => {
+  const sql = executableSql(await readFile(correctionEventMigration, "utf8"));
+  const source = functionSource(sql, /create or replace function public\.record_lai_v3_correction\(p_correction jsonb\)/i);
+
+  assert.match(source, /security definer\s+set search_path = pg_catalog, pg_temp/is);
+  assert.match(source, /nullif\(pg_catalog\.btrim\(p_correction->>'event_key'\), ''\) is null/i);
+  assert.match(source, /canonical_event_payload/i);
+  assert.match(source, /previous_revision[\s\S]*corrected_revision[\s\S]*event_key/i);
+  assert.match(source, /correction_row\.event_payload is distinct from canonical_event_payload/i);
+  assert.match(source, /correction event_key replay payload mismatch/i);
+  assert.match(source, /return correction_row/i);
+  assert.ok(
+    source.indexOf("select * into correction_row") < source.indexOf("set is_valid = false"),
+    "exact event replay must be resolved before any score mutation",
+  );
+  assert.match(source, /replacement_scores must match invalidated scores one-for-one/i);
+  assert.match(source, /scores\.source_revision = p_correction->>'previous_revision'/i);
+  assert.match(source, /rows\.score->>'source_revision' is distinct from p_correction->>'corrected_revision'/i);
+  assert.match(source, /insert into public\.lai_evidence_corrections[\s\S]*event_key[\s\S]*event_payload/i);
+  assert.match(sql, /grant execute on function public\.record_lai_v3_correction\(jsonb\) to service_role/i);
+  assert.doesNotMatch(sql, /grant execute[\s\S]*record_lai_v3_correction[\s\S]*to (anon|authenticated)/i);
 });
