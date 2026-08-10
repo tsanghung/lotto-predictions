@@ -70,3 +70,13 @@ test("infeasible utility and overlap constraints fail closed", () => {
     maxOverlap: 0,
   }), /coverage_constraints_infeasible/);
 });
+
+test("optimizer rejects an overlap cap that could collapse two groups into one", () => {
+  assert.throws(() => optimizeEvidenceGroups({
+    probabilities: calibrated539,
+    config: GAME_CONFIG["539"],
+    seed: "collapse-groups",
+    minUtilityRatio: 0.90,
+    maxOverlap: GAME_CONFIG["539"].picks,
+  }), /maxOverlap/);
+});

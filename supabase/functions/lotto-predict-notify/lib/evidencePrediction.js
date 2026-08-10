@@ -135,7 +135,7 @@ function assertCompleteInput(input, config) {
   }
   if (
     !names.has(approvedState.champion_model)
-    || weightEntries.some(([name, weight]) => weight > 0 && !names.has(name))
+    || weightEntries.some(([name]) => !names.has(name))
   ) {
     rejectIncompleteState();
   }
@@ -219,13 +219,18 @@ export async function generateEvidencePrediction(input = {}) {
     draws,
   } = input;
 
-  const approvedForecasts = buildEvidenceForecasts({
-    gameType,
-    draws,
-    generatedAt,
-    registrations: approvedRegistrations,
-    mode: "shadow",
-  });
+  let approvedForecasts;
+  try {
+    approvedForecasts = buildEvidenceForecasts({
+      gameType,
+      draws,
+      generatedAt,
+      registrations: approvedRegistrations,
+      mode: "production",
+    });
+  } catch {
+    rejectIncompleteState();
+  }
   if (
     approvedForecasts.length !== approvedRegistrations.length
     || approvedForecasts.some((forecast) => forecast.status !== "completed")

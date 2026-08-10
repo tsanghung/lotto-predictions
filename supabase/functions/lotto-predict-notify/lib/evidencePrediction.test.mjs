@@ -50,7 +50,7 @@ function approvedInput(gameType = "539") {
     code_commit: CODE_COMMIT,
     status: "baseline",
   };
-  const championRegistration = {
+  const shadowRegistration = {
     id: `bayes-${gameType}`,
     game_name: gameName,
     model_name: "bayesian-drift",
@@ -64,7 +64,7 @@ function approvedInput(gameType = "539") {
       service_role_key: "must-not-leak",
     },
     code_commit: CODE_COMMIT,
-    status: "champion",
+    status: "registered",
   };
   return {
     gameType,
@@ -75,11 +75,11 @@ function approvedInput(gameType = "539") {
     approvedState: {
       game_name: gameName,
       state_version: 1,
-      status: "champion",
-      champion_model: "bayesian-drift",
-      expert_weights: { "uniform-null": 0.25, "bayesian-drift": 0.75 },
+      status: "baseline",
+      champion_model: "uniform-null",
+      expert_weights: { "uniform-null": 1 },
       metrics: {
-        promotion_stage: "champion",
+        promotion_stage: "baseline",
         evaluated_draws: 120,
         sample_counts: {
           evaluated_draws: 120,
@@ -90,8 +90,8 @@ function approvedInput(gameType = "539") {
         decision_reason: "all evidence gates passed",
       },
     },
-    approvedRegistrations: [uniformRegistration, championRegistration],
-    shadowRegistrations: [{
+    approvedRegistrations: [uniformRegistration],
+    shadowRegistrations: [shadowRegistration, {
       id: `transition-${gameType}`,
       game_name: gameName,
       model_name: "transition-regularized",
@@ -122,7 +122,7 @@ test("v3 record contains exactly two approved groups and a replayable safe snaps
     Object.keys(result.record.prediction.combinations),
     ["證據主攻", "覆蓋保底"],
   );
-  assert.equal(result.record.prediction.evidence.promotion_stage, "champion");
+  assert.equal(result.record.prediction.evidence.promotion_stage, "baseline");
   assert.equal(result.evidenceSnapshot.replay_digest, replayDigest(result.evidenceSnapshot));
   assert.match(result.evidenceSnapshot.replay_digest, /^[0-9a-f]{64}$/);
   assert.equal(result.evidenceSnapshot.data_cutoff, "2026-04-30");
@@ -132,13 +132,13 @@ test("v3 record contains exactly two approved groups and a replayable safe snaps
   assert.equal(result.evidenceSnapshot.groups.optimizer_config.max_number, 39);
   assert.equal(result.evidenceSnapshot.groups.optimizer_config.picks, 5);
   assert.equal(result.evidenceSnapshot.groups.state.state_version, 1);
-  assert.equal(result.evidenceSnapshot.groups.registry_versions.length, 2);
+  assert.equal(result.evidenceSnapshot.groups.registry_versions.length, 1);
   assert.equal(JSON.stringify(result.evidenceSnapshot).includes("must-not-leak"), false);
   assert.equal(JSON.stringify(result.evidenceSnapshot).includes("metric-private-payload"), false);
 
-  input.approvedState.expert_weights["bayesian-drift"] = 0;
-  input.approvedRegistrations[1].parameters.halfLifeDraws = 1;
-  assert.equal(result.evidenceSnapshot.groups.state.expert_weights["bayesian-drift"], 0.75);
+  input.approvedState.expert_weights["uniform-null"] = 0;
+  input.shadowRegistrations[0].parameters.halfLifeDraws = 1;
+  assert.equal(result.evidenceSnapshot.groups.state.expert_weights["uniform-null"], 1);
   assert.equal(JSON.stringify(result.evidenceSnapshot).includes("halfLifeDraws"), false);
 });
 
@@ -146,9 +146,10 @@ test("stale incomplete and unapproved state variants fail closed", async () => {
   const cases = [
     ["stale data", (input) => { input.dataStatus = "stale"; }],
     ["missing metrics", (input) => { input.approvedState.metrics = {}; }],
-    ["unapproved registry", (input) => { input.approvedRegistrations[1].status = "registered"; }],
+    ["unapproved registry", (input) => { input.approvedRegistrations[0].status = "registered"; }],
     ["unknown weighted member", (input) => { input.approvedState.expert_weights.unknown = 0.1; }],
-    ["commit mismatch", (input) => { input.approvedRegistrations[1].code_commit = "abcdef0"; }],
+    ["unknown zero-weight member", (input) => { input.approvedState.expert_weights.unknown = 0; }],
+    ["commit mismatch", (input) => { input.approvedRegistrations[0].code_commit = "abcdef0"; }],
   ];
 
   for (const [label, mutate] of cases) {
@@ -160,6 +161,27 @@ test("stale incomplete and unapproved state variants fail closed", async () => {
       label,
     );
   }
+});
+
+test("shadow-only models cannot be relabeled as formal approved members", async () => {
+  const input = approvedInput();
+  const shadowOnly = {
+    ...input.shadowRegistrations[0],
+    status: "champion",
+  };
+  input.approvedRegistrations.push(shadowOnly);
+  input.approvedState = {
+    ...input.approvedState,
+    status: "champion",
+    champion_model: shadowOnly.model_name,
+    expert_weights: { "uniform-null": 0.25, [shadowOnly.model_name]: 0.75 },
+    metrics: { ...input.approvedState.metrics, promotion_stage: "champion" },
+  };
+
+  await assert.rejects(
+    () => generateEvidencePrediction(input),
+    /no_complete_approved_state/,
+  );
 });
 
 test("all games emit exactly two legal deterministic evidence groups", async () => {

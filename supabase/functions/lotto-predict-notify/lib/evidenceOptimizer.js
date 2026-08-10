@@ -24,8 +24,8 @@ function validateInput({ probabilities, config, seed, minUtilityRatio, maxOverla
   if (!Number.isFinite(minUtilityRatio) || minUtilityRatio < 0 || minUtilityRatio > 1) {
     throw new RangeError("minUtilityRatio must be within [0, 1]");
   }
-  if (!Number.isInteger(maxOverlap) || maxOverlap < 0 || maxOverlap > config.picks) {
-    throw new RangeError("maxOverlap must be an integer within the group size");
+  if (!Number.isInteger(maxOverlap) || maxOverlap < 0 || maxOverlap >= config.picks) {
+    throw new RangeError("maxOverlap must be an integer below the group size");
   }
 }
 

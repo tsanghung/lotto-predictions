@@ -62,3 +62,8 @@ The feasible constraint test now scales the descending vector to a total of 5 be
 - Task 9 still owns runtime flags, Supabase repository writes, scheduler behavior, production fallback, dry-run boundaries, and LINE delivery. This task intentionally does not exercise those integration paths.
 - Six existing slow statistical tests remain skipped by their declared test configuration.
 - No production deployment, Supabase migration or database write, scheduler invocation, frontend change, LINE send, Gemini selection change, or activation-policy change was performed.
+
+## Manual Review Fixes
+
+- A blocked independent-review round was completed manually after the reviewer exhausted its platform usage limit. The manual review found and fixed three contract violations: a shadow-only model could be relabeled as a formal approved member, unknown zero-weight state keys were accepted, and the public optimizer accepted an overlap cap that could collapse both groups into one.
+- Regression tests now prove each case fails closed. The formal forecast builder uses the shared `mode: "production"` guard, all weight identities must be registered, and `maxOverlap` is strictly below the group size.
