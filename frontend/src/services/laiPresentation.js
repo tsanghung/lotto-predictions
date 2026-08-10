@@ -1,4 +1,7 @@
-const GROUP_LABELS = ['機率主攻', '覆蓋探索']
+const LAI_GROUP_LABELS = {
+  'lai-v2': ['機率主攻', '覆蓋探索'],
+  'lai-v3': ['證據主攻', '覆蓋保底']
+}
 
 const STATUS_LABELS = {
   baseline: 'Baseline',
@@ -6,10 +9,17 @@ const STATUS_LABELS = {
   degraded: 'Degraded'
 }
 
+const PROMOTION_STAGES = new Set(['baseline', 'canary', 'champion'])
+const SHADOW_LIMITATION = 'LAI v3 僅作 shadow 驗證，尚未取得正式預測或通知資格。'
+
 const GAME_LIMITS = {
   '今彩539': { max: 39, picks: 5 },
   '大樂透': { max: 49, picks: 6 },
   '威力彩': { max: 38, picks: 6, specialMax: 8, specialPicks: 1 }
+}
+
+function isPlainObject(value) {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
 function copyNumberList(value, max = Number.POSITIVE_INFINITY, picks = Number.POSITIVE_INFINITY) {
@@ -20,13 +30,35 @@ function copyNumberList(value, max = Number.POSITIVE_INFINITY, picks = Number.PO
 }
 
 function copyExpertWeights(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  if (!isPlainObject(value)) return {}
 
   return Object.fromEntries(
     Object.entries(value)
       .filter(([name, weight]) => name && Number.isFinite(weight) && weight >= 0 && weight <= 1)
       .map(([name, weight]) => [name, weight])
   )
+}
+
+function copyPublicText(value) {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  return text ? text.slice(0, 500) : null
+}
+
+function copyNonnegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0 ? value : null
+}
+
+function copyPromotionStage(value) {
+  return PROMOTION_STAGES.has(value) ? value : null
+}
+
+function copyBrierInterval(value) {
+  if (!isPlainObject(value)) return { lower95: null, upper95: null }
+  return {
+    lower95: Number.isFinite(value.lower95) ? value.lower95 : null,
+    upper95: Number.isFinite(value.upper95) ? value.upper95 : null
+  }
 }
 
 function fallbackGroupMetrics(groups) {
@@ -41,23 +73,45 @@ function fallbackGroupMetrics(groups) {
 }
 
 export function isLaiPredictionRecord(record) {
-  return Boolean(record?.prediction && typeof record.prediction === 'object' && record.prediction.model === 'lai-v2')
+  const model = record?.prediction?.model
+  return Boolean(record?.prediction && typeof record.prediction === 'object' && Object.hasOwn(LAI_GROUP_LABELS, model))
+}
+
+export function toModelEvidenceView(record) {
+  if (record?.prediction?.model !== 'lai-v3') return null
+
+  const evidence = isPlainObject(record.prediction.evidence) ? record.prediction.evidence : {}
+  const sampleCounts = isPlainObject(evidence.sample_counts) ? evidence.sample_counts : {}
+  const interval = copyBrierInterval(evidence.brier_ci)
+
+  return {
+    champion: copyPublicText(evidence.champion_model),
+    promotionStage: copyPromotionStage(evidence.promotion_stage),
+    shadowSamples: copyNonnegativeInteger(evidence.shadow_live_draws)
+      ?? copyNonnegativeInteger(sampleCounts.shadow_draws),
+    brierSkill: Number.isFinite(evidence.brier_skill) ? evidence.brier_skill : null,
+    ciLower95: interval.lower95,
+    ciUpper95: interval.upper95,
+    decisionReason: copyPublicText(evidence.decision_reason) || copyPublicText(evidence.latest_decision_reason),
+    provenAboveRandom: evidence.proven_above_random === true,
+    limitation: copyPublicText(evidence.limitation) || SHADOW_LIMITATION
+  }
 }
 
 export function toLaiViewModel(record) {
   if (!isLaiPredictionRecord(record)) {
     return null
   }
-  const prediction = record.prediction
-  const limits = GAME_LIMITS[record.game_name] || {}
 
-  const combinations = prediction.combinations && typeof prediction.combinations === 'object'
-    ? prediction.combinations
-    : {}
-  const specialCombinations = prediction.special_combinations && typeof prediction.special_combinations === 'object'
+  const prediction = record.prediction
+  const model = prediction.model
+  const limits = GAME_LIMITS[record.game_name] || {}
+  const groupLabels = LAI_GROUP_LABELS[model]
+  const combinations = isPlainObject(prediction.combinations) ? prediction.combinations : {}
+  const specialCombinations = isPlainObject(prediction.special_combinations)
     ? prediction.special_combinations
     : {}
-  const groups = GROUP_LABELS.map((label) => ({
+  const groups = groupLabels.map((label) => ({
     label,
     numbers: copyNumberList(combinations[label], limits.max, limits.picks),
     special: copyNumberList(specialCombinations[label], limits.specialMax, limits.specialPicks)
@@ -65,7 +119,9 @@ export function toLaiViewModel(record) {
   const fallbackMetrics = fallbackGroupMetrics(groups)
 
   return {
-    version: 'LAI v2',
+    model,
+    version: model === 'lai-v3' ? 'LAI v3' : 'LAI v2',
+    isEvidenceModel: model === 'lai-v3',
     status: STATUS_LABELS[prediction.agent_status] || 'Degraded',
     statusCode: Object.hasOwn(STATUS_LABELS, prediction.agent_status)
       ? prediction.agent_status
@@ -80,13 +136,14 @@ export function toLaiViewModel(record) {
     groups,
     overlapCount: fallbackMetrics.overlapCount,
     unionSize: fallbackMetrics.unionSize,
-    expertWeights: copyExpertWeights(prediction.expert_weights)
+    expertWeights: copyExpertWeights(prediction.expert_weights),
+    evidence: toModelEvidenceView(record)
   }
 }
 
 export function toLaiLearningView(record) {
   const report = record?.raw_learning_report?.lai || record?.evaluation?.learning_report?.lai
-  if (!report || typeof report !== 'object' || Array.isArray(report)) return null
+  if (!isPlainObject(report)) return null
 
   const weightChanges = Array.isArray(report.weight_changes)
     ? report.weight_changes
@@ -101,9 +158,7 @@ export function toLaiLearningView(record) {
         delta: Number((row.after - row.before).toFixed(12))
       }))
     : []
-  const coverage = report.coverage && typeof report.coverage === 'object'
-    ? report.coverage
-    : {}
+  const coverage = isPlainObject(report.coverage) ? report.coverage : {}
 
   return {
     drawDate: record.target_draw_date || record.draw_date || null,
@@ -131,9 +186,14 @@ export function toLaiLearningView(record) {
 
 export function toLaiPerformanceView(gamePerformance) {
   const lai = gamePerformance?.lai
-  if (!lai || typeof lai !== 'object' || Array.isArray(lai)) return null
+  if (!isPlainObject(lai)) return null
+  const interval = copyBrierInterval(lai.brier_ci)
+  const sampleCounts = isPlainObject(lai.sample_counts) ? lai.sample_counts : {}
+
   return {
     brierSkillScore: Number.isFinite(lai.brier_skill_score) ? lai.brier_skill_score : null,
+    brierCiLower95: interval.lower95,
+    brierCiUpper95: interval.upper95,
     unionCoverageRate: Number.isFinite(lai.union_coverage_rate) &&
       lai.union_coverage_rate >= 0 && lai.union_coverage_rate <= 1
       ? lai.union_coverage_rate
@@ -144,8 +204,11 @@ export function toLaiPerformanceView(gamePerformance) {
     averageGroupBHits: Number.isFinite(lai.average_group_b_hits) && lai.average_group_b_hits >= 0
       ? lai.average_group_b_hits
       : null,
-    championModel: typeof lai.champion_model === 'string' ? lai.champion_model : null,
-    agentStatus: typeof lai.agent_status === 'string' ? lai.agent_status : null,
+    championModel: copyPublicText(lai.champion_model),
+    agentStatus: copyPublicText(lai.agent_status),
+    promotionStage: copyPromotionStage(lai.promotion_stage),
+    shadowSamples: copyNonnegativeInteger(lai.shadow_live_draws)
+      ?? copyNonnegativeInteger(sampleCounts.shadow_draws),
     limitation: 'Brier Skill Score 大於 0 代表此評估區間優於均勻隨機基準；不代表保證中獎。'
   }
 }

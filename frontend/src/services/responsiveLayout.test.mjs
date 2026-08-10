@@ -19,3 +19,11 @@ test('heatmap cells shrink without widening the mobile viewport', async () => {
   assert.match(intervalSource, /\.interval-cell\s*\{[^}]*min-width:\s*0/s)
   assert.match(intervalSource, /@media\s*\(max-width:\s*640px\)[\s\S]*\.interval-number[\s\S]*font-size:\s*16px/)
 })
+
+test('model evidence panel has a mobile single-column rule', async () => {
+  const source = await readFile(new URL('../components/ModelEvidencePanel.vue', import.meta.url), 'utf8')
+
+  assert.match(source, /@media\s*\(max-width:\s*720px\)/)
+  assert.match(source, /grid-template-columns:\s*1fr/)
+  assert.match(source, /overflow-wrap:\s*anywhere/)
+})

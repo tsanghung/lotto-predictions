@@ -53,6 +53,16 @@ const laiPerformance = computed(() => toLaiPerformanceView(gamePerf.value))
 const formatRate = (rate) => `${((Number(rate) || 0) * 100).toFixed(1)}%`
 const formatScore = (score) => Number.isFinite(score) ? Number(score).toFixed(4) : '資料不足'
 const formatAverage = (value) => Number.isFinite(value) ? Number(value).toFixed(2) : '資料不足'
+const formatInterval = (lower, upper) => (
+  Number.isFinite(lower) && Number.isFinite(upper)
+    ? `[${Number(lower).toFixed(4)}, ${Number(upper).toFixed(4)}]`
+    : '資料不足'
+)
+const formatPromotionStage = (stage) => ({
+  baseline: 'Baseline',
+  canary: 'Canary',
+  champion: 'Champion'
+}[stage] || '資料不足')
 
 // 共用的 Chart.js 設定
 const commonOptions = {
@@ -220,6 +230,14 @@ const hitMissChartData = computed(() => {
           <dd class="mt-1 font-mono text-xl font-black text-slate-200">{{ formatAverage(laiPerformance.averageGroupBHits) }}</dd>
         </div>
       </dl>
+      <p v-if="laiPerformance.brierCiLower95 != null && laiPerformance.brierCiUpper95 != null" class="mt-3 text-xs leading-5 text-cyan-100/75">
+        Brier Skill 95% CI：{{ formatInterval(laiPerformance.brierCiLower95, laiPerformance.brierCiUpper95) }}
+      </p>
+      <p v-if="laiPerformance.promotionStage || laiPerformance.shadowSamples != null" class="mt-2 text-xs leading-5 text-slate-400">
+        <span v-if="laiPerformance.promotionStage">驗證階段：{{ formatPromotionStage(laiPerformance.promotionStage) }}</span>
+        <span v-if="laiPerformance.promotionStage && laiPerformance.shadowSamples != null">；</span>
+        <span v-if="laiPerformance.shadowSamples != null">Shadow 樣本：{{ laiPerformance.shadowSamples }} 期</span>
+      </p>
       <p class="mt-3 text-xs leading-5 text-slate-500">{{ laiPerformance.limitation }}</p>
     </section>
 

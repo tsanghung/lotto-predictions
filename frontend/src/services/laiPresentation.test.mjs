@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 
 import {
   isLaiPredictionRecord,
+  toModelEvidenceView,
   toLaiLearningView,
   toLaiPerformanceView,
   toLaiViewModel
@@ -32,6 +33,27 @@ const LAI_PREDICTION = {
   }
 }
 
+const V3_PREDICTION = {
+  model: 'lai-v3',
+  agent_status: 'baseline',
+  agent_state_version: 12,
+  combinations: {
+    '證據主攻': [1, 7, 13, 25, 39],
+    '覆蓋保底': [2, 8, 14, 26, 38]
+  },
+  evidence: {
+    champion_model: 'uniform-null',
+    promotion_stage: 'baseline',
+    sample_counts: { shadow_draws: 18, evaluated_draws: 120 },
+    brier_skill: -0.012,
+    brier_ci: { lower95: -0.031, upper95: 0.008 },
+    decision_reason: 'confidence_interval_crosses_zero',
+    proven_above_random: false,
+    limitation: '尚無證據優於隨機基準，僅供 shadow 驗證。',
+    private_parameters: { service_role_key: 'must-not-leak' }
+  }
+}
+
 function mappedRecord(overrides = {}) {
   return {
     source_key: '今彩539:2026-07-15',
@@ -39,6 +61,17 @@ function mappedRecord(overrides = {}) {
     target_draw_date: '2026-07-15',
     game_name: '今彩539',
     prediction: LAI_PREDICTION,
+    ...overrides
+  }
+}
+
+function mappedV3Record(overrides = {}) {
+  return {
+    source_key: '今彩539:2026-08-07',
+    timestamp: '2026-08-07T02:00:00.000Z',
+    target_draw_date: '2026-08-07',
+    game_name: '今彩539',
+    prediction: V3_PREDICTION,
     ...overrides
   }
 }
@@ -71,8 +104,48 @@ test('returns null for null, invalid, and non-LAI records', () => {
 
 test('identifies LAI records without requiring legacy insight fields', () => {
   assert.equal(isLaiPredictionRecord(mappedRecord()), true)
+  assert.equal(isLaiPredictionRecord(mappedV3Record()), true)
   assert.equal(isLaiPredictionRecord({ prediction: { model: 'game-theory-v1' } }), false)
   assert.equal(isLaiPredictionRecord(null), false)
+})
+
+test('maps only stored LAI v3 public evidence and two evidence groups', () => {
+  const view = toLaiViewModel(mappedV3Record())
+  const evidence = toModelEvidenceView(mappedV3Record())
+
+  assert.equal(view.version, 'LAI v3')
+  assert.deepEqual(view.groups.map((group) => group.label), ['證據主攻', '覆蓋保底'])
+  assert.deepEqual(view.groups[0].numbers, [1, 7, 13, 25, 39])
+  assert.deepEqual(evidence, {
+    champion: 'uniform-null',
+    promotionStage: 'baseline',
+    shadowSamples: 18,
+    brierSkill: -0.012,
+    ciLower95: -0.031,
+    ciUpper95: 0.008,
+    decisionReason: 'confidence_interval_crosses_zero',
+    provenAboveRandom: false,
+    limitation: '尚無證據優於隨機基準，僅供 shadow 驗證。'
+  })
+  assert.equal(JSON.stringify(evidence).includes('must-not-leak'), false)
+})
+
+test('keeps unavailable LAI v3 confidence evidence unavailable without inventing a claim', () => {
+  const record = mappedV3Record({
+    prediction: {
+      ...V3_PREDICTION,
+      evidence: {
+        ...V3_PREDICTION.evidence,
+        brier_ci: undefined,
+        proven_above_random: undefined
+      }
+    }
+  })
+  const evidence = toModelEvidenceView(record)
+
+  assert.equal(evidence.ciLower95, null)
+  assert.equal(evidence.ciUpper95, null)
+  assert.equal(evidence.provenAboveRandom, false)
 })
 
 test('uses degraded and safe empty fallbacks when optional LAI fields are missing', () => {
@@ -187,16 +260,23 @@ test('maps LAI performance metrics and preserves unavailable values as null', ()
   const view = toLaiPerformanceView({
     lai: {
       brier_skill_score: 0.03,
+      brier_ci: { lower95: -0.01, upper95: 0.07 },
       union_coverage_rate: 0.4,
       average_group_a_hits: 1.2,
       average_group_b_hits: 1.1,
       champion_model: 'hazard',
-      agent_status: 'champion'
+      agent_status: 'champion',
+      promotion_stage: 'baseline',
+      sample_counts: { shadow_draws: 18 }
     }
   })
   assert.equal(view.brierSkillScore, 0.03)
+  assert.equal(view.brierCiLower95, -0.01)
+  assert.equal(view.brierCiUpper95, 0.07)
   assert.equal(view.unionCoverageRate, 0.4)
   assert.equal(view.championModel, 'hazard')
+  assert.equal(view.promotionStage, 'baseline')
+  assert.equal(view.shadowSamples, 18)
   assert.match(view.limitation, /不代表保證中獎/)
 })
 

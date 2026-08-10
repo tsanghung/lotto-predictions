@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { toLaiViewModel } from '../services/laiPresentation.js'
+import ModelEvidencePanel from './ModelEvidencePanel.vue'
 
 const props = defineProps({
   record: { type: Object, required: true },
@@ -15,17 +16,21 @@ const numberLabel = (number) => String(number).padStart(2, '0')
 </script>
 
 <template>
-  <section v-if="view" class="lai" :style="{ '--accent': accent }" aria-label="LAI v2 智能體">
+  <section v-if="view" class="lai" :style="{ '--accent': accent }" :aria-label="`${view.version} 智能體`">
     <header class="lai__header">
-      <div><p class="lai__eyebrow">Adaptive prediction</p><h2>LAI v2 智能體</h2></div>
-      <span class="lai__status" :data-status="view.statusCode">狀態：{{ view.status }}</span>
+      <div>
+        <p class="lai__eyebrow">{{ view.isEvidenceModel ? 'Evidence shadow' : 'Adaptive prediction' }}</p>
+        <h2>{{ view.version }} 智能體</h2>
+        <p v-if="view.isEvidenceModel" class="lai__shadow-note">此組資料只用於 shadow 驗證，不是正式推薦，也不會觸發 LINE 通知。</p>
+      </div>
+      <span class="lai__status" :data-status="view.statusCode">{{ view.isEvidenceModel ? 'Shadow 驗證' : `狀態：${view.status}` }}</span>
     </header>
     <dl class="lai__meta" aria-label="智能體執行狀態">
       <div><dt>狀態版本</dt><dd>{{ view.stateVersion ?? '尚未建立' }}</dd></div>
       <div><dt>最近學習</dt><dd>{{ view.lastLearnedDate || '尚無紀錄' }}</dd></div>
       <div><dt>隨機基準驗證</dt><dd>{{ view.provenAboveRandom ? '已通過門檻' : '尚未證明優於隨機' }}</dd></div>
     </dl>
-    <div class="lai__groups" aria-label="LAI 推薦組合">
+    <div class="lai__groups" :aria-label="view.isEvidenceModel ? 'LAI v3 shadow 候選組合' : 'LAI 推薦組合'">
       <section v-for="group in view.groups" :key="group.label" class="lai__group">
         <h3>{{ group.label }}</h3>
         <p v-if="!group.numbers.length" class="lai__empty">尚無可顯示號碼</p>
@@ -44,7 +49,8 @@ const numberLabel = (number) => String(number).padStart(2, '0')
       <div><dt>聯集覆蓋</dt><dd>{{ view.unionSize }} 個號碼</dd></div>
       <div><dt>兩組重疊</dt><dd>{{ view.overlapCount }} 個號碼</dd></div>
     </dl>
-    <section class="lai__experts">
+    <ModelEvidencePanel v-if="view.isEvidenceModel" :record="record" />
+    <section v-else class="lai__experts">
       <h3>專家模型權重</h3>
       <p v-if="!experts.length" class="lai__empty">尚無權重資料</p>
       <ul v-else>
@@ -64,6 +70,7 @@ const numberLabel = (number) => String(number).padStart(2, '0')
 .lai h2, .lai h3, .lai p, .lai dl, .lai dd { margin: 0; }
 .lai__header { display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
 .lai__eyebrow { margin-bottom: 4px !important; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; }
+.lai__shadow-note { max-width: 560px; margin-top: 8px !important; color: #fbbf24; font-size: 13px; line-height: 1.6; }
 .lai h2 { font-size: 20px; line-height: 1.35; }
 .lai h3 { font-size: 15px; line-height: 1.4; }
 .lai__status { flex: none; padding: 5px 9px; color: #cbd5e1; font-size: 13px; font-weight: 700; background: rgba(148,163,184,.1); border: 1px solid rgba(148,163,184,.24); border-radius: 6px; }

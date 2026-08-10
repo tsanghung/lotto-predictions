@@ -87,7 +87,7 @@ const sortedInsights = computed(() => {
   <div style="display:flex;flex-direction:column;gap:20px;">
 
     <LaiAgentPanel
-      v-if="latestPrediction?.prediction?.model === 'lai-v2'"
+      v-if="isLaiPredictionRecord(latestPrediction)"
       :record="latestPrediction"
       :accent="accent"
     />
